@@ -20,10 +20,21 @@ use regex::Regex;
 
 /// Substrings that mark a line as "definitely fine" (not a UI string).
 const ALLOWLIST_PATTERNS: &[&str] = &[
-    "aria-", "data-testid", "data-icon", "key=", "className=",
-    "throw new Error", "import.meta", "process.env",
-    "localStorage", "URL.createObjectURL", "navigator.",
-    "DEBUG:", "INFO:", "WARN:", "ERROR:",
+    "aria-",
+    "data-testid",
+    "data-icon",
+    "key=",
+    "className=",
+    "throw new Error",
+    "import.meta",
+    "process.env",
+    "localStorage",
+    "URL.createObjectURL",
+    "navigator.",
+    "DEBUG:",
+    "INFO:",
+    "WARN:",
+    "ERROR:",
 ];
 
 /// Regex that detects a "looks like English text" string in JSX/TSX.

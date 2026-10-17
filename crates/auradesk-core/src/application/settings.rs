@@ -15,6 +15,7 @@ pub struct SettingsService<'a> {
 }
 
 impl<'a> SettingsService<'a> {
+    /// Build a settings service bound to the given database.
     pub fn new(db: &'a Db) -> Self {
         Self { db }
     }

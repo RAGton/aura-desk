@@ -11,10 +11,14 @@
 **/.next
 **/.turbo
 
-# Tauri
+# Tauri (default project layout)
 /src-tauri/target
 /src-tauri/gen
 /src-tauri/WixTools
+
+# Tauri (our mono-repo layout: crates/auradesk)
+/crates/auradesk/gen
+/crates/auradesk/target
 
 # TypeScript incremental build info
 *.tsbuildinfo

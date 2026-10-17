@@ -44,7 +44,9 @@ impl Db {
         // Migrations.
         Self::run_migrations(&conn)?;
 
-        Ok(Self { writer: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            writer: Arc::new(Mutex::new(conn)),
+        })
     }
 
     /// In-memory database (for tests). Same PRAGMAs + migrations.
@@ -58,7 +60,9 @@ impl Db {
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| CoreError::internal(format!("PRAGMA synchronous: {e}")))?;
         Self::run_migrations(&conn)?;
-        Ok(Self { writer: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            writer: Arc::new(Mutex::new(conn)),
+        })
     }
 
     /// Acquire the writer connection. Callers must release the lock
@@ -76,10 +80,16 @@ impl Db {
     }
 }
 
+/// Database-layer error. Wrapped into `CoreError::Internal` by the
+/// `From<DbError> for CoreError` impl below; surfaced to callers as
+/// `CoreError`. Kept separate so low-level rusqlite/migration details
+/// can be matched on without leaking through the public API.
 #[derive(Debug, Error)]
 pub enum DbError {
+    /// Wraps any `rusqlite::Error` raised by the underlying connection.
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    /// A refinery migration step failed; the message describes the step.
     #[error("migration: {0}")]
     Migrate(String),
 }

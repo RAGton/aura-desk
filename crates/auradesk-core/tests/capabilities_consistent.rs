@@ -6,12 +6,16 @@
 //!
 //! Run with: cargo test -p auradesk-core --test capabilities_consistent
 
-use auradesk_core::capabilities;
+use auradesk_core::capabilities::capabilities;
 
 #[test]
 fn registry_is_empty_in_phase_0() {
     let caps = capabilities();
-    assert!(caps.is_empty(), "Phase 0 registry must be empty; got {} entries", caps.len());
+    assert!(
+        caps.is_empty(),
+        "Phase 0 registry must be empty; got {} entries",
+        caps.len()
+    );
 }
 
 #[test]
@@ -20,7 +24,11 @@ fn registry_names_are_alphabetically_sorted() {
     let names: Vec<&str> = caps.iter().map(|c| c.name).collect();
     let mut sorted = names.clone();
     sorted.sort_unstable();
-    assert_eq!(names, sorted, "capability names must be alphabetical; got {:?}", names);
+    assert_eq!(
+        names, sorted,
+        "capability names must be alphabetical; got {:?}",
+        names
+    );
 }
 
 #[test]

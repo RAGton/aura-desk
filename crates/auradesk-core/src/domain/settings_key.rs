@@ -11,22 +11,39 @@ use serde::{Deserialize, Serialize};
 /// All settings keys, matching the 17 defaults seeded by V001.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SettingsKey {
+    /// Running app version (string, e.g. "0.1.0").
     AppVersion,
+    /// UI theme preference ("light" | "dark" | "system").
     AppTheme,
+    /// Active UI locale code (e.g. "pt-BR", "en").
     AppLocale,
+    /// Dashboard auto-refresh interval in seconds.
     DashboardRefreshSec,
+    /// Preferred external monitor name for full-screen dashboard.
     MonitorPreferred,
+    /// What to do when `MonitorPreferred` is disconnected.
     MonitorFallbackStrategy,
+    /// Whether reminder sound effects are enabled.
     RemindersSound,
+    /// Until when reminders are snoozed (ISO-8601 string or null).
     RemindersPausedUntil,
+    /// Focus phase duration in minutes.
     PomodoroFocusMin,
+    /// Short break duration in minutes.
     PomodoroShortMin,
+    /// Long break duration in minutes.
     PomodoroLongMin,
+    /// Number of focus phases before a long break.
     PomodoroCyclesToLong,
+    /// Local time of the daily planning routine (e.g. "07:50").
     RoutineDailyPlanningTime,
+    /// Hydration reminder interval in minutes.
     RoutineWaterIntervalMin,
+    /// Break reminder interval in minutes.
     RoutineBreakIntervalMin,
+    /// Maximum number of alerts kept in the queue.
     AlertsMaxQueueSize,
+    /// Time-to-live for pending IA proposals in hours.
     ProposalsTtlHours,
 }
 
@@ -56,6 +73,12 @@ impl SettingsKey {
     }
 
     /// Parse from the string form. Returns `None` for unknown keys.
+    ///
+    /// Not named `from_str` via `FromStr` because the public surface
+    /// returns `Option<Self>` (not `Result<Self, _>`). The signature is
+    /// preserved intentionally; `#[allow(clippy::should_implement_trait)]`
+    /// documents the deliberate non-conformance.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         Some(match s {
             "app.version" => Self::AppVersion,

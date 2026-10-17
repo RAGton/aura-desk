@@ -4,8 +4,8 @@
 
 pub mod error;
 pub use error::CoreError;
-pub mod domain;
 pub mod application;
-pub mod infrastructure;
 pub mod capabilities;
+pub mod domain;
 pub mod i18n;
+pub mod infrastructure;

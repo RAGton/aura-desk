@@ -15,4 +15,4 @@ tauri-build = "2"
 
 [dependencies]
 auradesk-core = { path = "../auradesk-core" }
-tauri = "2"
+tauri = { version = "2", features = ["tray-icon"] }
