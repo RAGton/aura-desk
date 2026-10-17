@@ -1,0 +1,11 @@
+[package]
+name = "auradesk-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "auradesk-mcp"
+path = "src/main.rs"
+
+[dependencies]
+auradesk-core = { path = "../auradesk-core" }
