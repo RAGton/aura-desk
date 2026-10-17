@@ -1,3 +1,11 @@
+//! Tauri entry point. Phase 0 T5: opens a window titled "AuraDesk" with
+//! a system tray, and applies close-to-tray behavior (closing the
+//! window hides it; the process keeps running until explicit Quit).
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 fn main() {
-    println!("auradesk (Tauri 2 binary) — placeholder; real entry point in T5.");
+    auradesk::runtime::build()
+        .run(tauri::generate_context!())
+        .expect("error while running AuraDesk");
 }
