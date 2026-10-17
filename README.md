@@ -6,10 +6,33 @@ AuraDesk is a personal command-center for productivity: dashboard, tasks, kanban
 
 ## Status
 
-**Pre-implementation planning phase.** The MVP design specification and architectural decision records are in this repo. Implementation begins after the spec is approved.
+**Phase 0 — Foundation committed** (T0–T11 in `docs/superpowers/plans/2026-10-16-auradesk-foundation.md`).
+
+Structural validation completed:
+
+- `nix flake check --no-build`: PASS (Nix dev shell resolves; all Nixpkgs
+  attributes verified — `webkitgtk_4_1`, `gtk3`, `libsoup_3`,
+  `libayatana-appindicator`, `librsvg`, `openssl`, `nodejs_22`, `pnpm`,
+  `wayland`, `wlr-protocols`).
+- V001 SQL migration validated end-to-end via `sqlite3` 3.53.4:
+  13 tables, 31 indexes, 17 default settings seeded, 3 default routines,
+  CHECK + UNIQUE constraints working.
+- Frontend `pnpm install` (149 packages), `pnpm typecheck` and
+  `pnpm build`: PASS (57 modules, 219 kB JS, 70 kB gzipped).
+- LICENSE SHA-256 verified unchanged against the upstream GPL-3.0 text.
+
+Runtime validation pending on a host with a working Rust toolchain
+(this host's `rustup` toolchain is missing its manifest and
+`nix-daemon` is in a failed state post-reboot). CI workflows are
+configured in `.github/workflows/ci.yml` and will exercise the
+remaining gates on push.
+
+Documentation:
 
 - 📄 **Spec:** [`docs/superpowers/specs/2026-10-16-auradesk-mvp-design.md`](docs/superpowers/specs/2026-10-16-auradesk-mvp-design.md)
-- 🧭 **Decisions:** [`docs/decisions/`](docs/decisions) (11 ADRs)
+- 📋 **Plan:** [`docs/superpowers/plans/2026-10-16-auradesk-foundation.md`](docs/superpowers/plans/2026-10-16-auradesk-foundation.md)
+- 🏛️ **Architecture pointer:** [`docs/architecture/README.md`](docs/architecture/README.md)
+- 🧭 **Decisions:** [`docs/decisions/`](docs/decisions) (12 ADRs)
 - 💡 **Original idea:** [`IDEA.md`](IDEA.md)
 
 ## Tech stack
