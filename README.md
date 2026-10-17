@@ -9,7 +9,7 @@ AuraDesk is a personal command-center for productivity: dashboard, tasks, kanban
 **Pre-implementation planning phase.** The MVP design specification and architectural decision records are in this repo. Implementation begins after the spec is approved.
 
 - 📄 **Spec:** [`docs/superpowers/specs/2026-10-16-auradesk-mvp-design.md`](docs/superpowers/specs/2026-10-16-auradesk-mvp-design.md)
-- 🧭 **Decisions:** [`docs/decisions/`](docs/decisions) (10 ADRs)
+- 🧭 **Decisions:** [`docs/decisions/`](docs/decisions) (11 ADRs)
 - 💡 **Original idea:** [`IDEA.md`](IDEA.md)
 
 ## Tech stack
@@ -61,8 +61,29 @@ Full acceptance criteria live in the [spec](docs/superpowers/specs/2026-10-16-au
 
 ## License
 
-TBD.
+AuraDesk is offered under the **GNU General Public License, version 3
+(only — not "or any later version")**. The full text is in
+[`LICENSE`](LICENSE).
+
+The copyright holder has not yet been identified; see
+[`PENDING_LICENSE_NOTICE.md`](PENDING_LICENSE_NOTICE.md) for the open
+items that must be resolved before any public distribution.
+
+**About commercial terms.** The copyright holder reserves the right
+to offer alternative commercial license terms to specific licensees
+in the future (a "dual licensing" arrangement, documented in
+[ADR-0012](docs/decisions/0012-license.md)). The GPL-3.0 itself does
+**not** grant exclusivity, and does not prevent third parties from
+also distributing the software under the GPL. The commercial track
+is available only to the specific licensee under the agreed
+commercial terms, and only for the code portions whose copyright
+the holder controls. No commercial terms, prices, or contracts
+exist yet.
 
 ## Contributing
 
-See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) (to be added with Phase 0).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). A temporary **contribution
+freeze** is in effect: external code contributions are not accepted
+until a Contributor License Agreement (CLA) is in place. The freeze
+exists to preserve the dual-licensing track; see
+[ADR-0012](docs/decisions/0012-license.md) §5 for the rationale.
