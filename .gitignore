@@ -1,3 +1,6 @@
+# direnv (Nix dev shell loader)
+.direnv/
+
 # Build artifacts
 /target
 **/target

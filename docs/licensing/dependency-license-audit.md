@@ -4,7 +4,7 @@
 **Author:** Aura (architect agent) per owner direction
 **Project:** AuraDesk (`RAGton/aura-desk`, branch `main`, commit `69bc85a`)
 **Project license (declared):** GPL-3.0-only (see [`../../LICENSE`](../../LICENSE) and [`../../docs/decisions/0012-license.md`](../decisions/0012-license.md))
-**Status of this audit:** **Documentary** (no source code or lockfiles exist yet). Re-run as `automated` after `Cargo.lock` and `pnpm-lock.yaml` are produced.
+**Status of this audit:** **Preliminary (documentary)** — no source code or lockfiles exist yet. Re-run as **automated** (direct + transitive) after `Cargo.lock` and `pnpm-lock.yaml` are produced, with owner approval required before installing `cargo-deny` and `license-checker` (per owner direction, 2026-10-17).
 
 ## 1. Scope and method
 

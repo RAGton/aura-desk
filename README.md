@@ -65,6 +65,24 @@ AuraDesk is offered under the **GNU General Public License, version 3
 (only — not "or any later version")**. The full text is in
 [`LICENSE`](LICENSE).
 
+### License vs. copyright notice (policy pending)
+
+The `LICENSE` file is the **GPL-3.0 text** — the authoritative grant
+of permission. It is **not** the place for the copyright notice.
+
+A project convention for the copyright notice is **proposed** but
+**not yet final**. Candidates under consideration:
+
+- A `NOTICE` file at the root of the repository.
+- Per-file headers on source files (Rust, TypeScript, SQL, shell).
+
+The final form, scope, and exact text of the notice (and which file
+types carry it) are **policy pending** the identification of the
+copyright holder and a confirmed convention. See
+[`PENDING_LICENSE_NOTICE.md`](PENDING_LICENSE_NOTICE.md) for the open
+items, and [ADR-0012](docs/decisions/0012-license.md) §4 for the
+formal distinction between copyright and license.
+
 The copyright holder has not yet been identified; see
 [`PENDING_LICENSE_NOTICE.md`](PENDING_LICENSE_NOTICE.md) for the open
 items that must be resolved before any public distribution.
