@@ -9,3 +9,4 @@ pub mod reminder;
 pub mod routine;
 pub mod pomodoro;
 pub mod alert;
+pub mod settings_key;
