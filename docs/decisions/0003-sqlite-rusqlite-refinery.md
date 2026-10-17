@@ -1,7 +1,8 @@
-# ADR-003: SQLite + rusqlite + refinery
+# ADR-003: SQLite + rusqlite + refinery (with `bundled` feature)
 
 **Status:** Accepted
 **Date:** 2026-10-16
+**Updated:** 2026-10-17
 
 ## Context
 
@@ -24,7 +25,8 @@ Options considered:
 ## Decision
 
 Use **SQLite in WAL mode** + **rusqlite** for the connection and queries
-+ **refinery** for migrations.
++ **refinery** for migrations, with **the `rusqlite/bundled` feature
+enabled** so that SQLite is compiled from source by the Rust toolchain.
 
 - Migrations are plain SQL files in `migrations/Vxxx__name.sql`, embedded
   at compile time via `include_str!`.
@@ -33,6 +35,8 @@ Use **SQLite in WAL mode** + **rusqlite** for the connection and queries
   connection (WAL allows concurrent readers).
 - `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `synchronous=NORMAL` set
   on every connection open.
+- Because we use the `bundled` feature, `pkgs.sqlite` is **not** needed
+  in the Nix dev shell. (Updated 2026-10-17 after critical review.)
 
 ## Consequences
 
@@ -41,9 +45,13 @@ Positive:
   doesn't install SQLite separately.
 - Migrations are easy to read in PRs (raw SQL).
 - Compile times stay low.
+- No `pkgs.sqlite` mismatch across distros; CI on NixOS, Ubuntu, Arch
+  all build the same SQLite version.
 
 Negative:
 - No compile-time query checking. We compensate with integration tests
   in `auradesk-core/tests/` covering every query path.
 - Single-writer contention. With WAL, reads are concurrent; we serialize
   writes via mutex. Acceptable for a single-user productivity app.
+- The bundled SQLite is compiled on every cold build. We pin a Tauri
+  minor and Rust minor to keep the build deterministic.
