@@ -2160,9 +2160,7 @@ Each line below has either an automated test or a documented command that proves
 | Q13 | Snooze — como evitar duplicar alertas? | `snooze_count` + `last_snoozed_at` no reminder; novo `alerts_pending` com `parent_alert_id`. | Resolved 2026-10-16 |
 | Q14 | Capability registry — surface única? | Função `auradesk_core::capabilities()` itera uma vez; Tauri e MCP consomem a mesma lista. | Resolved 2026-10-16 |
 | Q15 | Monitor desconectado — comportamento? | `monitor.fallback_strategy` setting; default `primary_then_hide`. | Resolved 2026-10-16 |
-| Q16 | **Licença do projeto?** | **MIT é o default técnico (todas as deps são MIT/Apache-2.0). Aguardando confirmação do owner para criar `LICENSE`.** | **Pending user decision** |
-
-The LICENSE is intentionally NOT committed in this round, awaiting Q16. License research is summarized in `docs/decisions/0011-license.md` (placeholder — the ADR will be written after the user picks).
+| Q16 | Licença do projeto? | **GPL-3.0-only** (texto em `LICENSE`). Dupla licença é estruturalmente possível mas **não** dá exclusividade comercial; titular ainda não identificado. Ver `docs/decisions/0012-license.md` e `PENDING_LICENSE_NOTICE.md`. | Resolved 2026-10-17 (titular pendente) |
 
 ---
 
@@ -2183,7 +2181,7 @@ Initial set:
 - **ADR-009**: Sounds bundled as WAV, not synth
 - **ADR-010**: Code signing via Azure Trusted Signing, not self-signed
 - **ADR-011**: IA propose/approve workflow; IA never writes directly to state tables (pending — created alongside the proposal flow; see §8.5)
-- **ADR-012**: License (pending — see Q16)
+- **ADR-012**: License — GPL-3.0-only + dual-license commercial track (DRAFT, pending copyright holder identification)
 
 Each ADR is one paragraph per section. The full text is in `docs/decisions/00XX-*.md`.
 
