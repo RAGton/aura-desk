@@ -16,6 +16,9 @@
 /src-tauri/gen
 /src-tauri/WixTools
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Environment
 .env
 .env.local
