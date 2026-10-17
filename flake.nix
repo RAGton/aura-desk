@@ -9,8 +9,6 @@
     # rust-overlay provides version-pinned Rust toolchains.
     # Tauri 2.12.4 (stable 2026-10-14) raises MSRV to 1.90. We pin
     # exactly 1.90.0 — Tauri MSRV, not bleeding edge, not pre-Tauri-2.12.
-    # Compatibility of the full dep set is verified when Cargo.toml is
-    # created in T2.
     rust-overlay.url = "github:oxalica/rust-overlay";
 
     flake-utils.url = "github:numtide/flake-utils";
@@ -40,43 +38,48 @@
           pkgs.libayatana-appindicator.dev
           pkgs.librsvg.dev
         ];
+
+        # The Tauri CLI binary. nixpkgs attribute is `cargo-tauri`
+        # (NOT `tauri-cli`, which is the GUI companion). Version
+        # 2.12.x matches our Tauri runtime.
+        cargoTauri = pkgs.cargo-tauri;
+
+        # Explicit bin/ path list for shellHook. Reason: rust-overlay
+        # replaces pkgs.rust, and that overlay interaction can prevent
+        # `with pkgs; [...]` buildInputs from auto-propagating to PATH
+        # on the host. We prepend these paths explicitly so the user
+        # gets Nix rust/node/pnpm/cargo-tauri before any system rustup
+        # or Hermes-injected PATH entries.
+        toolchainBin = pkgs.lib.makeBinPath [
+          rust
+          pkgs.nodejs_22
+          pkgs.pnpm
+          cargoTauri
+          pkgs.pkg-config
+          pkgs.openssl
+        ];
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            # --- Rust toolchain (Tauri 2.12 MSRV) ---
+          buildInputs = [
             rust
-
-            # --- Node + package manager ---
-            nodejs_22      # LTS "Jod"; matches Tauri 2 ecosystem
-            pnpm           # workspace package manager (Phase 0 plan)
-
-            # --- C toolchain ---
-            pkg-config
-            openssl
-
-            # --- Tauri 2.12 Linux runtime deps (official Tauri docs,
-            #     mapped to Nixpkgs attribute names verified via
-            #     nix-instantiate --eval against nixos-unstable) ---
-            webkitgtk_4_1             # webkit2gtk-4.1 (Nix attr name omits the "2")
-            gtk3                       # transitive but explicit
-            libsoup_3                  # webkit2gtk-4.1 in Tauri 2.12 uses libsoup-3.0
-            libayatana-appindicator    # system tray (libayatana-appindicator3.pc)
-            librsvg                    # SVG icon rendering
-            # libxdo is not in nixpkgs; needed only for tauri-driver
-            # E2E tests (Phase 5). Documented as Phase 5 prep, not
-            # required for Phase 0/1/2/3/4.
-
-            # --- Utilities ---
-            curl
-            wget
-            file
-            xdg-utils
-            binaryen                   # wasm bundling (not used Phase 0; ready for later)
-
-            # --- Phase 3 prep (Hyprland monitor hot-plug, R-L4) ---
-            wayland
-            wlr-protocols
+            pkgs.nodejs_22
+            pkgs.pnpm
+            cargoTauri
+            pkgs.pkg-config
+            pkgs.openssl
+            pkgs.webkitgtk_4_1
+            pkgs.gtk3
+            pkgs.libsoup_3
+            pkgs.libayatana-appindicator
+            pkgs.librsvg
+            pkgs.curl
+            pkgs.wget
+            pkgs.file
+            pkgs.xdg-utils
+            pkgs.binaryen
+            pkgs.wayland
+            pkgs.wlr-protocols
           ];
 
           # Hardening: prevent toolchain leakage from /etc/profile.d etc.
@@ -86,6 +89,12 @@
           strictDeps = true;
 
           shellHook = ''
+            # Prepend the Nix toolchain bin paths so they win over any
+            # system rustup (`~/.cargo/bin`), Hermes-attached
+            # `~/.hermes/tools/node-*` or `~/.local/bin` entries that
+            # may have been inherited from the parent shell.
+            export PATH="${toolchainBin}:$PATH"
+
             # Toolchain hints for the Tauri build process. PKG_CONFIG_PATH
             # is the union of all Tauri 2.12 .pc file directories; built
             # by `pkgs.lib.makeSearchPath` so we don't hand-maintain it.
@@ -106,6 +115,9 @@
 
             echo "AuraDesk dev shell ready (Linux-only)"
             echo "  rust: ${rust.version}, node: ${pkgs.nodejs_22.version}, pnpm: ${pkgs.pnpm.version}"
+            echo "  cargo-tauri: ${cargoTauri.version}"
+            echo "  pnpm: $(which pnpm 2>/dev/null || echo 'NOT IN PATH')"
+            echo "  cargo-tauri bin: $(which cargo-tauri 2>/dev/null || echo 'NOT IN PATH')"
           '';
         };
       });
