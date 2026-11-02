@@ -1,0 +1,19 @@
+# Codebase Memory — exclusions beyond .gitignore
+# Cargo registry mirror: 15k vendored crates / 259 MB. Not our code —
+# indexing it polluted the graph with 320k third-party nodes.
+.cargo-cache/
+**/.cargo-cache/
+
+# Build output / vendored deps
+target/
+**/target/
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+
+# Nix store / result symlinks are skipped automatically, but be explicit
+result
+**/result
