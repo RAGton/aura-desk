@@ -28,6 +28,10 @@
 .env.local
 .env.*.local
 
+# Hindsight: config local do bank de memoria deste repo (nao versionar).
+# O `bank_id` fica em .hindsight/config.toml; o resto e estado da maquina.
+.hindsight/
+
 # OS
 .DS_Store
 Thumbs.db
