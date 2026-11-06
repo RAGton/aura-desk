@@ -3,6 +3,8 @@
 
 pub mod alerts;
 pub mod daily_plans;
+pub mod data_io;
+pub mod github;
 pub mod kanban;
 pub mod metrics;
 pub mod pomodoros;

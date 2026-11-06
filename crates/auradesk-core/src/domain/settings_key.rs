@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// All settings keys, matching the 17 defaults seeded by V001.
+/// All settings keys, matching the defaults seeded by V001/V002.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SettingsKey {
     /// Running app version (string, e.g. "0.1.0").
@@ -45,6 +45,14 @@ pub enum SettingsKey {
     AlertsMaxQueueSize,
     /// Time-to-live for pending IA proposals in hours.
     ProposalsTtlHours,
+    /// Canonical GitHub repository ("owner/repo").
+    GithubRepo,
+    /// Target project ID to which GitHub issues are imported.
+    GithubProjectId,
+    /// Comma-separated list of GitHub labels to filter.
+    GithubFilterLabels,
+    /// Whether background auto-sync is enabled.
+    GithubAutoSync,
 }
 
 impl SettingsKey {
@@ -69,6 +77,10 @@ impl SettingsKey {
             Self::RoutineBreakIntervalMin => "routine.break_interval_min",
             Self::AlertsMaxQueueSize => "alerts.max_queue_size",
             Self::ProposalsTtlHours => "proposals.ttl_hours",
+            Self::GithubRepo => "github.repo",
+            Self::GithubProjectId => "github.project_id",
+            Self::GithubFilterLabels => "github.filter_labels",
+            Self::GithubAutoSync => "github.auto_sync",
         }
     }
 
@@ -98,6 +110,10 @@ impl SettingsKey {
             "routine.break_interval_min" => Self::RoutineBreakIntervalMin,
             "alerts.max_queue_size" => Self::AlertsMaxQueueSize,
             "proposals.ttl_hours" => Self::ProposalsTtlHours,
+            "github.repo" => Self::GithubRepo,
+            "github.project_id" => Self::GithubProjectId,
+            "github.filter_labels" => Self::GithubFilterLabels,
+            "github.auto_sync" => Self::GithubAutoSync,
             _ => return None,
         })
     }
@@ -122,5 +138,9 @@ impl SettingsKey {
         Self::RoutineBreakIntervalMin,
         Self::AlertsMaxQueueSize,
         Self::ProposalsTtlHours,
+        Self::GithubRepo,
+        Self::GithubProjectId,
+        Self::GithubFilterLabels,
+        Self::GithubAutoSync,
     ];
 }

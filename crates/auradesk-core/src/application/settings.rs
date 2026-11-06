@@ -53,9 +53,28 @@ impl<'a> SettingsService<'a> {
         Ok(out)
     }
 
-    /// Write one setting. UPSERT semantics. The type of `value` is
-    /// validated against the key (e.g., boolean for RemindersSound,
-    /// positive integer for PomodoroFocusMin).
+    /// Read all raw rows from the settings table (used by data export).
+    pub fn list_raw(&self) -> Result<Vec<(String, String, String)>, CoreError> {
+        let conn = self.db.writer();
+        let mut stmt = conn
+            .prepare("SELECT key, value, updated_at FROM settings")
+            .map_err(|e| CoreError::internal(format!("settings list_raw: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let key: String = row.get(0)?;
+                let val_str: String = row.get(1)?;
+                let updated_at: String = row.get(2)?;
+                Ok((key, val_str, updated_at))
+            })
+            .map_err(|e| CoreError::internal(format!("settings list_raw query: {e}")))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| CoreError::internal(format!("settings list_raw row: {e}")))?);
+        }
+        Ok(out)
+    }
+
+    /// Write one setting. Validates value type; rejects unknown keys.
     pub fn set(&self, key: SettingsKey, value: Value) -> Result<(), CoreError> {
         validate(key, &value)?;
         let raw = serde_json::to_string(&value)
@@ -79,7 +98,8 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::AppLocale
         | SettingsKey::MonitorPreferred
         | SettingsKey::MonitorFallbackStrategy
-        | SettingsKey::RoutineDailyPlanningTime => value.is_string(),
+        | SettingsKey::RoutineDailyPlanningTime
+        | SettingsKey::GithubRepo => value.is_string(),
         SettingsKey::DashboardRefreshSec
         | SettingsKey::PomodoroFocusMin
         | SettingsKey::PomodoroShortMin
@@ -91,8 +111,11 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::ProposalsTtlHours => {
             value.is_number() && value.as_u64().is_some_and(|n| n > 0)
         }
-        SettingsKey::RemindersSound => value.is_boolean(),
-        SettingsKey::RemindersPausedUntil => value.is_null() || value.is_string(),
+        SettingsKey::RemindersSound | SettingsKey::GithubAutoSync => value.is_boolean(),
+        SettingsKey::RemindersPausedUntil | SettingsKey::GithubProjectId => {
+            value.is_null() || value.is_string()
+        }
+        SettingsKey::GithubFilterLabels => value.is_null() || value.is_string() || value.is_array(),
     };
     if ok {
         Ok(())
