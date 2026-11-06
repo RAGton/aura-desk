@@ -113,6 +113,9 @@ name = "auradesk"
 version = "0.1.0"
 dependencies = [
  "auradesk-core",
+ "chrono",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

@@ -33,6 +33,9 @@ pub enum PomodoroStatus {
     Abandoned,
 }
 
+/// Alias for PomodoroStatus to support both naming conventions across contracts.
+pub type SessionStatus = PomodoroStatus;
+
 impl PomodoroStatus {
     pub fn as_str(&self) -> &'static str {
         match self {

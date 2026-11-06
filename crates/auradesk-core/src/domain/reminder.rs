@@ -103,3 +103,14 @@ pub struct NewReminder {
     pub sound: ReminderSound,
     pub task_id: Option<String>,
 }
+
+/// Input to update an existing reminder.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateReminder {
+    pub title: Option<String>,
+    pub body: Option<Option<String>>,
+    pub fire_at: Option<DateTime<Utc>>,
+    pub repeat_kind: Option<RepeatKind>,
+    pub sound: Option<ReminderSound>,
+    pub status: Option<ReminderStatus>,
+}

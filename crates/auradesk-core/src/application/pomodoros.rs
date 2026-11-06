@@ -16,8 +16,28 @@ impl<'a> PomodorosService<'a> {
         Self { db }
     }
 
-    pub fn list(&self, _limit: i64) -> Result<Vec<PomodoroSession>, CoreError> {
+    pub fn list(&self, _limit: impl Into<i64>) -> Result<Vec<PomodoroSession>, CoreError> {
         Ok(Vec::new())
+    }
+
+    pub fn running_session(&self) -> Result<Option<PomodoroSession>, CoreError> {
+        Ok(None)
+    }
+
+    pub fn interrupt_running(&self, actual_min: Option<i32>) -> Result<PomodoroSession, CoreError> {
+        let now = chrono::Utc::now();
+        Ok(PomodoroSession {
+            id: uuid::Uuid::new_v4().to_string(),
+            task_id: None,
+            kind: SessionKind::Focus,
+            status: PomodoroStatus::Abandoned,
+            planned_min: actual_min.unwrap_or(0),
+            actual_min,
+            interruptions: 1,
+            started_at: now,
+            ended_at: Some(now),
+            note: None,
+        })
     }
 
     pub fn start(&self, new: NewPomodoroSession) -> Result<PomodoroSession, CoreError> {

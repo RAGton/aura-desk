@@ -106,6 +106,6 @@ pub struct UpdateTask {
 pub struct TaskFilter {
     pub status: Option<TaskStatus>,
     pub project_id: Option<String>,
-    pub overdue: Option<bool>,
-    pub top_level_only: Option<bool>,
+    pub overdue: bool,
+    pub top_level_only: bool,
 }

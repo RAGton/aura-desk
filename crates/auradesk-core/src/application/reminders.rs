@@ -5,7 +5,9 @@
 use chrono::{DateTime, Utc};
 
 use crate::domain::alert::Alert;
-use crate::domain::reminder::{NewReminder, Reminder, ReminderSound, ReminderStatus, RepeatKind};
+use crate::domain::reminder::{
+    NewReminder, Reminder, ReminderSound, ReminderStatus, RepeatKind, UpdateReminder,
+};
 use crate::infrastructure::db::Db;
 use crate::CoreError;
 
@@ -65,5 +67,52 @@ impl<'a> RemindersService<'a> {
 
     pub fn poll_and_fire_overdue(&self, _now: DateTime<Utc>) -> Result<Vec<Alert>, CoreError> {
         Ok(Vec::new())
+    }
+
+    pub fn update(&self, id: &str, patch: UpdateReminder) -> Result<Reminder, CoreError> {
+        let mut r = self.get(id)?;
+        if let Some(title) = patch.title {
+            r.title = title;
+        }
+        if let Some(body) = patch.body {
+            r.body = body;
+        }
+        if let Some(fire_at) = patch.fire_at {
+            r.fire_at = fire_at;
+        }
+        if let Some(repeat_kind) = patch.repeat_kind {
+            r.repeat_kind = repeat_kind;
+        }
+        if let Some(sound) = patch.sound {
+            r.sound = sound;
+        }
+        if let Some(status) = patch.status {
+            r.status = status;
+        }
+        r.updated_at = Utc::now();
+        Ok(r)
+    }
+
+    pub fn delete(&self, _id: &str) -> Result<(), CoreError> {
+        Ok(())
+    }
+
+    pub fn dismiss(&self, id: &str) -> Result<Reminder, CoreError> {
+        let mut r = self.get(id)?;
+        r.status = ReminderStatus::Dismissed;
+        r.resolved_at = Some(Utc::now());
+        r.updated_at = Utc::now();
+        Ok(r)
+    }
+
+    pub fn snooze(&self, id: &str, minutes: i32) -> Result<Reminder, CoreError> {
+        let mut r = self.get(id)?;
+        r.status = ReminderStatus::Snoozed;
+        r.snooze_count += 1;
+        let now = Utc::now();
+        r.last_snoozed_at = Some(now);
+        r.fire_at = now + chrono::Duration::minutes(minutes as i64);
+        r.updated_at = now;
+        Ok(r)
     }
 }
