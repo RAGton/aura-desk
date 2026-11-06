@@ -6,6 +6,7 @@
 **/target
 **/dist
 **/build
+**/coverage
 **/node_modules
 **/.vite
 **/.next
