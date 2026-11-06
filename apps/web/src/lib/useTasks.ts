@@ -8,17 +8,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { IpcError, tasksApi, type Task, type TaskFilter } from "./ipc";
+import {
+  IpcError,
+  tasksApi,
+  type CreateTaskInput,
+  type SetStatusInput,
+  type Task,
+  type TaskFilter,
+  type UpdateTaskInput,
+} from "./ipc";
 
 export interface UseTasks {
   tasks: Task[];
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
-  create: typeof tasksApi.create;
-  update: typeof tasksApi.update;
-  remove: typeof tasksApi.delete;
-  setStatus: typeof tasksApi.setStatus;
+  create: (input: CreateTaskInput) => Promise<Task>;
+  update: (id: string, patch: UpdateTaskInput) => Promise<Task>;
+  remove: (id: string) => Promise<void>;
+  setStatus: (input: SetStatusInput) => Promise<Task>;
 }
 
 export function useTasks(filter: TaskFilter = {}): UseTasks {
@@ -48,21 +56,21 @@ export function useTasks(filter: TaskFilter = {}): UseTasks {
     loading,
     error,
     refetch,
-    create: async (input) => {
+    create: async (input: CreateTaskInput) => {
       const t = await tasksApi.create(input);
       await refetch();
       return t;
     },
-    update: async (id, patch) => {
+    update: async (id: string, patch: UpdateTaskInput) => {
       const t = await tasksApi.update(id, patch);
       await refetch();
       return t;
     },
-    remove: async (id) => {
+    remove: async (id: string) => {
       await tasksApi.delete(id);
       await refetch();
     },
-    setStatus: async (input) => {
+    setStatus: async (input: SetStatusInput) => {
       const t = await tasksApi.setStatus(input);
       await refetch();
       return t;
