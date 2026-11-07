@@ -650,9 +650,13 @@ pub fn capabilities() -> &'static [Capability] {
     &CAPABILITIES
 }
 
-/// Look up a capability definition by exact tool name.
+/// Look up a capability definition by exact tool name in `O(log N)` via binary search
+/// over the alphabetically sorted `CAPABILITIES` table.
 pub fn find_capability(name: &str) -> Option<&'static Capability> {
-    CAPABILITIES.iter().find(|c| c.name == name)
+    CAPABILITIES
+        .binary_search_by_key(&name, |c| c.name)
+        .ok()
+        .map(|idx| &CAPABILITIES[idx])
 }
 
 /// Validate a JSON value against a Draft 2020-12 JSON Schema subset used by AuraDesk.
@@ -854,14 +858,10 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
                 .get("project_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let status_filter: Option<Vec<String>> = normalized_input
+            let status_filter: Option<std::collections::HashSet<&str>> = normalized_input
                 .get("status")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                        .collect()
-                });
+                .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect());
             let overdue_only = normalized_input
                 .get("overdue_only")
                 .and_then(|v| v.as_bool())
@@ -871,14 +871,10 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
                 .and_then(|v| v.as_str())
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&Utc));
-            let tags_filter: Option<Vec<String>> = normalized_input
+            let tags_filter: Option<Vec<&str>> = normalized_input
                 .get("tags")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                        .collect()
-                });
+                .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect());
             let limit = normalized_input
                 .get("limit")
                 .and_then(|v| v.as_u64())
@@ -898,7 +894,7 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
                 .into_iter()
                 .filter(|t| {
                     if let Some(ref statuses) = status_filter {
-                        if !statuses.iter().any(|s| s == t.status.as_str()) {
+                        if !statuses.contains(t.status.as_str()) {
                             return false;
                         }
                     }
@@ -914,7 +910,13 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
                         }
                     }
                     if let Some(ref want_tags) = tags_filter {
-                        let have = t.tags.as_deref().unwrap_or(&[]);
+                        let have: std::collections::HashSet<&str> = t
+                            .tags
+                            .as_deref()
+                            .unwrap_or(&[])
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect();
                         if !want_tags.iter().all(|wt| have.contains(wt)) {
                             return false;
                         }
@@ -945,14 +947,10 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
             serde_json::to_value(project).map_err(|e| CoreError::internal(e.to_string()))?
         }
         "list_reminders" => {
-            let status_filter: Option<Vec<String>> = normalized_input
+            let status_filter: Option<std::collections::HashSet<&str>> = normalized_input
                 .get("status")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                        .collect()
-                });
+                .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect());
             let task_id_filter = normalized_input.get("task_id").and_then(|v| v.as_str());
             let fire_before = normalized_input
                 .get("fire_before")
@@ -969,7 +967,7 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
                 .into_iter()
                 .filter(|r| {
                     if let Some(ref statuses) = status_filter {
-                        if !statuses.iter().any(|s| s == r.status.as_str()) {
+                        if !statuses.contains(r.status.as_str()) {
                             return false;
                         }
                     }
@@ -1010,30 +1008,40 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
         }
         "today_overview" => {
             let now = Utc::now();
-            let today_str = now.format("%Y-%m-%d").to_string();
+            let today_date = now.date_naive();
+            let today_str = today_date.format("%Y-%m-%d").to_string();
             let all_tasks = TasksService::new(db).list(&TaskFilter::default())?;
-            let overdue_tasks: Vec<_> = all_tasks
-                .iter()
-                .filter(|t| {
-                    !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
-                        && t.due_at.is_some_and(|d| d < now)
-                })
-                .cloned()
-                .collect();
-            let due_today: Vec<_> = all_tasks
-                .iter()
-                .filter(|t| {
-                    !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
-                        && t.due_at
-                            .is_some_and(|d| d.format("%Y-%m-%d").to_string() == today_str)
-                })
-                .cloned()
-                .collect();
-            let in_progress: Vec<_> = all_tasks
-                .iter()
-                .filter(|t| t.status == TaskStatus::Doing)
-                .cloned()
-                .collect();
+
+            // Single-pass O(N) classification with zero per-task date string formatting.
+            let mut overdue_tasks = Vec::new();
+            let mut due_today = Vec::new();
+            let mut in_progress = Vec::new();
+
+            for task in all_tasks {
+                let is_open = !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled);
+                let is_overdue = is_open && task.due_at.is_some_and(|d| d < now);
+                let is_due_today =
+                    is_open && task.due_at.is_some_and(|d| d.date_naive() == today_date);
+                let is_doing = task.status == TaskStatus::Doing;
+
+                match (is_overdue, is_due_today, is_doing) {
+                    (false, false, false) => {}
+                    (true, false, false) => overdue_tasks.push(task),
+                    (false, true, false) => due_today.push(task),
+                    (false, false, true) => in_progress.push(task),
+                    _ => {
+                        if is_overdue {
+                            overdue_tasks.push(task.clone());
+                        }
+                        if is_due_today {
+                            due_today.push(task.clone());
+                        }
+                        if is_doing {
+                            in_progress.push(task);
+                        }
+                    }
+                }
+            }
 
             let running = PomodorosService::new(db).running_session()?;
             let pomodoro_active = running.map(|s| {

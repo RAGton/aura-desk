@@ -57,6 +57,40 @@ impl<'a> AlertsService<'a> {
             ],
         )
         .map_err(|e| CoreError::internal(format!("alerts create: {e}")))?;
+
+        // Enforce bounded alert queue (`alerts.max_queue_size`, default 50):
+        // auto-dismiss oldest non-urgent pending alerts when capacity is exceeded.
+        let max_queue_size: i64 = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'alerts.max_queue_size'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(50);
+
+        let pending_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM alerts_pending WHERE resolved_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        if pending_count > max_queue_size {
+            let excess = pending_count - max_queue_size;
+            let _ = conn.execute(
+                "UPDATE alerts_pending SET resolution = 'dismissed', resolved_at = ?1 \
+                 WHERE id IN ( \
+                     SELECT id FROM alerts_pending \
+                     WHERE resolved_at IS NULL AND severity != 'urgent' AND id != ?2 \
+                     ORDER BY created_at ASC LIMIT ?3 \
+                 )",
+                params![now, id, excess],
+            );
+        }
         drop(conn);
 
         Ok(Alert {

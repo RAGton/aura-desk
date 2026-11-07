@@ -52,3 +52,17 @@ impl Clock for FixedClock {
         *self.current.lock().expect("FixedClock lock poisoned")
     }
 }
+
+/// Parse an RFC 3339 timestamp string into `DateTime<Utc>`.
+#[inline]
+pub fn parse_rfc3339(s: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok()
+}
+
+/// Parse an RFC 3339 timestamp string into `DateTime<Utc>`, falling back to `Utc::now()` if malformed.
+#[inline]
+pub fn parse_rfc3339_or_now(s: &str) -> DateTime<Utc> {
+    parse_rfc3339(s).unwrap_or_else(Utc::now)
+}

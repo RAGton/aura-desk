@@ -2,7 +2,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
 use rusqlite::{params, OptionalExtension};
 
 use crate::domain::project::{NewProject, Project, ProjectStatus};
@@ -111,8 +111,8 @@ impl<'a> ProjectsService<'a> {
         let target_date = target_raw
             .as_deref()
             .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let created_at = parse_dt(&created_raw);
-        let updated_at = parse_dt(&updated_raw);
+        let created_at = crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw);
+        let updated_at = crate::infrastructure::clock::parse_rfc3339_or_now(&updated_raw);
 
         Ok(Project {
             id,
@@ -128,10 +128,4 @@ impl<'a> ProjectsService<'a> {
             updated_at,
         })
     }
-}
-
-fn parse_dt(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
 }

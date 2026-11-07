@@ -369,14 +369,20 @@ impl<'a> TasksService<'a> {
             priority,
             status,
             kanban_order,
-            due_at: due_raw.as_deref().and_then(parse_opt_dt),
-            started_at: started_raw.as_deref().and_then(parse_opt_dt),
-            completed_at: completed_raw.as_deref().and_then(parse_opt_dt),
+            due_at: due_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
+            started_at: started_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
+            completed_at: completed_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
             estimate_min,
             actual_min,
             tags,
-            created_at: parse_opt_dt(&created_raw).unwrap_or_else(Utc::now),
-            updated_at: parse_opt_dt(&updated_raw).unwrap_or_else(Utc::now),
+            created_at: crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw),
+            updated_at: crate::infrastructure::clock::parse_rfc3339_or_now(&updated_raw),
         })
     }
 }
@@ -398,12 +404,6 @@ fn validate_tags(tags: &[String]) -> Result<(), CoreError> {
         }
     }
     Ok(())
-}
-
-fn parse_opt_dt(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .ok()
 }
 
 fn advance_by_rrule(dt: DateTime<Utc>, rrule: &str) -> DateTime<Utc> {

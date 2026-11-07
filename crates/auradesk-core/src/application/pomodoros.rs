@@ -2,7 +2,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 
 use crate::domain::pomodoro::{NewPomodoroSession, PomodoroSession, PomodoroStatus, SessionKind};
@@ -184,14 +184,10 @@ impl<'a> PomodorosService<'a> {
             "interrupted" | "abandoned" => PomodoroStatus::Abandoned,
             _ => PomodoroStatus::Active,
         };
-        let started_at = DateTime::parse_from_rfc3339(&started_raw)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-        let ended_at = ended_raw.as_deref().and_then(|s| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
-                .ok()
-        });
+        let started_at = crate::infrastructure::clock::parse_rfc3339_or_now(&started_raw);
+        let ended_at = ended_raw
+            .as_deref()
+            .and_then(crate::infrastructure::clock::parse_rfc3339);
 
         Ok(PomodoroSession {
             id,

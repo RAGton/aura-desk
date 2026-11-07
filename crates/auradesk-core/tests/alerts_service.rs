@@ -85,3 +85,57 @@ fn alerts_create_rejects_empty_title() {
         .unwrap_err();
     assert!(format!("{err:?}").contains("Validation"));
 }
+
+#[test]
+fn alerts_bounded_queue_evicts_oldest_non_urgent() {
+    let db = Arc::new(Db::open_in_memory().unwrap());
+    {
+        let conn = db.writer();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('alerts.max_queue_size', '2', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    }
+    let svc = AlertsService::new(&db);
+
+    let urgent = svc
+        .create(NewAlert {
+            kind: "reminder".into(),
+            title: "Urgent Deadline".into(),
+            body: None,
+            severity: AlertSeverity::Urgent,
+            ref_id: None,
+            options: None,
+        })
+        .unwrap();
+    let oldest_normal = svc
+        .create(NewAlert {
+            kind: "routine".into(),
+            title: "Oldest Normal".into(),
+            body: None,
+            severity: AlertSeverity::Normal,
+            ref_id: None,
+            options: None,
+        })
+        .unwrap();
+    let newest_normal = svc
+        .create(NewAlert {
+            kind: "routine".into(),
+            title: "Newest Normal".into(),
+            body: None,
+            severity: AlertSeverity::Normal,
+            ref_id: None,
+            options: None,
+        })
+        .unwrap();
+
+    let pending = svc.list_pending().unwrap();
+    assert_eq!(pending.len(), 2);
+    assert!(pending.iter().any(|a| a.id == urgent.id));
+    assert!(pending.iter().any(|a| a.id == newest_normal.id));
+    assert!(!pending.iter().any(|a| a.id == oldest_normal.id));
+
+    let evicted = svc.get(&oldest_normal.id).unwrap();
+    assert_eq!(evicted.resolution, Some(AlertResolution::Dismissed));
+}

@@ -100,12 +100,6 @@ impl<'a> RoutinesService<'a> {
         let created_raw: String = row.get(10)?;
         let updated_raw: String = row.get(11)?;
 
-        let parse_dt = |s: &str| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now())
-        };
-
         Ok(Routine {
             id,
             kind: RoutineKind::from_db(&kind_raw).unwrap_or(RoutineKind::Custom),
@@ -118,10 +112,9 @@ impl<'a> RoutinesService<'a> {
             metadata,
             last_fired_at: last_fired_raw
                 .as_deref()
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&Utc)),
-            created_at: parse_dt(&created_raw),
-            updated_at: parse_dt(&updated_raw),
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
+            created_at: crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw),
+            updated_at: crate::infrastructure::clock::parse_rfc3339_or_now(&updated_raw),
         })
     }
 }

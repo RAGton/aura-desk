@@ -45,11 +45,23 @@ impl<'a> KanbanService<'a> {
             TaskStatus::Cancelled,
         ];
 
+        // Single-pass O(N) ownership partitioning into pre-allocated column buckets (zero Task clones).
+        let mut buckets: [Vec<Task>; 5] = Default::default();
+        for task in all {
+            let idx = match task.status {
+                TaskStatus::Todo => 0,
+                TaskStatus::Doing => 1,
+                TaskStatus::Waiting => 2,
+                TaskStatus::Done => 3,
+                TaskStatus::Cancelled => 4,
+            };
+            buckets[idx].push(task);
+        }
+
         let columns = statuses
             .into_iter()
-            .map(|status| {
-                let mut col_tasks: Vec<Task> =
-                    all.iter().filter(|t| t.status == status).cloned().collect();
+            .zip(buckets)
+            .map(|(status, mut col_tasks)| {
                 col_tasks.sort_by_key(|t| (t.kanban_order, t.created_at));
                 KanbanColumn {
                     status,

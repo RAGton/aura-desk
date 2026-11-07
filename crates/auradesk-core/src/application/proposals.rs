@@ -287,11 +287,6 @@ impl<'a> ProposalsService<'a> {
     }
 
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Proposal> {
-        let parse_dt = |s: &str| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now())
-        };
         let status_raw: String = row.get(5)?;
         let created_raw: String = row.get(6)?;
         let expires_raw: String = row.get(7)?;
@@ -304,12 +299,11 @@ impl<'a> ProposalsService<'a> {
             payload: row.get(3)?,
             summary: row.get(4)?,
             status: ProposalStatus::from_db(&status_raw).unwrap_or(ProposalStatus::Pending),
-            created_at: parse_dt(&created_raw),
-            expires_at: parse_dt(&expires_raw),
+            created_at: crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw),
+            expires_at: crate::infrastructure::clock::parse_rfc3339_or_now(&expires_raw),
             decided_at: decided_raw
                 .as_deref()
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&Utc)),
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
             decision_note: row.get(9)?,
             result_ref_id: row.get(10)?,
             decided_by: row.get(11)?,

@@ -337,16 +337,20 @@ impl<'a> RemindersService<'a> {
             task_id,
             title,
             body,
-            fire_at: parse_dt(&fire_raw).unwrap_or_else(Utc::now),
+            fire_at: crate::infrastructure::clock::parse_rfc3339_or_now(&fire_raw),
             repeat_kind,
             sound,
             status,
             snooze_count,
-            last_snoozed_at: last_snoozed_raw.as_deref().and_then(parse_dt),
-            resolved_at: resolved_raw.as_deref().and_then(parse_dt),
+            last_snoozed_at: last_snoozed_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
+            resolved_at: resolved_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
             exceptions_log,
-            created_at: parse_dt(&created_raw).unwrap_or_else(Utc::now),
-            updated_at: parse_dt(&updated_raw).unwrap_or_else(Utc::now),
+            created_at: crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw),
+            updated_at: crate::infrastructure::clock::parse_rfc3339_or_now(&updated_raw),
         })
     }
 }
@@ -358,10 +362,4 @@ fn sound_to_db(sound: ReminderSound) -> &'static str {
         ReminderSound::None => "none",
         ReminderSound::Normal | ReminderSound::Default => "normal",
     }
-}
-
-fn parse_dt(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .ok()
 }

@@ -230,9 +230,10 @@ impl<'a> GithubSyncService<'a> {
         };
 
         let mut merged: Vec<String> = task.tags.clone().unwrap_or_default();
+        let mut seen: std::collections::HashSet<String> = merged.iter().cloned().collect();
         for label in &issue.labels {
             let tagged = format!("{GH_TAG_PREFIX}{label}");
-            if !merged.contains(&tagged) {
+            if seen.insert(tagged.clone()) {
                 merged.push(tagged);
             }
         }

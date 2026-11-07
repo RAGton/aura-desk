@@ -2,7 +2,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 
 use crate::domain::daily_plan::{DailyPlan, PlanState};
@@ -182,26 +182,16 @@ impl<'a> DailyPlansService<'a> {
             id,
             plan_date,
             state: PlanState::from_db(&state_raw).unwrap_or(PlanState::NotStarted),
-            started_at: parse_opt_dt(started_raw.as_deref()),
-            completed_at: parse_opt_dt(completed_raw.as_deref()),
+            started_at: started_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
+            completed_at: completed_raw
+                .as_deref()
+                .and_then(crate::infrastructure::clock::parse_rfc3339),
             payload,
             rollover_from,
-            created_at: parse_dt(&created_raw),
-            updated_at: parse_dt(&updated_raw),
+            created_at: crate::infrastructure::clock::parse_rfc3339_or_now(&created_raw),
+            updated_at: crate::infrastructure::clock::parse_rfc3339_or_now(&updated_raw),
         })
     }
-}
-
-fn parse_dt(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
-}
-
-fn parse_opt_dt(s: Option<&str>) -> Option<DateTime<Utc>> {
-    s.and_then(|v| {
-        DateTime::parse_from_rfc3339(v)
-            .map(|dt| dt.with_timezone(&Utc))
-            .ok()
-    })
 }
