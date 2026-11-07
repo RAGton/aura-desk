@@ -1,8 +1,9 @@
-//! Projects application service.
+//! Projects application service backed by SQLite (`projects` table).
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use chrono::{DateTime, NaiveDate, Utc};
+use rusqlite::{params, OptionalExtension};
 
 use crate::domain::project::{NewProject, Project, ProjectStatus};
 use crate::infrastructure::db::Db;
@@ -19,40 +20,118 @@ impl<'a> ProjectsService<'a> {
     }
 
     pub fn create(&self, new: NewProject) -> Result<Project, CoreError> {
+        let name = new.name.trim().to_string();
+        if name.is_empty() {
+            return Err(CoreError::validation(
+                "name",
+                "project name cannot be blank",
+            ));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
-        Ok(Project {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: new.name,
-            description: new.description,
-            color: new.color,
-            parent_id: new.parent_id,
-            status: ProjectStatus::Active,
-            start_date: new.start_date,
-            target_date: new.target_date,
-            archived: false,
-            created_at: now,
-            updated_at: now,
-        })
-    }
+        let now_str = now.to_rfc3339();
+        let start_str = new.start_date.map(|d| d.to_string());
+        let target_str = new.target_date.map(|d| d.to_string());
 
-    pub fn list(&self) -> Result<Vec<Project>, CoreError> {
-        Ok(Vec::new())
+        let conn = self.db.writer();
+        conn.execute(
+            "INSERT INTO projects (id, name, description, color, parent_id, status, start_date, target_date, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?8)",
+            params![
+                id,
+                name,
+                new.description,
+                new.color,
+                new.parent_id,
+                start_str,
+                target_str,
+                now_str,
+            ],
+        )
+        .map_err(|e| CoreError::internal(format!("projects create: {e}")))?;
+        drop(conn);
+
+        self.get(&id)
     }
 
     pub fn get(&self, id: &str) -> Result<Project, CoreError> {
-        let now = Utc::now();
+        let conn = self.db.writer();
+        let project = conn
+            .query_row(
+                "SELECT id, name, description, color, parent_id, status, start_date, target_date, created_at, updated_at \
+                 FROM projects WHERE id = ?1",
+                params![id],
+                Self::map_row,
+            )
+            .optional()
+            .map_err(|e| CoreError::internal(format!("projects get: {e}")))?;
+
+        project.ok_or_else(|| CoreError::not_found("project", id))
+    }
+
+    pub fn list(&self) -> Result<Vec<Project>, CoreError> {
+        let conn = self.db.writer();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, description, color, parent_id, status, start_date, target_date, created_at, updated_at \
+                 FROM projects ORDER BY created_at ASC",
+            )
+            .map_err(|e| CoreError::internal(format!("projects list prepare: {e}")))?;
+        let rows = stmt
+            .query_map([], Self::map_row)
+            .map_err(|e| CoreError::internal(format!("projects list query: {e}")))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| CoreError::internal(format!("projects row: {e}")))?);
+        }
+        Ok(out)
+    }
+
+    fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+        let id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let description: Option<String> = row.get(2)?;
+        let color: Option<String> = row.get(3)?;
+        let parent_id: Option<String> = row.get(4)?;
+        let status_raw: String = row.get(5)?;
+        let start_raw: Option<String> = row.get(6)?;
+        let target_raw: Option<String> = row.get(7)?;
+        let created_raw: String = row.get(8)?;
+        let updated_raw: String = row.get(9)?;
+
+        let status = match status_raw.as_str() {
+            "archived" => ProjectStatus::Archived,
+            "completed" => ProjectStatus::Completed,
+            "paused" | "on_hold" => ProjectStatus::OnHold,
+            _ => ProjectStatus::Active,
+        };
+        let start_date = start_raw
+            .as_deref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let target_date = target_raw
+            .as_deref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let created_at = parse_dt(&created_raw);
+        let updated_at = parse_dt(&updated_raw);
+
         Ok(Project {
-            id: id.to_string(),
-            name: "Project".to_string(),
-            description: None,
-            color: None,
-            parent_id: None,
-            status: ProjectStatus::Active,
-            start_date: None,
-            target_date: None,
-            archived: false,
-            created_at: now,
-            updated_at: now,
+            id,
+            name,
+            description,
+            color,
+            parent_id,
+            status,
+            start_date,
+            target_date,
+            archived: matches!(status, ProjectStatus::Archived),
+            created_at,
+            updated_at,
         })
     }
+}
+
+fn parse_dt(s: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
 }

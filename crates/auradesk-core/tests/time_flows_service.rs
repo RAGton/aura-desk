@@ -455,3 +455,69 @@ fn test_concurrent_overdue_polling_no_duplicate_alerts() {
     let alerts_svc = AlertsService::new(&db);
     assert_eq!(alerts_svc.list_pending().unwrap().len(), 1);
 }
+
+#[test]
+fn test_scheduler_suppresses_routines_during_focus_and_fires_after_break() {
+    use auradesk_core::infrastructure::clock::FixedClock;
+    use auradesk_core::infrastructure::scheduler::Scheduler;
+
+    let db = Db::open_in_memory().unwrap();
+    let clock = FixedClock::new(Utc::now() + Duration::hours(2));
+    let pomos_svc = PomodorosService::new(&db);
+
+    // Start a Focus Pomodoro session
+    pomos_svc
+        .start(NewPomodoroSession {
+            kind: SessionKind::Focus,
+            planned_min: 25,
+            task_id: None,
+        })
+        .unwrap();
+
+    // Tick while in focus: water & break routines are overdue (+2h), but suppressed!
+    let scheduler = Scheduler::new(&db, &clock);
+    let outcome_focus = scheduler.tick().unwrap();
+    assert!(outcome_focus.in_focus_session);
+    assert_eq!(outcome_focus.fired_routine_alerts.len(), 0);
+    assert!(outcome_focus.suppressed_routines >= 2);
+
+    // Complete Focus session -> next tick fires the routines!
+    pomos_svc.complete_running(25).unwrap();
+    let outcome_free = scheduler.tick().unwrap();
+    assert!(!outcome_free.in_focus_session);
+    assert_eq!(outcome_free.suppressed_routines, 0);
+    assert_eq!(outcome_free.fired_routine_alerts.len(), 2);
+}
+
+#[test]
+fn test_daily_plans_unique_per_date_and_state_transitions() {
+    use auradesk_core::application::daily_plans::DailyPlansService;
+    use auradesk_core::domain::daily_plan::PlanState;
+
+    let db = Db::open_in_memory().unwrap();
+    let svc = DailyPlansService::new(&db);
+
+    let plan = svc
+        .create_for_date(
+            "2026-11-06",
+            Some(r#"{"top3":["Issue 3","Issue 5","Issue 9"]}"#.into()),
+        )
+        .unwrap();
+    assert_eq!(plan.state, PlanState::NotStarted);
+
+    // Duplicate date returns Conflict
+    let dup = svc.create_for_date("2026-11-06", None);
+    assert!(matches!(
+        dup,
+        Err(auradesk_core::CoreError::Conflict { .. })
+    ));
+
+    // State transitions persist started_at and completed_at
+    let in_prog = svc.set_state(&plan.id, PlanState::InProgress).unwrap();
+    assert_eq!(in_prog.state, PlanState::InProgress);
+    assert!(in_prog.started_at.is_some());
+
+    let done = svc.set_state(&plan.id, PlanState::Completed).unwrap();
+    assert_eq!(done.state, PlanState::Completed);
+    assert!(done.completed_at.is_some());
+}
