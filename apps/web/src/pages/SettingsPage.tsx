@@ -1,12 +1,7 @@
-// `<SettingsPage>`: edit the user-facing settings. We render the
-// 17 settings keys grouped by concern (Pomodoro, Reminders,
-// Routines, Misc). Backend persistence goes through
-// `settings.set(key, json_value)`; the Rust side validates types.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { IpcError } from "@/lib/ipc";
+import { IpcError, settingsApi } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 interface Setting {
@@ -21,7 +16,7 @@ interface Setting {
 const SETTINGS_DEF: Setting[] = [
   {
     key: "app.locale",
-    label: "Idioma",
+    label: "Idioma / Language",
     description: "Idioma da interface (pt-BR | en).",
     type: "select",
     options: ["pt-BR", "en"],
@@ -30,7 +25,7 @@ const SETTINGS_DEF: Setting[] = [
   {
     key: "app.theme",
     label: "Tema",
-    description: "Tema da interface. Apenas dark por enquanto.",
+    description: "Tema da interface.",
     type: "select",
     options: ["dark", "light", "system"],
     group: "app",
@@ -101,39 +96,52 @@ const GROUP_LABELS: Record<string, string> = {
 };
 
 export function SettingsPage() {
-  const { t } = useTranslation();
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  const { t, i18n } = useTranslation();
+  const [values, setValues] = useState<Record<string, unknown>>(() => {
+    const initial: Record<string, unknown> = {};
+    for (const s of SETTINGS_DEF) {
+      initial[s.key] = defaultFor(s);
+    }
+    return initial;
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    // Settings read path: we re-use the SettingsService via a
-    // dedicated IPC command. To keep this page self-contained
-    // while the settings IPC set is wired in Phase 6 polish, we
-    // lazily read via `getAll` once it lands. For now we just
-    // initialize with sensible defaults from SETTINGS_DEF.
-    const initial: Record<string, unknown> = {};
-    for (const s of SETTINGS_DEF) {
-      initial[s.key] = defaultFor(s);
-    }
-    setValues(initial);
+    settingsApi
+      .getAll()
+      .then((pairs) => {
+        setValues((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of pairs) {
+            next[k] = v;
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        // Fallback to local defaults if running in browser preview outside Tauri
+      });
   }, []);
 
   async function saveOne(key: string, value: unknown) {
     setLoading(true);
     setError(null);
     try {
-      // settings_set is wired in the runtime; we call it directly via
-      // the generic `invoke` to avoid coupling the page to the
-      // generated api object (which is being added alongside this
-      // page in the same commit).
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("settings_set", { key, value });
+      await settingsApi.set(key, value);
       setValues((v) => ({ ...v, [key]: value }));
+      if (key === "app.locale" && typeof value === "string") {
+        await i18n.changeLanguage(value);
+      }
       setSavedAt(new Date().toLocaleTimeString());
     } catch (e) {
-      setError(e instanceof IpcError ? e.message : String(e));
+      if (key === "app.locale" && typeof value === "string") {
+        await i18n.changeLanguage(value);
+        setSavedAt(new Date().toLocaleTimeString());
+      } else {
+        setError(e instanceof IpcError ? e.message : String(e));
+      }
     } finally {
       setLoading(false);
     }
@@ -142,17 +150,16 @@ export function SettingsPage() {
   const groups = groupBy(SETTINGS_DEF, (s) => s.group);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-50">
             {t("settings.title")}
-          </h1>
-          <p className="mt-0.5 text-xs text-slate-500">{t("settings.subtitle")}</p>
+          </h2>
         </div>
         {savedAt ? (
-          <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
-            ✓ Salvo {savedAt}
+          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30">
+            ✓ {t("settings.saved")} ({savedAt})
           </span>
         ) : null}
       </div>
@@ -166,11 +173,11 @@ export function SettingsPage() {
       {Object.entries(groups).map(([group, items]) => (
         <section
           key={group}
-          className="rounded-xl bg-slate-900/30 p-4 ring-1 ring-slate-800/80"
+          className="rounded-xl bg-slate-900/50 p-4 ring-1 ring-slate-800/80"
         >
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-400">
             {GROUP_LABELS[group] ?? group}
-          </h2>
+          </h3>
           <div className="space-y-3">
             {items.map((s) => (
               <SettingRow
@@ -201,10 +208,10 @@ interface SettingRowProps {
 
 function SettingRow({ setting, value, disabled, onChange, onSave }: SettingRowProps) {
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+    <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-slate-800/50 pb-2.5 last:border-0 last:pb-0">
       <div>
         <div className="text-sm font-medium text-slate-200">{setting.label}</div>
-        <div className="text-[11px] text-slate-500">{setting.description}</div>
+        <div className="text-xs text-slate-400">{setting.description}</div>
       </div>
       <div className="flex items-center gap-2">
         {setting.type === "number" ? (
@@ -213,30 +220,37 @@ function SettingRow({ setting, value, disabled, onChange, onSave }: SettingRowPr
             min={1}
             value={typeof value === "number" ? value : ""}
             onChange={(e) => onChange(parseInt(e.target.value || "0", 10))}
-            className="w-24 rounded-md bg-slate-800 px-2 py-1.5 text-right text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-blue-500 outline-none tabular-nums"
+            className="w-24 rounded-md bg-slate-800 px-2.5 py-1.5 text-right text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500 outline-none tabular-nums"
           />
         ) : setting.type === "boolean" ? (
           <button
             type="button"
-            onClick={() => onChange(!value)}
+            onClick={() => {
+              const next = !value;
+              onChange(next);
+              onSave(next);
+            }}
             className={cn(
-              "relative h-6 w-11 rounded-full transition-colors",
-              value ? "bg-blue-600" : "bg-slate-700"
+              "relative h-6 w-11 rounded-full transition-colors cursor-pointer",
+              value ? "bg-sky-500" : "bg-slate-700"
             )}
             aria-pressed={!!value}
           >
             <span
               className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                value ? "translate-x-5" : "translate-x-0.5"
+                "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                value ? "translate-x-5" : "translate-x-0"
               )}
             />
           </button>
         ) : setting.type === "select" ? (
           <select
             value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
-            className="rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-blue-500"
+            onChange={(e) => {
+              onChange(e.target.value);
+              onSave(e.target.value);
+            }}
+            className="rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
           >
             {(setting.options ?? []).map((o) => (
               <option key={o} value={o}>
@@ -249,21 +263,21 @@ function SettingRow({ setting, value, disabled, onChange, onSave }: SettingRowPr
             type="time"
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            className="rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-blue-500"
+            className="rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
           />
         ) : (
           <input
             type="text"
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            className="w-40 rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-blue-500"
+            className="w-40 rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
           />
         )}
         <button
           type="button"
           disabled={disabled}
           onClick={() => onSave(value)}
-          className="rounded-md bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+          className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50 cursor-pointer transition-colors"
         >
           Salvar
         </button>

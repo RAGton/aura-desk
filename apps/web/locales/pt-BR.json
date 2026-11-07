@@ -1,5 +1,89 @@
 {
   "app": {
-    "title": "AuraDesk"
+    "title": "AuraDesk",
+    "subtitle": "Caderneta de Produtividade & Comando Pessoal • Hermes Agent MCP",
+    "connected": "SQLite + Tauri IPC Ativo",
+    "language": "Idioma"
+  },
+  "nav": {
+    "dashboard": "Painel Geral",
+    "kanban": "Tarefas & Kanban",
+    "pomodoro": "Pomodoro & Foco",
+    "reminders": "Lembretes & Alertas",
+    "settings": "Configurações"
+  },
+  "dashboard": {
+    "welcome": "Visão do Dia",
+    "pendingTasks": "Tarefas Pendentes",
+    "completedToday": "Concluídas Hoje",
+    "focusMinutes": "Minutos de Foco Hoje",
+    "pendingReminders": "Lembretes Ativos",
+    "nextTask": "Próxima Tarefa Prioritária",
+    "noPendingTasks": "Nenhuma tarefa pendente. Crie uma nova tarefa abaixo!",
+    "quickTaskPlaceholder": "Digite uma nova tarefa rápida...",
+    "addTask": "Adicionar Tarefa",
+    "dailyPlan": "Planejamento Diário",
+    "planStatus": {
+      "not_started": "Não iniciado",
+      "in_progress": "Em andamento",
+      "completed": "Concluído",
+      "skipped": "Pulado"
+    },
+    "startPlan": "Iniciar Dia",
+    "completePlan": "Concluir Dia",
+    "routinesTitle": "Rotinas Automáticas",
+    "waterEvery": "Água a cada",
+    "breakEvery": "Pausa a cada",
+    "planningAt": "Planejamento às",
+    "focusActive": "Modo Foco Ativo (rotinas silenciadas)",
+    "startQuickFocus": "Iniciar Foco 25m"
+  },
+  "kanban": {
+    "title": "Quadro Kanban",
+    "newTaskPlaceholder": "Título da nova tarefa...",
+    "create": "Criar Card",
+    "columns": {
+      "todo": "A Fazer",
+      "doing": "Em Andamento",
+      "waiting": "Aguardando",
+      "done": "Concluído"
+    },
+    "priority": {
+      "low": "Baixa",
+      "normal": "Normal",
+      "high": "Alta",
+      "urgent": "Urgente"
+    },
+    "emptyColumn": "Sem tarefas",
+    "delete": "Excluir"
+  },
+  "pomodoro": {
+    "title": "Timer Pomodoro & Deep Work",
+    "running": "Sessão em Andamento",
+    "idle": "Pronto para iniciar um bloco de foco",
+    "startFocus": "Iniciar Foco (25 min)",
+    "startShortBreak": "Pausa Curta (5 min)",
+    "startLongBreak": "Pausa Longa (15 min)",
+    "complete": "Concluir Sessão",
+    "abandon": "Interromper",
+    "history": "Histórico Recente de Sessões",
+    "noHistory": "Nenhuma sessão registrada ainda."
+  },
+  "reminders": {
+    "title": "Lembretes & Alertas Persistentes",
+    "newPlaceholder": "Título do lembrete...",
+    "addIn1Min": "Agendar (+1 min)",
+    "addIn15Min": "Agendar (+15 min)",
+    "activeAlerts": "Alertas Disparados",
+    "noAlerts": "Nenhum alerta pendente no momento.",
+    "resolve": "Resolver",
+    "snooze": "Adiar 10m",
+    "dismiss": "Dispensar",
+    "upcoming": "Lista de Lembretes",
+    "noReminders": "Nenhum lembrete cadastrado."
+  },
+  "settings": {
+    "title": "Configurações do Sistema",
+    "saved": "Salvo no SQLite!"
   }
 }

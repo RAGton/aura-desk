@@ -1,5 +1,89 @@
 {
   "app": {
-    "title": "AuraDesk"
+    "title": "AuraDesk",
+    "subtitle": "Winged Productivity Notebook & Personal Command Center • Hermes Agent MCP",
+    "connected": "SQLite + Tauri IPC Active",
+    "language": "Language"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "kanban": "Tasks & Kanban",
+    "pomodoro": "Pomodoro & Focus",
+    "reminders": "Reminders & Alerts",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "welcome": "Today's Overview",
+    "pendingTasks": "Pending Tasks",
+    "completedToday": "Completed Today",
+    "focusMinutes": "Focus Minutes Today",
+    "pendingReminders": "Active Reminders",
+    "nextTask": "Next Priority Task",
+    "noPendingTasks": "No pending tasks. Create a new task below!",
+    "quickTaskPlaceholder": "Type a quick new task...",
+    "addTask": "Add Task",
+    "dailyPlan": "Daily Planning",
+    "planStatus": {
+      "not_started": "Not started",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "skipped": "Skipped"
+    },
+    "startPlan": "Start Day",
+    "completePlan": "Complete Day",
+    "routinesTitle": "Automated Routines",
+    "waterEvery": "Water every",
+    "breakEvery": "Break every",
+    "planningAt": "Daily plan at",
+    "focusActive": "Focus Mode Active (routines muted)",
+    "startQuickFocus": "Start 25m Focus"
+  },
+  "kanban": {
+    "title": "Kanban Board",
+    "newTaskPlaceholder": "New task title...",
+    "create": "Create Card",
+    "columns": {
+      "todo": "To Do",
+      "doing": "In Progress",
+      "waiting": "Waiting",
+      "done": "Done"
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "emptyColumn": "No tasks",
+    "delete": "Delete"
+  },
+  "pomodoro": {
+    "title": "Pomodoro Timer & Deep Work",
+    "running": "Session in Progress",
+    "idle": "Ready to start a focus block",
+    "startFocus": "Start Focus (25 min)",
+    "startShortBreak": "Short Break (5 min)",
+    "startLongBreak": "Long Break (15 min)",
+    "complete": "Complete Session",
+    "abandon": "Abandon",
+    "history": "Recent Session History",
+    "noHistory": "No sessions recorded yet."
+  },
+  "reminders": {
+    "title": "Reminders & Persistent Alerts",
+    "newPlaceholder": "Reminder title...",
+    "addIn1Min": "Schedule (+1 min)",
+    "addIn15Min": "Schedule (+15 min)",
+    "activeAlerts": "Triggered Alerts",
+    "noAlerts": "No pending alerts right now.",
+    "resolve": "Resolve",
+    "snooze": "Snooze 10m",
+    "dismiss": "Dismiss",
+    "upcoming": "Reminders List",
+    "noReminders": "No reminders scheduled."
+  },
+  "settings": {
+    "title": "System Settings",
+    "saved": "Saved to SQLite!"
   }
 }
