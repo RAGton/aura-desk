@@ -13,6 +13,10 @@ const mockInvoke = vi.mocked(invoke);
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "settings_get_all") return [];
+      return undefined;
+    });
   });
 
   it("renders all settings groups and default options", async () => {
@@ -23,17 +27,15 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Lembretes")).toBeInTheDocument();
     expect(screen.getByText("Rotinas")).toBeInTheDocument();
 
-    expect(screen.getByText("Idioma")).toBeInTheDocument();
+    expect(screen.getByText("Idioma / Language")).toBeInTheDocument();
     expect(screen.getByText("Tema")).toBeInTheDocument();
     expect(screen.getByText("Foco (min)")).toBeInTheDocument();
     expect(screen.getByText("Intervalo de hidratação (min)")).toBeInTheDocument();
   });
 
   it("allows changing number values and saving them", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
     render(<SettingsPage />);
 
-    // Foco (min) input default is 25
     const numberInputs = screen.getAllByRole("spinbutton");
     const focusInput = numberInputs[0];
     expect(focusInput).toHaveValue(25);
@@ -41,28 +43,27 @@ describe("SettingsPage", () => {
     fireEvent.change(focusInput, { target: { value: "30" } });
     expect(focusInput).toHaveValue(30);
 
-    // Save button corresponding to focus input
     const saveButtons = screen.getAllByRole("button", { name: "Salvar" });
-    fireEvent.click(saveButtons[2]); // index 2 corresponds to pomodoro.focus_min
+    fireEvent.click(saveButtons[2]);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_set", {
-        key: "pomodoro.focus_min",
-        value: 30,
+        input: {
+          key: "pomodoro.focus_min",
+          value: 30,
+        },
       });
     });
 
-    expect(await screen.findByText(/✓ Salvo/i)).toBeInTheDocument();
+    expect(await screen.findByText(/✓ (Salvo|Saved)/i)).toBeInTheDocument();
   });
 
   it("allows toggling boolean settings and saving", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
     render(<SettingsPage />);
 
-    // Toggle button for reminders sound
-    const toggleButtons = screen.getAllByRole("button").filter((b) =>
-      b.hasAttribute("aria-pressed")
-    );
+    const toggleButtons = screen
+      .getAllByRole("button")
+      .filter((b: HTMLElement) => b.hasAttribute("aria-pressed"));
     expect(toggleButtons.length).toBeGreaterThan(0);
     const soundToggle = toggleButtons[0];
     expect(soundToggle).toHaveAttribute("aria-pressed", "true");
@@ -70,20 +71,20 @@ describe("SettingsPage", () => {
     fireEvent.click(soundToggle);
     expect(soundToggle).toHaveAttribute("aria-pressed", "false");
 
-    // Click corresponding save button (pomodoro has 4 settings, app has 2, sound is 7th overall)
     const saveButtons = screen.getAllByRole("button", { name: "Salvar" });
     fireEvent.click(saveButtons[6]);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_set", {
-        key: "reminders.sound",
-        value: false,
+        input: {
+          key: "reminders.sound",
+          value: false,
+        },
       });
     });
   });
 
   it("allows changing select settings (e.g. app.locale or app.theme)", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
     render(<SettingsPage />);
 
     const selects = screen.getAllByRole("combobox");
@@ -98,18 +99,23 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_set", {
-        key: "app.locale",
-        value: "en",
+        input: {
+          key: "app.locale",
+          value: "en",
+        },
       });
     });
   });
 
   it("displays error message if settings_set rejects", async () => {
-    mockInvoke.mockRejectedValueOnce(new Error("Database lock conflict"));
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "settings_get_all") return [];
+      throw new Error("Database lock conflict");
+    });
     render(<SettingsPage />);
 
     const saveButtons = screen.getAllByRole("button", { name: "Salvar" });
-    fireEvent.click(saveButtons[0]);
+    fireEvent.click(saveButtons[1]);
 
     expect(await screen.findByText(/Database lock conflict/i)).toBeInTheDocument();
   });

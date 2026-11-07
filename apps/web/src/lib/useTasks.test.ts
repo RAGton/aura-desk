@@ -27,18 +27,18 @@ describe("useTasks hook", () => {
       title: "First Task",
       priority: "normal",
       status: "todo",
-      kanbanOrder: 0,
-      createdAt: "2026-11-06T00:00:00Z",
-      updatedAt: "2026-11-06T00:00:00Z",
+      kanban_order: 0,
+      created_at: "2026-11-06T00:00:00Z",
+      updated_at: "2026-11-06T00:00:00Z",
     },
     {
       id: "task-2",
       title: "Second Task",
       priority: "high",
       status: "doing",
-      kanbanOrder: 1,
-      createdAt: "2026-11-06T00:00:00Z",
-      updatedAt: "2026-11-06T00:00:00Z",
+      kanban_order: 1,
+      created_at: "2026-11-06T00:00:00Z",
+      updated_at: "2026-11-06T00:00:00Z",
     },
   ];
 
@@ -150,7 +150,7 @@ describe("useTasks hook", () => {
   });
 
   it("sets status and re-fetches the list", async () => {
-    const movedTask: Task = { ...sampleTasks[0], status: "done", kanbanOrder: 3 };
+    const movedTask: Task = { ...sampleTasks[0], status: "done", kanban_order: 3 };
     mockTasksApi.list
       .mockResolvedValueOnce(sampleTasks)
       .mockResolvedValueOnce([movedTask, sampleTasks[1]]);
@@ -167,14 +167,14 @@ describe("useTasks hook", () => {
       res = await result.current.setStatus({
         id: "task-1",
         status: "done",
-        kanbanOrder: 3,
+        kanban_order: 3,
       });
     });
 
     expect(mockTasksApi.setStatus).toHaveBeenCalledWith({
       id: "task-1",
       status: "done",
-      kanbanOrder: 3,
+      kanban_order: 3,
     });
     expect(res?.status).toBe("done");
   });

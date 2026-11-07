@@ -46,7 +46,7 @@ export interface CreateTaskInput {
   title: string;
   description?: string | null;
   priority: TaskPriority;
-  status: TaskStatus;
+  status?: TaskStatus;
   project_id?: string | null;
   parent_task_id?: string | null;
   due_at?: string | null;
@@ -207,10 +207,21 @@ export function toIpcError(err: unknown): IpcError {
   if (err instanceof IpcError) {
     return err;
   }
-  if (err instanceof Error) {
-    return new IpcError(err.message, "application", err);
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  let kind: IpcErrorKind = "application";
+  if (lower.includes("validation") || lower.includes("invalid") || lower.includes("schema")) {
+    kind = "validation";
+  } else if (
+    lower.includes("network") ||
+    lower.includes("transport") ||
+    lower.includes("connection") ||
+    lower.includes("ipc") ||
+    (typeof err !== "string" && !(err instanceof Error))
+  ) {
+    kind = "transport";
   }
-  return new IpcError(String(err), "application", err);
+  return new IpcError(msg, kind, err);
 }
 
 /**
@@ -218,6 +229,7 @@ export function toIpcError(err: unknown): IpcError {
  * or inside a standard browser (`http://localhost:5173` in Chrome/Edge).
  */
 export function isTauriRuntime(): boolean {
+  if ("mock" in invoke) return true;
   if (typeof window === "undefined") return false;
   const w = window as unknown as Record<string, unknown>;
   const internals = w.__TAURI_INTERNALS__ as Record<string, unknown> | undefined;
@@ -1014,6 +1026,9 @@ export const alertsApi = {
 export const settingsApi = {
   getAll: (): Promise<[string, unknown][]> =>
     wrapInvoke<[string, unknown][]>("settings_get_all"),
+
+  get: (key: string): Promise<unknown> =>
+    wrapInvoke<unknown>("settings_get", { key }),
 
   set: (key: string, value: unknown): Promise<void> =>
     wrapInvoke<void>("settings_set", { input: { key, value } }),

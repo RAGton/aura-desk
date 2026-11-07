@@ -10,6 +10,9 @@ path = "src/lib.rs"
 name = "auradesk"
 path = "src/main.rs"
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = "2"
 

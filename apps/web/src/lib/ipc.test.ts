@@ -74,9 +74,9 @@ describe("tasksApi", () => {
     title: "Write documentation",
     priority: "normal",
     status: "todo",
-    kanbanOrder: 1,
-    createdAt: "2026-11-06T00:00:00Z",
-    updatedAt: "2026-11-06T00:00:00Z",
+    kanban_order: 1,
+    created_at: "2026-11-06T00:00:00Z",
+    updated_at: "2026-11-06T00:00:00Z",
   };
 
   beforeEach(() => {
@@ -132,9 +132,9 @@ describe("tasksApi", () => {
     const input: SetStatusInput = {
       id: "task-1",
       status: "done",
-      kanbanOrder: 2,
+      kanban_order: 2,
     };
-    mockInvoke.mockResolvedValueOnce({ ...dummyTask, status: "done", kanbanOrder: 2 });
+    mockInvoke.mockResolvedValueOnce({ ...dummyTask, status: "done", kanban_order: 2 });
     const res = await tasksApi.setStatus(input);
     expect(mockInvoke).toHaveBeenCalledWith("tasks_set_status", { input });
     expect(res.status).toBe("done");
