@@ -2,7 +2,8 @@
   "app": {
     "title": "AuraDesk",
     "subtitle": "Caderneta de Produtividade & Comando Pessoal • Hermes Agent MCP",
-    "connected": "SQLite + Tauri IPC Ativo",
+    "connectedTauri": "SQLite Nativo (Tauri IPC)",
+    "connectedBrowser": "Modo Navegador (Persistência Local Ativa)",
     "language": "Idioma"
   },
   "nav": {
@@ -14,15 +15,33 @@
   },
   "dashboard": {
     "welcome": "Visão do Dia",
+    "customizeLayout": "Personalizar Layout",
+    "closeCustomizer": "Concluir Layout",
+    "resetLayout": "Restaurar Padrão",
+    "layoutDensity": "Densidade",
+    "densityComfortable": "Confortável",
+    "densityCompact": "Compacto",
+    "widgetWidth": "Largura",
+    "widthFull": "Total",
+    "widthHalf": "Metade",
+    "widgets": {
+      "hero": "Banner Principal & Planejamento Diário",
+      "kpis": "Indicadores do Dia (KPIs)",
+      "next_task": "Próxima Tarefa & Criação Rápida",
+      "routines": "Rotinas Automáticas (Água & Pausas)",
+      "mini_alerts": "Alertas & Lembretes Recentes"
+    },
     "pendingTasks": "Tarefas Pendentes",
     "completedToday": "Concluídas Hoje",
     "focusMinutes": "Minutos de Foco Hoje",
     "pendingReminders": "Lembretes Ativos",
     "nextTask": "Próxima Tarefa Prioritária",
     "noPendingTasks": "Nenhuma tarefa pendente. Crie uma nova tarefa abaixo!",
-    "quickTaskPlaceholder": "Digite uma nova tarefa rápida...",
+    "quickTaskPlaceholder": "Digite uma nova tarefa (ex: Terminar módulo Single Sign-On)...",
     "addTask": "Adicionar Tarefa",
     "dailyPlan": "Planejamento Diário",
+    "planNotesPlaceholder": "Anote suas 3 prioridades do dia...",
+    "saveNotes": "Salvar Notas",
     "planStatus": {
       "not_started": "Não iniciado",
       "in_progress": "Em andamento",
@@ -39,9 +58,16 @@
     "startQuickFocus": "Iniciar Foco 25m"
   },
   "kanban": {
-    "title": "Quadro Kanban",
+    "title": "Quadro Kanban (Arraste ou Clique para Mover)",
     "newTaskPlaceholder": "Título da nova tarefa...",
+    "estimatePlaceholder": "Min",
+    "searchPlaceholder": "Buscar tarefa...",
+    "allPriorities": "Todas prioridades",
     "create": "Criar Card",
+    "edit": "Editar",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "focusTask": "Focar",
     "columns": {
       "todo": "A Fazer",
       "doing": "Em Andamento",
@@ -54,16 +80,20 @@
       "high": "Alta",
       "urgent": "Urgente"
     },
-    "emptyColumn": "Sem tarefas",
+    "emptyColumn": "Arraste um card ou crie uma tarefa",
     "delete": "Excluir"
   },
   "pomodoro": {
     "title": "Timer Pomodoro & Deep Work",
     "running": "Sessão em Andamento",
-    "idle": "Pronto para iniciar um bloco de foco",
+    "idle": "Selecione uma tarefa opcional e inicie um bloco de foco",
+    "selectTask": "Vincular à tarefa (opcional)...",
+    "noTaskLinked": "Sem tarefa vinculada",
     "startFocus": "Iniciar Foco (25 min)",
     "startShortBreak": "Pausa Curta (5 min)",
     "startLongBreak": "Pausa Longa (15 min)",
+    "pauseTimer": "Pausar Relógio",
+    "resumeTimer": "Retomar Relógio",
     "complete": "Concluir Sessão",
     "abandon": "Interromper",
     "history": "Histórico Recente de Sessões",
@@ -72,18 +102,22 @@
   "reminders": {
     "title": "Lembretes & Alertas Persistentes",
     "newPlaceholder": "Título do lembrete...",
+    "addNow": "Disparar Agora (Teste)",
     "addIn1Min": "Agendar (+1 min)",
     "addIn15Min": "Agendar (+15 min)",
+    "addIn1Hour": "Agendar (+1h)",
     "activeAlerts": "Alertas Disparados",
     "noAlerts": "Nenhum alerta pendente no momento.",
     "resolve": "Resolver",
     "snooze": "Adiar 10m",
     "dismiss": "Dispensar",
+    "except": "Exceção",
+    "exceptPlaceholder": "Justificativa para exceção...",
     "upcoming": "Lista de Lembretes",
     "noReminders": "Nenhum lembrete cadastrado."
   },
   "settings": {
     "title": "Configurações do Sistema",
-    "saved": "Salvo no SQLite!"
+    "saved": "Salvo com sucesso!"
   }
 }

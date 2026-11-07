@@ -2,5 +2,13 @@
   "name": "aura-desk-workspace",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "test": "pnpm --filter @auradesk/web test",
+    "test:coverage": "pnpm --filter @auradesk/web test:coverage",
+    "test:e2e": "pnpm --filter @auradesk/web test:e2e",
+    "lint": "pnpm --filter @auradesk/web lint",
+    "typecheck": "pnpm --filter @auradesk/web typecheck",
+    "build": "pnpm --filter @auradesk/web build"
+  }
 }

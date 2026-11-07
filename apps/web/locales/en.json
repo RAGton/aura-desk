@@ -2,7 +2,8 @@
   "app": {
     "title": "AuraDesk",
     "subtitle": "Winged Productivity Notebook & Personal Command Center • Hermes Agent MCP",
-    "connected": "SQLite + Tauri IPC Active",
+    "connectedTauri": "Native SQLite (Tauri IPC)",
+    "connectedBrowser": "Browser Mode (Local Persistence Active)",
     "language": "Language"
   },
   "nav": {
@@ -14,15 +15,33 @@
   },
   "dashboard": {
     "welcome": "Today's Overview",
+    "customizeLayout": "Customize Layout",
+    "closeCustomizer": "Done Customizing",
+    "resetLayout": "Reset Default",
+    "layoutDensity": "Density",
+    "densityComfortable": "Comfortable",
+    "densityCompact": "Compact",
+    "widgetWidth": "Width",
+    "widthFull": "Full",
+    "widthHalf": "Half",
+    "widgets": {
+      "hero": "Hero Banner & Daily Planning",
+      "kpis": "Daily KPIs",
+      "next_task": "Next Priority Task & Quick Add",
+      "routines": "Automated Routines (Water & Breaks)",
+      "mini_alerts": "Active Alerts & Recent Reminders"
+    },
     "pendingTasks": "Pending Tasks",
     "completedToday": "Completed Today",
     "focusMinutes": "Focus Minutes Today",
     "pendingReminders": "Active Reminders",
     "nextTask": "Next Priority Task",
     "noPendingTasks": "No pending tasks. Create a new task below!",
-    "quickTaskPlaceholder": "Type a quick new task...",
+    "quickTaskPlaceholder": "Type a new task (e.g. Finish Single Sign-On module)...",
     "addTask": "Add Task",
     "dailyPlan": "Daily Planning",
+    "planNotesPlaceholder": "Write your top 3 priorities for today...",
+    "saveNotes": "Save Notes",
     "planStatus": {
       "not_started": "Not started",
       "in_progress": "In progress",
@@ -39,9 +58,16 @@
     "startQuickFocus": "Start 25m Focus"
   },
   "kanban": {
-    "title": "Kanban Board",
+    "title": "Kanban Board (Drag & Drop or Click to Move)",
     "newTaskPlaceholder": "New task title...",
+    "estimatePlaceholder": "Min",
+    "searchPlaceholder": "Search tasks...",
+    "allPriorities": "All priorities",
     "create": "Create Card",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "focusTask": "Focus",
     "columns": {
       "todo": "To Do",
       "doing": "In Progress",
@@ -54,16 +80,20 @@
       "high": "High",
       "urgent": "Urgent"
     },
-    "emptyColumn": "No tasks",
+    "emptyColumn": "Drag a card here or create a task",
     "delete": "Delete"
   },
   "pomodoro": {
     "title": "Pomodoro Timer & Deep Work",
     "running": "Session in Progress",
-    "idle": "Ready to start a focus block",
+    "idle": "Select an optional task and start a focus block",
+    "selectTask": "Link to task (optional)...",
+    "noTaskLinked": "No linked task",
     "startFocus": "Start Focus (25 min)",
     "startShortBreak": "Short Break (5 min)",
     "startLongBreak": "Long Break (15 min)",
+    "pauseTimer": "Pause Clock",
+    "resumeTimer": "Resume Clock",
     "complete": "Complete Session",
     "abandon": "Abandon",
     "history": "Recent Session History",
@@ -72,18 +102,22 @@
   "reminders": {
     "title": "Reminders & Persistent Alerts",
     "newPlaceholder": "Reminder title...",
+    "addNow": "Fire Now (Test)",
     "addIn1Min": "Schedule (+1 min)",
     "addIn15Min": "Schedule (+15 min)",
+    "addIn1Hour": "Schedule (+1h)",
     "activeAlerts": "Triggered Alerts",
     "noAlerts": "No pending alerts right now.",
     "resolve": "Resolve",
     "snooze": "Snooze 10m",
     "dismiss": "Dismiss",
+    "except": "Exception",
+    "exceptPlaceholder": "Reason for exception...",
     "upcoming": "Reminders List",
     "noReminders": "No reminders scheduled."
   },
   "settings": {
     "title": "System Settings",
-    "saved": "Saved to SQLite!"
+    "saved": "Saved successfully!"
   }
 }

@@ -7,10 +7,12 @@ use serde::{Deserialize, Serialize};
 
 /// Kind of pomodoro session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum SessionKind {
     Focus,
+    #[serde(alias = "shortbreak")]
     ShortBreak,
+    #[serde(alias = "longbreak")]
     LongBreak,
 }
 
