@@ -1,0 +1,44 @@
+# Allow-list for `bin/check-strings`.
+#
+# Each line is a substring that, when present on a line, exempts it from the
+# hard-coded user-facing string check. Use this ONLY for strings that are
+# genuinely not UI copy — never to silence a real violation.
+#
+# Format: one substring per line. Blank lines and `#` comments are ignored.
+
+# ── Not user-facing: Rust diagnostics and internal errors ───────────────
+# Panic messages from `expect` surface in logs and crash reports, not in the UI.
+.expect(
+
+# Rust doc comments describe the code for developers.
+///
+
+# ── Not user-facing: SQL statements ────────────────────────────────────
+# Queries are sent to SQLite, never rendered to the user.
+SELECT
+DELETE FROM
+UPDATE
+INSERT INTO
+
+# ── Not user-facing: PRAGMA / database diagnostics ─────────────────────
+# SQLite pragmas and their error messages are internal.
+PRAGMA
+
+# ── Not user-facing: MCP capability descriptions and summaries ─────────
+# Tool descriptions and summaries are read by an LLM agent, not rendered to
+# the user. They are English by design so the model can reason about them.
+description:
+let summary = format!
+
+# ── Not user-facing: identifiers and debug output ─────────────────────
+# Class names and debug struct labels are identifiers.
+this.name =
+debug_struct(
+
+# ── Not user-facing: keyboard key names ───────────────────────────────
+# A key name is not copy.
+event.key
+
+# ── Not user-facing: SVG path data ─────────────────────────────────────
+# Path data for the logo artwork is geometry, not copy.
+d="M

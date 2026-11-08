@@ -1,2 +1,12 @@
-_:
+pt-BR:
   hello: Olá
+  alerts:
+    focus_interrupted: Foco interrompido
+    focus_completed: Foco concluído
+    focus_interrupted_body: A sessão de foco foi cancelada. Retomando rotina de pausas.
+    focus_completed_body: Hora de alongar. Clique em ✓ para iniciar a pausa.
+  tray:
+    show: Mostrar AuraDesk
+    quit: Sair
+  github:
+    issue_label: Issue

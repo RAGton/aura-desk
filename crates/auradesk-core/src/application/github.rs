@@ -355,7 +355,7 @@ impl<'a> GithubSyncService<'a> {
                             repo,
                             number,
                             format!("https://github.com/{repo}/issues/{number}"),
-                            format!("Issue #{number}"),
+                            format!("{} #{number}", crate::i18n::t("github.issue_label")),
                             task_id,
                             now,
                         ],

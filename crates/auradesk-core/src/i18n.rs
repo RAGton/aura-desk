@@ -18,3 +18,12 @@ i18n!("locales");
 pub fn set_locale(locale: &str) {
     rust_i18n::set_locale(locale);
 }
+
+/// Translate a key using the active locale.
+///
+/// The `t!` macro expands to `crate::translate`, so it only resolves inside
+/// the crate that called `i18n!`. This function is the cross-crate entry
+/// point: other crates in the workspace call `auradesk_core::i18n::t`.
+pub fn t(key: &str) -> String {
+    translate(rust_i18n::locale().as_str(), key)
+}

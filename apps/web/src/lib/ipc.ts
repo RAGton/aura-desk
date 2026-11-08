@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ERROR_KEYS, errorMessage } from "./errors";
 
 export type TaskStatus = "todo" | "doing" | "waiting" | "done" | "cancelled";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
@@ -419,7 +420,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       const input = args.input as CreateTaskInput;
       const title = (input?.title ?? "").trim();
       if (!title) {
-        throw new IpcError("O título da tarefa não pode estar vazio.", "validation");
+        throw new IpcError(errorMessage(ERROR_KEYS.taskTitleEmpty), "validation");
       }
       const status: TaskStatus = input.status ?? "todo";
       const sameCol = db.tasks.filter((t) => t.status === status);
@@ -456,7 +457,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       const current = db.tasks[idx];
       if (patch.title !== undefined) {
         const trimmed = patch.title.trim();
-        if (!trimmed) throw new IpcError("Título inválido", "validation");
+        if (!trimmed) throw new IpcError(errorMessage(ERROR_KEYS.taskTitleInvalid), "validation");
         current.title = trimmed;
       }
       if (patch.description !== undefined) current.description = patch.description;
@@ -512,7 +513,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         color?: string | null;
       };
       const name = (input?.name ?? "").trim();
-      if (!name) throw new IpcError("Nome do projeto obrigatório", "validation");
+      if (!name) throw new IpcError(errorMessage(ERROR_KEYS.projectNameRequired), "validation");
       const proj: Project = {
         id: genId(),
         name,
@@ -563,7 +564,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         (s) => s.status === "active" || s.status === "running"
       );
       if (!running) {
-        throw new IpcError("Nenhuma sessão Pomodoro em andamento.", "application");
+        throw new IpcError(errorMessage(ERROR_KEYS.pomodoroNotRunning), "application");
       }
       running.status = "completed";
       running.actual_min = Math.max(1, actualMin || running.planned_min);
@@ -584,7 +585,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
           id: genId(),
           kind: "pomodoro",
           title: `✓ Foco concluído · ${running.actual_min} min`,
-          body: "Hora de alongar e beber água! Inicie uma pausa curta.",
+          body: errorMessage(ERROR_KEYS.focusCompletedBody),
           severity: "normal",
           ref_id: running.id,
           resolution: null,
@@ -606,7 +607,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         (s) => s.status === "active" || s.status === "running"
       );
       if (!running) {
-        throw new IpcError("Nenhuma sessão Pomodoro ativa.", "application");
+        throw new IpcError(errorMessage(ERROR_KEYS.pomodoroNoneActive), "application");
       }
       running.status = "abandoned";
       running.actual_min = actualMin;
@@ -647,7 +648,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         task_id?: string | null;
       };
       const title = (input?.title ?? "").trim();
-      if (!title) throw new IpcError("Título do lembrete obrigatório", "validation");
+      if (!title) throw new IpcError(errorMessage(ERROR_KEYS.reminderTitleRequired), "validation");
       const rem: Reminder = {
         id: genId(),
         task_id: input.task_id ?? null,
@@ -797,7 +798,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     case "alerts_except": {
       const id = String(args.id ?? "");
       const note = String(args.note ?? "").trim();
-      if (!note) throw new IpcError("Justificativa obrigatória", "validation");
+      if (!note) throw new IpcError(errorMessage(ERROR_KEYS.exceptionNoteRequired), "validation");
       const alert = db.alerts.find((a) => a.id === id);
       if (!alert) throw new IpcError(`Alert not found: ${id}`, "application");
       alert.resolution = "excepted";

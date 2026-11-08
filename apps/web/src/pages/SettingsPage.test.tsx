@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
+import i18n from "@/lib/i18n";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -11,6 +12,12 @@ import { invoke } from "@tauri-apps/api/core";
 const mockInvoke = vi.mocked(invoke);
 
 describe("SettingsPage", () => {
+  // The language detector picks the browser locale, which would make the
+  // Portuguese label assertions below flaky. Pin it for the whole suite.
+  beforeAll(async () => {
+    await i18n.changeLanguage("pt-BR");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockImplementation(async (cmd: string) => {

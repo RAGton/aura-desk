@@ -71,8 +71,20 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             });
 
             // Quit menu item
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let show = MenuItem::with_id(app, "show", "Show AuraDesk", true, None::<&str>)?;
+            let quit = MenuItem::with_id(
+                app,
+                "quit",
+                auradesk_core::i18n::t("tray.quit"),
+                true,
+                None::<&str>,
+            )?;
+            let show = MenuItem::with_id(
+                app,
+                "show",
+                auradesk_core::i18n::t("tray.show"),
+                true,
+                None::<&str>,
+            )?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
             // System tray

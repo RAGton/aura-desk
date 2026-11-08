@@ -24,6 +24,11 @@
 # TypeScript incremental build info
 *.tsbuildinfo
 
+# Playwright / E2E artifacts (regenerated on every run, uploaded as CI artifacts)
+apps/web/e2e-screenshots/
+apps/web/test-results/
+apps/web/playwright-report/
+
 # Environment
 .env
 .env.local

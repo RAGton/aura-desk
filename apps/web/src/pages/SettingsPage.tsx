@@ -6,8 +6,10 @@ import { cn } from "@/lib/utils";
 
 interface Setting {
   key: string;
-  label: string;
-  description: string;
+  /** i18n key for the row label. */
+  labelKey: string;
+  /** i18n key for the row description. */
+  descriptionKey: string;
   type: "string" | "number" | "boolean" | "time" | "select";
   options?: string[];
   group: string;
@@ -16,83 +18,84 @@ interface Setting {
 const SETTINGS_DEF: Setting[] = [
   {
     key: "app.locale",
-    label: "Idioma / Language",
-    description: "Idioma da interface (pt-BR | en).",
+    labelKey: "settings.items.locale.label",
+    descriptionKey: "settings.items.locale.description",
     type: "select",
     options: ["pt-BR", "en"],
     group: "app",
   },
   {
     key: "app.theme",
-    label: "Tema",
-    description: "Tema da interface.",
+    labelKey: "settings.items.theme.label",
+    descriptionKey: "settings.items.theme.description",
     type: "select",
     options: ["dark", "light", "system"],
     group: "app",
   },
   {
     key: "pomodoro.focus_min",
-    label: "Foco (min)",
-    description: "Duração do bloco de foco em minutos.",
+    labelKey: "settings.items.focusMin.label",
+    descriptionKey: "settings.items.focusMin.description",
     type: "number",
     group: "pomodoro",
   },
   {
     key: "pomodoro.short_min",
-    label: "Pausa curta (min)",
-    description: "Duração da pausa curta em minutos.",
+    labelKey: "settings.items.shortMin.label",
+    descriptionKey: "settings.items.shortMin.description",
     type: "number",
     group: "pomodoro",
   },
   {
     key: "pomodoro.long_min",
-    label: "Pausa longa (min)",
-    description: "Duração da pausa longa em minutos.",
+    labelKey: "settings.items.longMin.label",
+    descriptionKey: "settings.items.longMin.description",
     type: "number",
     group: "pomodoro",
   },
   {
     key: "pomodoro.cycles_to_long",
-    label: "Ciclos até pausa longa",
-    description: "Quantos blocos de foco antes de uma pausa longa.",
+    labelKey: "settings.items.cyclesToLong.label",
+    descriptionKey: "settings.items.cyclesToLong.description",
     type: "number",
     group: "pomodoro",
   },
   {
     key: "reminders.sound",
-    label: "Som dos lembretes",
-    description: "Tocar som ao disparar um lembrete.",
+    labelKey: "settings.items.sound.label",
+    descriptionKey: "settings.items.sound.description",
     type: "boolean",
     group: "reminders",
   },
   {
     key: "routine.daily_planning_time",
-    label: "Planejamento diário",
-    description: "Horário local (HH:MM) do planejamento diário.",
+    labelKey: "settings.items.planningTime.label",
+    descriptionKey: "settings.items.planningTime.description",
     type: "time",
     group: "routines",
   },
   {
     key: "routine.water_interval_min",
-    label: "Intervalo de hidratação (min)",
-    description: "A cada quantos minutos lembrar de beber água.",
+    labelKey: "settings.items.waterInterval.label",
+    descriptionKey: "settings.items.waterInterval.description",
     type: "number",
     group: "routines",
   },
   {
     key: "routine.break_interval_min",
-    label: "Intervalo de pausa (min)",
-    description: "A cada quantos minutos lembrar de fazer uma pausa.",
+    labelKey: "settings.items.breakInterval.label",
+    descriptionKey: "settings.items.breakInterval.description",
     type: "number",
     group: "routines",
   },
 ];
 
-const GROUP_LABELS: Record<string, string> = {
-  app: "Aplicativo",
-  pomodoro: "Pomodoro",
-  reminders: "Lembretes",
-  routines: "Rotinas",
+/** i18n key for each settings group heading. */
+const GROUP_LABEL_KEYS: Record<string, string> = {
+  app: "settings.groups.app",
+  pomodoro: "settings.groups.pomodoro",
+  reminders: "settings.groups.reminders",
+  routines: "settings.groups.routines",
 };
 
 export function SettingsPage() {
@@ -176,7 +179,7 @@ export function SettingsPage() {
           className="rounded-xl bg-slate-900/50 p-4 ring-1 ring-slate-800/80"
         >
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-400">
-            {GROUP_LABELS[group] ?? group}
+            {t(GROUP_LABEL_KEYS[group] ?? group)}
           </h3>
           <div className="space-y-3">
             {items.map((s) => (
@@ -207,11 +210,14 @@ interface SettingRowProps {
 }
 
 function SettingRow({ setting, value, disabled, onChange, onSave }: SettingRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-slate-800/50 pb-2.5 last:border-0 last:pb-0">
       <div>
-        <div className="text-sm font-medium text-slate-200">{setting.label}</div>
-        <div className="text-xs text-slate-400">{setting.description}</div>
+        <div className="text-sm font-medium text-slate-200">
+          {t(setting.labelKey)}
+        </div>
+        <div className="text-xs text-slate-400">{t(setting.descriptionKey)}</div>
       </div>
       <div className="flex items-center gap-2">
         {setting.type === "number" ? (
