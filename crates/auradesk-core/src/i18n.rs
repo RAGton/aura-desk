@@ -27,3 +27,12 @@ pub fn set_locale(locale: &str) {
 pub fn t(key: &str) -> String {
     translate(rust_i18n::locale().as_str(), key)
 }
+
+/// Translate a key in a specific locale, ignoring the active one.
+///
+/// Useful when a caller needs a fixed language regardless of the global
+/// locale, and when tests need to assert translations without mutating
+/// process-wide state.
+pub fn translate_in(locale: &str, key: &str) -> String {
+    translate(locale, key)
+}
