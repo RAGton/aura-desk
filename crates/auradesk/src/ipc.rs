@@ -7,12 +7,21 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use auradesk_core::application::{
-    alerts::AlertsService, daily_plans::DailyPlansService, pomodoros::PomodorosService,
-    projects::ProjectsService, reminders::RemindersService, settings::SettingsService,
+    alerts::AlertsService,
+    daily_plans::DailyPlansService,
+    data_io::{DataIoService, ImportSummary},
+    github::GithubSyncService,
+    pomodoros::PomodorosService,
+    projects::ProjectsService,
+    reminders::RemindersService,
+    settings::SettingsService,
     tasks::TasksService,
 };
 use auradesk_core::domain::alert::{Alert, AlertSeverity, NewAlert};
 use auradesk_core::domain::daily_plan::{DailyPlan, PlanState};
+use auradesk_core::domain::github::{
+    GithubAuthStatus, GithubIssueLink, GithubSyncSummary, IssueFetcher,
+};
 use auradesk_core::domain::pomodoro::{NewPomodoroSession, PomodoroSession, SessionKind};
 use auradesk_core::domain::project::NewProject;
 use auradesk_core::domain::reminder::{
@@ -24,8 +33,9 @@ use auradesk_core::domain::task::{
 };
 use auradesk_core::CoreError;
 use serde::Deserialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
+use crate::github::GhCliIssueFetcher;
 use crate::runtime::{db_from, AppState};
 
 /// Round-trip a static string. Used by the frontend to confirm
@@ -205,12 +215,20 @@ pub fn tasks_update(
     id: String,
     patch: UpdateTaskInput,
 ) -> Result<Task, String> {
+    let locks_github_title = patch.title.is_some() || patch.description.is_some();
     let db = db_from(&state);
     let svc = TasksService::new(&db);
     let p: UpdateTask = patch
         .try_into()
         .map_err(|e: CoreError| format!("invalid patch: {e}"))?;
-    svc.update(&id, p).map_err(|e| format!("tasks_update: {e}"))
+    let updated = svc
+        .update(&id, p)
+        .map_err(|e| format!("tasks_update: {e}"))?;
+    if locks_github_title {
+        let gh = GithubSyncService::new(&db, state.github_fetcher.as_ref());
+        let _ = gh.lock_title(&id);
+    }
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -334,6 +352,7 @@ pub fn pomodoro_start(
 
 #[tauri::command]
 pub fn pomodoro_complete(
+    app: AppHandle,
     state: State<'_, AppState>,
     actual_min: i32,
 ) -> Result<PomodoroSession, String> {
@@ -344,13 +363,14 @@ pub fn pomodoro_complete(
         .complete_running(actual_min)
         .map_err(|e| format!("pomodoro_complete: {e}"))?;
     clear_focus_and_celebrate(
-        state, was_focus, &session, actual_min, /*aborted=*/ false,
+        &app, &state, was_focus, &session, actual_min, /*aborted=*/ false,
     );
     Ok(session)
 }
 
 #[tauri::command]
 pub fn pomodoro_abandon(
+    app: AppHandle,
     state: State<'_, AppState>,
     actual_min: Option<i32>,
 ) -> Result<PomodoroSession, String> {
@@ -361,7 +381,8 @@ pub fn pomodoro_abandon(
         .interrupt_running(actual_min)
         .map_err(|e| format!("pomodoro_abandon: {e}"))?;
     clear_focus_and_celebrate(
-        state,
+        &app,
+        &state,
         was_focus,
         &session,
         actual_min.unwrap_or(0),
@@ -376,7 +397,8 @@ pub fn pomodoro_abandon(
 /// explicit feedback and the next break reminder is one click
 /// away.
 fn clear_focus_and_celebrate(
-    state: State<'_, AppState>,
+    app: &AppHandle,
+    state: &State<'_, AppState>,
     was_focus: bool,
     session: &PomodoroSession,
     actual_min: i32,
@@ -397,7 +419,7 @@ fn clear_focus_and_celebrate(
             format!(
                 "{} · {} min",
                 auradesk_core::i18n::t("alerts.focus_completed"),
-                actual_min.max(session.planned_min)
+                actual_min.max(1)
             )
         };
         let body = if aborted {
@@ -405,7 +427,7 @@ fn clear_focus_and_celebrate(
         } else {
             auradesk_core::i18n::t("alerts.focus_completed_body")
         };
-        let db = db_from(&state);
+        let db = db_from(state);
         let alerts = AlertsService::new(&db);
         let _ = alerts.create(auradesk_core::domain::alert::NewAlert {
             kind: "pomodoro".to_string(),
@@ -419,6 +441,7 @@ fn clear_focus_and_celebrate(
             ref_id: Some(session.id.clone()),
             options: None,
         });
+        crate::alert_lock::sync_blocking_windows(app, &db);
     }
 }
 
@@ -543,11 +566,18 @@ pub fn reminders_delete(state: State<'_, AppState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn reminders_dismiss(state: State<'_, AppState>, id: String) -> Result<Reminder, String> {
+pub fn reminders_dismiss(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Reminder, String> {
     let db = db_from(&state);
     let svc = RemindersService::new(&db);
-    svc.dismiss(&id)
-        .map_err(|e| format!("reminders_dismiss: {e}"))
+    let res = svc
+        .dismiss(&id)
+        .map_err(|e| format!("reminders_dismiss: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
 }
 
 #[derive(Debug, Deserialize)]
@@ -558,16 +588,33 @@ pub struct SnoozeInput {
 
 #[tauri::command]
 pub fn reminders_snooze(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: SnoozeInput,
 ) -> Result<Reminder, String> {
     let db = db_from(&state);
     let svc = RemindersService::new(&db);
-    svc.snooze(&input.id, input.minutes)
-        .map_err(|e| format!("reminders_snooze: {e}"))
+    let res = svc
+        .snooze(&input.id, input.minutes)
+        .map_err(|e| format!("reminders_snooze: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
 }
 
 // ── Settings (extended surface) ───────────────────────────────────────
+
+/// Read a single setting by string key.
+#[tauri::command]
+pub fn settings_get(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let parsed =
+        SettingsKey::from_str(&key).ok_or_else(|| format!("settings_get: unknown key {key}"))?;
+    let db = db_from(&state);
+    let svc = SettingsService::new(&db);
+    svc.get(parsed).map_err(|e| format!("settings_get: {e}"))
+}
 
 /// Bulk read all settings as `(key, json_value)` pairs. The
 /// frontend uses this to render the Settings page.
@@ -596,13 +643,25 @@ pub struct SetSettingInput {
 /// rejects unknown keys (so a typo from the UI is reported as
 /// `Validation` rather than silently inserting a row).
 #[tauri::command]
-pub fn settings_set(state: State<'_, AppState>, input: SetSettingInput) -> Result<(), String> {
+pub fn settings_set(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: SetSettingInput,
+) -> Result<(), String> {
     let key = SettingsKey::from_str(&input.key)
         .ok_or_else(|| format!("settings_set: unknown key {}", input.key))?;
     let db = db_from(&state);
     let svc = SettingsService::new(&db);
-    svc.set(key, input.value)
-        .map_err(|e| format!("settings_set: {e}"))
+    svc.set(key, input.value.clone())
+        .map_err(|e| format!("settings_set: {e}"))?;
+    if key == SettingsKey::AppLocale {
+        if let Some(locale_str) = input.value.as_str() {
+            auradesk_core::i18n::set_locale(locale_str);
+        }
+    } else if key == SettingsKey::RemindersBlockScreen {
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+    }
+    Ok(())
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────
@@ -628,40 +687,31 @@ pub struct DashboardSummary {
 
 #[tauri::command]
 pub fn dashboard_summary(state: State<'_, AppState>) -> Result<DashboardSummary, String> {
-    use chrono::Datelike;
-
     let db = db_from(&state);
     let tasks_svc = TasksService::new(&db);
     let pomo_svc = PomodorosService::new(&db);
     let reminders_svc = RemindersService::new(&db);
     let settings_svc = SettingsService::new(&db);
 
+    let all_tasks = tasks_svc
+        .list(&TaskFilter::default())
+        .map_err(|e| format!("list all tasks: {e}"))?;
+
     // Next task: highest-priority pending (todo or waiting),
     // tie-broken by earliest due_at (nulls last).
-    let todo = tasks_svc
-        .list(&TaskFilter {
-            status: Some(TaskStatus::Todo),
-            ..Default::default()
-        })
-        .map_err(|e| format!("list todo: {e}"))?;
-    let waiting = tasks_svc
-        .list(&TaskFilter {
-            status: Some(TaskStatus::Waiting),
-            ..Default::default()
-        })
-        .map_err(|e| format!("list waiting: {e}"))?;
-    let mut pending: Vec<_> = todo.into_iter().chain(waiting).collect();
-    pending.sort_by(|a, b| {
-        // urgent=0, high=1, normal=2, low=3
+    let mut next_candidates: Vec<_> = all_tasks
+        .iter()
+        .filter(|t| matches!(t.status, TaskStatus::Todo | TaskStatus::Waiting))
+        .cloned()
+        .collect();
+    next_candidates.sort_by(|a, b| {
         let pa = priority_rank(a.priority);
         let pb = priority_rank(b.priority);
         pa.cmp(&pb).then(earliest_due(a).cmp(&earliest_due(b)))
     });
-    let next_task = pending.into_iter().next();
+    let next_task = next_candidates.into_iter().next();
 
-    let pending_count = tasks_svc
-        .list(&TaskFilter::default())
-        .map_err(|e| format!("list all: {e}"))?
+    let pending_count = all_tasks
         .iter()
         .filter(|t| {
             matches!(
@@ -671,82 +721,73 @@ pub fn dashboard_summary(state: State<'_, AppState>) -> Result<DashboardSummary,
         })
         .count() as i64;
 
-    let overdue_count = tasks_svc
-        .list(&TaskFilter {
-            overdue: true,
-            ..Default::default()
+    let now_utc = chrono::Utc::now();
+    let overdue_count = all_tasks
+        .iter()
+        .filter(|t| {
+            !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+                && t.due_at.is_some_and(|d| d < now_utc)
         })
-        .map_err(|e| format!("overdue: {e}"))?
-        .len() as i64;
+        .count() as i64;
 
-    // completed_today: filter in Rust from list since the SQLite
-    // filter shape is small.
-    let today = chrono::Utc::now();
-    let today_str = format!(
-        "{:04}-{:02}-{:02}",
-        today.year(),
-        today.month(),
-        today.day()
-    );
-    let all = tasks_svc
-        .list(&TaskFilter::default())
-        .map_err(|e| format!("list all: {e}"))?;
-    let completed_today = all
+    let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let completed_today = all_tasks
         .iter()
         .filter(|t| matches!(t.status, TaskStatus::Done))
         .filter(|t| {
-            t.completed_at
-                .as_ref()
-                .is_some_and(|c| c.format("%Y-%m-%d").to_string() == today_str)
+            t.completed_at.as_ref().is_some_and(|c| {
+                c.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d")
+                    .to_string()
+                    == today_str
+            })
         })
         .count() as i64;
 
     let running = pomo_svc
         .running_session()
         .map_err(|e| format!("running: {e}"))?;
-    let today_pomodoros = pomo_svc
-        .list(500)
-        .map_err(|e| format!("pomo list: {e}"))?
+    let all_pomos = pomo_svc.list(500).map_err(|e| format!("pomo list: {e}"))?;
+    let completed_today_pomos: Vec<_> = all_pomos
         .iter()
         .filter(|s| {
-            s.started_at.format("%Y-%m-%d").to_string() == today_str
+            s.started_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+                == today_str
                 && matches!(
                     s.status,
                     auradesk_core::domain::pomodoro::SessionStatus::Completed
                 )
         })
-        .count() as i64;
-    let today_focus_min = pomo_svc
-        .list(500)
-        .map_err(|e| format!("pomo list 2: {e}"))?
+        .collect();
+    let today_pomodoros = completed_today_pomos.len() as i64;
+    let today_focus_min = completed_today_pomos
         .iter()
-        .filter(|s| {
-            s.started_at.format("%Y-%m-%d").to_string() == today_str
-                && matches!(s.kind, auradesk_core::domain::pomodoro::SessionKind::Focus)
-                && matches!(
-                    s.status,
-                    auradesk_core::domain::pomodoro::SessionStatus::Completed
-                )
-        })
+        .filter(|s| matches!(s.kind, auradesk_core::domain::pomodoro::SessionKind::Focus))
         .filter_map(|s| s.actual_min)
         .sum::<i32>() as i64;
 
-    let pending_reminders = reminders_svc
-        .list(false)
-        .map_err(|e| format!("reminders pending: {e}"))?
-        .len() as i64;
-    let recent_reminders = reminders_svc
+    let all_reminders = reminders_svc
         .list(true)
-        .map_err(|e| format!("reminders all: {e}"))?
-        .into_iter()
-        .take(5)
-        .collect();
+        .map_err(|e| format!("reminders all: {e}"))?;
+    let pending_reminders = all_reminders
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.status,
+                ReminderStatus::Pending | ReminderStatus::Fired | ReminderStatus::Snoozed
+            )
+        })
+        .count() as i64;
+    let recent_reminders = all_reminders.into_iter().take(5).collect();
 
-    // Read three settings; missing keys fall back to spec defaults.
+    // Read three settings; missing keys fall back to V001 spec defaults.
     let water_interval_min =
-        read_int_setting(&settings_svc, SettingsKey::RoutineWaterIntervalMin).unwrap_or(90);
+        read_int_setting(&settings_svc, SettingsKey::RoutineWaterIntervalMin).unwrap_or(60);
     let break_interval_min =
-        read_int_setting(&settings_svc, SettingsKey::RoutineBreakIntervalMin).unwrap_or(50);
+        read_int_setting(&settings_svc, SettingsKey::RoutineBreakIntervalMin).unwrap_or(90);
     let daily_planning_time =
         read_str_setting(&settings_svc, SettingsKey::RoutineDailyPlanningTime)
             .unwrap_or_else(|| "07:50".to_string());
@@ -893,51 +934,118 @@ pub struct NewAlertInput {
 }
 
 #[tauri::command]
-pub fn alerts_create(state: State<'_, AppState>, input: NewAlertInput) -> Result<Alert, String> {
+pub fn alerts_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: NewAlertInput,
+) -> Result<Alert, String> {
     let db = db_from(&state);
     let svc = AlertsService::new(&db);
-    svc.create(NewAlert {
-        kind: input.kind,
-        title: input.title,
-        body: input.body,
-        severity: input.severity,
-        ref_id: input.ref_id,
-        options: input.options,
-    })
-    .map_err(|e| format!("alerts_create: {e}"))
+    let created = svc
+        .create(NewAlert {
+            kind: input.kind,
+            title: input.title,
+            body: input.body,
+            severity: input.severity,
+            ref_id: input.ref_id,
+            options: input.options,
+        })
+        .map_err(|e| format!("alerts_create: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(created)
 }
 
 #[tauri::command]
-pub fn alerts_resolve(state: State<'_, AppState>, id: String) -> Result<Alert, String> {
+pub fn alerts_resolve(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Alert, String> {
     let db = db_from(&state);
     let svc = AlertsService::new(&db);
-    svc.resolve(&id).map_err(|e| format!("alerts_resolve: {e}"))
+    let res = svc
+        .resolve(&id)
+        .map_err(|e| format!("alerts_resolve: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
 }
 
 #[tauri::command]
-pub fn alerts_snooze(state: State<'_, AppState>, id: String) -> Result<Alert, String> {
+pub fn alerts_snooze(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Alert, String> {
     let db = db_from(&state);
     let svc = AlertsService::new(&db);
-    svc.snooze(&id).map_err(|e| format!("alerts_snooze: {e}"))
+    let res = svc.snooze(&id).map_err(|e| format!("alerts_snooze: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
 }
 
 #[tauri::command]
-pub fn alerts_dismiss(state: State<'_, AppState>, id: String) -> Result<Alert, String> {
+pub fn alerts_dismiss(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Alert, String> {
     let db = db_from(&state);
     let svc = AlertsService::new(&db);
-    svc.dismiss(&id).map_err(|e| format!("alerts_dismiss: {e}"))
+    let res = svc
+        .dismiss(&id)
+        .map_err(|e| format!("alerts_dismiss: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
 }
 
 #[tauri::command]
 pub fn alerts_except(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     note: String,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
     let svc = AlertsService::new(&db);
-    svc.except(&id, &note)
-        .map_err(|e| format!("alerts_except: {e}"))
+    let res = svc
+        .except(&id, &note)
+        .map_err(|e| format!("alerts_except: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(res)
+}
+
+#[tauri::command]
+pub fn alerts_sync_desktop_lock(app: AppHandle, state: State<'_, AppState>) {
+    let db = db_from(&state);
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+}
+
+#[tauri::command]
+pub fn alerts_trigger_test_block(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    title: String,
+    body: Option<String>,
+) -> Result<Alert, String> {
+    let db = db_from(&state);
+    SettingsService::new(&db)
+        .set(
+            SettingsKey::RemindersBlockScreen,
+            serde_json::Value::Bool(true),
+        )
+        .map_err(|e| format!("enable block_screen: {e}"))?;
+    let alert = AlertsService::new(&db)
+        .create(NewAlert {
+            kind: "reminder".to_string(),
+            title,
+            body,
+            severity: AlertSeverity::Urgent,
+            ref_id: None,
+            options: None,
+        })
+        .map_err(|e| format!("alerts_trigger_test_block: {e}"))?;
+    crate::alert_lock::sync_blocking_windows(&app, &db);
+    Ok(alert)
 }
 
 // ── Report ────────────────────────────────────────────────────────────
@@ -959,6 +1067,7 @@ pub struct ReportDay {
     pub date: String, // YYYY-MM-DD
     pub focus_min: i64,
     pub break_min: i64,
+    pub water_count: i64,
     pub pomodoros: i64,
     pub tasks_done: i64,
 }
@@ -968,6 +1077,7 @@ pub struct ReportDay {
 pub struct ReportPeriod {
     pub focus_min: i64,
     pub break_min: i64,
+    pub water_count: i64,
     pub pomodoros: i64,
     pub tasks_done: i64,
     pub active_days: i64,
@@ -975,46 +1085,66 @@ pub struct ReportPeriod {
 
 #[tauri::command]
 pub fn report_summary(state: State<'_, AppState>) -> Result<ReportSummary, String> {
-    use chrono::Datelike;
-
     let db = db_from(&state);
     let tasks_svc = TasksService::new(&db);
     let pomo_svc = PomodorosService::new(&db);
 
-    let today = chrono::Utc::now();
-    let today_str = format!(
-        "{:04}-{:02}-{:02}",
-        today.year(),
-        today.month(),
-        today.day()
-    );
-    // Last 14 days for the by_day series.
-    let by_day_start = today - chrono::Duration::days(13);
+    let today_local = chrono::Local::now().date_naive();
+    let today_str = today_local.format("%Y-%m-%d").to_string();
+    let month_start = today_local - chrono::Duration::days(29);
 
-    // All recent pomodoros (covers the last 14 days cheaply).
     let all_pomos = pomo_svc.list(2000).map_err(|e| format!("pomo list: {e}"))?;
     let all_tasks = tasks_svc
         .list(&TaskFilter::default())
         .map_err(|e| format!("task list: {e}"))?;
 
-    let mut by_day: Vec<ReportDay> = (0..14)
-        .rev()
+    let mut days_30: Vec<ReportDay> = (0..30)
         .map(|i| {
-            let d = by_day_start + chrono::Duration::days(i);
-            let date = format!("{:04}-{:02}-{:02}", d.year(), d.month(), d.day());
+            let d = month_start + chrono::Duration::days(i);
             ReportDay {
-                date,
+                date: d.format("%Y-%m-%d").to_string(),
                 focus_min: 0,
                 break_min: 0,
+                water_count: 0,
                 pomodoros: 0,
                 tasks_done: 0,
             }
         })
         .collect();
 
+    let mut pomo_break_by_day = [0_i64; 30];
+
+    // Hydrate water & routine break counts recorded in `metrics_daily`.
+    {
+        let conn = db.writer();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT date, break_minutes, water_count FROM metrics_daily")
+        {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            }) {
+                for row in rows.flatten() {
+                    if let Some(day) = days_30.iter_mut().find(|d| d.date == row.0) {
+                        day.break_min += row.1;
+                        day.water_count += row.2;
+                    }
+                }
+            }
+        };
+    }
+
     for s in &all_pomos {
-        let key = s.started_at.format("%Y-%m-%d").to_string();
-        if let Some(day) = by_day.iter_mut().find(|d| d.date == key) {
+        let key = s
+            .started_at
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string();
+        if let Some(idx) = days_30.iter().position(|d| d.date == key) {
+            let day = &mut days_30[idx];
             let is_focus = matches!(s.kind, auradesk_core::domain::pomodoro::SessionKind::Focus);
             let is_break = matches!(
                 s.kind,
@@ -1029,71 +1159,74 @@ pub fn report_summary(state: State<'_, AppState>) -> Result<ReportSummary, Strin
                     day.focus_min += s.actual_min.unwrap_or(0) as i64;
                     day.pomodoros += 1;
                 } else if is_break {
-                    day.break_min += s.actual_min.unwrap_or(0) as i64;
+                    pomo_break_by_day[idx] += s.actual_min.unwrap_or(0) as i64;
                 }
             }
         }
     }
+    for (day, pomo_brk) in days_30.iter_mut().zip(pomo_break_by_day) {
+        day.break_min = day.break_min.max(pomo_brk);
+    }
     for t in &all_tasks {
         if matches!(t.status, TaskStatus::Done) {
             if let Some(c) = &t.completed_at {
-                let key = c.format("%Y-%m-%d").to_string();
-                if let Some(day) = by_day.iter_mut().find(|d| d.date == key) {
+                let key = c
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d")
+                    .to_string();
+                if let Some(day) = days_30.iter_mut().find(|d| d.date == key) {
                     day.tasks_done += 1;
                 }
             }
         }
     }
 
-    let today_idx = by_day.iter().position(|d| d.date == today_str);
-    let today_report = today_idx.map(|i| by_day[i].clone()).unwrap_or(ReportDay {
-        date: today_str.clone(),
-        focus_min: 0,
-        break_min: 0,
-        pomodoros: 0,
-        tasks_done: 0,
-    });
+    let fold_period = |slice: &[ReportDay]| -> ReportPeriod {
+        slice.iter().fold(
+            ReportPeriod {
+                focus_min: 0,
+                break_min: 0,
+                water_count: 0,
+                pomodoros: 0,
+                tasks_done: 0,
+                active_days: 0,
+            },
+            |mut acc, d| {
+                acc.focus_min += d.focus_min;
+                acc.break_min += d.break_min;
+                acc.water_count += d.water_count;
+                acc.pomodoros += d.pomodoros;
+                acc.tasks_done += d.tasks_done;
+                if d.focus_min > 0 || d.pomodoros > 0 || d.tasks_done > 0 {
+                    acc.active_days += 1;
+                }
+                acc
+            },
+        )
+    };
 
-    // Last 7 days = week
-    let week: ReportPeriod = by_day.iter().rev().take(7).fold(
-        ReportPeriod {
+    let today_report = days_30
+        .iter()
+        .find(|d| d.date == today_str)
+        .cloned()
+        .unwrap_or(ReportDay {
+            date: today_str,
             focus_min: 0,
             break_min: 0,
+            water_count: 0,
             pomodoros: 0,
             tasks_done: 0,
-            active_days: 0,
-        },
-        |mut acc, d| {
-            acc.focus_min += d.focus_min;
-            acc.break_min += d.break_min;
-            acc.pomodoros += d.pomodoros;
-            acc.tasks_done += d.tasks_done;
-            if d.focus_min > 0 || d.pomodoros > 0 {
-                acc.active_days += 1;
-            }
-            acc
-        },
-    );
+        });
 
-    let month: ReportPeriod = by_day.iter().fold(
-        ReportPeriod {
-            focus_min: 0,
-            break_min: 0,
-            pomodoros: 0,
-            tasks_done: 0,
-            active_days: 0,
-        },
-        |mut acc, d| {
-            acc.focus_min += d.focus_min;
-            acc.break_min += d.break_min;
-            acc.pomodoros += d.pomodoros;
-            acc.tasks_done += d.tasks_done;
-            if d.focus_min > 0 || d.pomodoros > 0 {
-                acc.active_days += 1;
-            }
-            acc
-        },
-    );
+    let week = fold_period(&days_30[days_30.len().saturating_sub(7)..]);
+    let month = fold_period(&days_30);
+    // Keep 14-day series in `by_day` newest-first for dashboard compatibility,
+    // or oldest-to-newest chronological (last 14 days).
+    let by_day = days_30[days_30.len().saturating_sub(14)..]
+        .iter()
+        .rev()
+        .cloned()
+        .collect();
 
     Ok(ReportSummary {
         today: today_report,
@@ -1101,6 +1234,98 @@ pub fn report_summary(state: State<'_, AppState>) -> Result<ReportSummary, Strin
         month,
         by_day,
     })
+}
+
+// ── GitHub Issues → Kanban (ADR-0013) ─────────────────────────────────
+
+#[tauri::command]
+pub fn github_sync_issues(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+    label_filter: Option<String>,
+) -> Result<GithubSyncSummary, String> {
+    let db = db_from(&state);
+    let svc = GithubSyncService::new(&db, state.github_fetcher.as_ref());
+    svc.sync(project_id.as_deref(), label_filter.as_deref())
+        .map_err(|e| format!("github_sync_issues: {e}"))
+}
+
+#[tauri::command]
+pub fn github_issues_list(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<Vec<GithubIssueLink>, String> {
+    let db = db_from(&state);
+    let svc = GithubSyncService::new(&db, state.github_fetcher.as_ref());
+    svc.list_links(project_id.as_deref())
+        .map_err(|e| format!("github_issues_list: {e}"))
+}
+
+#[tauri::command]
+pub fn github_link_task(
+    state: State<'_, AppState>,
+    task_id: String,
+    repo: String,
+    number: i64,
+) -> Result<GithubIssueLink, String> {
+    let db = db_from(&state);
+    let svc = GithubSyncService::new(&db, state.github_fetcher.as_ref());
+    svc.link_task(&task_id, &repo, number)
+        .map_err(|e| format!("github_link_task: {e}"))
+}
+
+#[tauri::command]
+pub fn github_unlink_task(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    let db = db_from(&state);
+    let svc = GithubSyncService::new(&db, state.github_fetcher.as_ref());
+    svc.unlink_task(&task_id)
+        .map_err(|e| format!("github_unlink_task: {e}"))
+}
+
+#[tauri::command]
+pub fn github_check_auth() -> GithubAuthStatus {
+    let fetcher = GhCliIssueFetcher::new();
+    match fetcher.auth_status() {
+        Ok(Some(account)) => GithubAuthStatus {
+            available: true,
+            authenticated: true,
+            account: Some(account),
+            message: None,
+        },
+        Ok(None) => GithubAuthStatus {
+            available: true,
+            authenticated: false,
+            account: None,
+            message: Some("github.authRequired".to_string()),
+        },
+        Err(_) => GithubAuthStatus {
+            available: false,
+            authenticated: false,
+            account: None,
+            message: Some("github.cliMissing".to_string()),
+        },
+    }
+}
+
+// ── Backup .zip Export / Import (Issue #10) ───────────────────────────
+
+#[tauri::command]
+pub fn data_export_zip(state: State<'_, AppState>) -> Result<String, String> {
+    let db = db_from(&state);
+    DataIoService::new(&db)
+        .export_zip_base64()
+        .map_err(|e| format!("data_export_zip: {e}"))
+}
+
+#[tauri::command]
+pub fn data_import_zip(
+    state: State<'_, AppState>,
+    zip_base64: String,
+) -> Result<ImportSummary, String> {
+    let db = db_from(&state);
+    DataIoService::new(&db)
+        .import_zip_base64(&zip_base64)
+        .map_err(|e| format!("data_import_zip: {e}"))
 }
 
 /// Suppress unused warning for the helper that the macro

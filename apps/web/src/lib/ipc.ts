@@ -170,6 +170,7 @@ export interface ReportDay {
   date: string;
   focusMin: number;
   breakMin: number;
+  waterCount: number;
   pomodoros: number;
   tasksDone: number;
 }
@@ -177,6 +178,7 @@ export interface ReportDay {
 export interface ReportPeriod {
   focusMin: number;
   breakMin: number;
+  waterCount: number;
   pomodoros: number;
   tasksDone: number;
   activeDays: number;
@@ -187,6 +189,52 @@ export interface ReportSummary {
   week: ReportPeriod;
   month: ReportPeriod;
   byDay: ReportDay[];
+}
+
+export type GithubIssueState = "open" | "closed";
+
+export interface GithubIssueLink {
+  id: string;
+  source: string;
+  externalId: string;
+  repo: string;
+  issueNumber: number;
+  issueUrl: string;
+  title: string;
+  labels?: string[] | null;
+  sourceStatus: GithubIssueState;
+  taskId?: string | null;
+  titleLocked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GithubSyncSummary {
+  created: number;
+  updated: number;
+  skipped: number;
+  issues: GithubIssueLink[];
+}
+
+export interface GithubAuthStatus {
+  available: boolean;
+  authenticated: boolean;
+  account?: string | null;
+  message?: string | null;
+}
+
+export interface ImportSummary {
+  projects: number;
+  tasks: number;
+  pomodoros: number;
+  reminders: number;
+  daily_plans: number;
+  settings: number;
+  github_issues: number;
+}
+
+export interface IntegrationState {
+  inFocusSession: boolean;
 }
 
 export type IpcErrorKind = "validation" | "transport" | "application";
@@ -247,6 +295,8 @@ interface BrowserDbState {
   alerts: Alert[];
   dailyPlans: DailyPlan[];
   settings: Record<string, unknown>;
+  githubLinks?: GithubIssueLink[];
+  metricsByDay?: Record<string, { waterCount: number; breakMin: number }>;
 }
 
 const STORAGE_KEY = "auradesk_browser_db_v1";
@@ -259,6 +309,7 @@ const DEFAULT_SETTINGS: Record<string, unknown> = {
   "monitor.preferred": "primary",
   "monitor.fallback_strategy": "primary_then_hide",
   "reminders.sound": true,
+  "reminders.block_screen": false,
   "reminders.paused_until": null,
   "pomodoro.focus_min": 25,
   "pomodoro.short_min": 5,
@@ -269,6 +320,9 @@ const DEFAULT_SETTINGS: Record<string, unknown> = {
   "routine.break_interval_min": 90,
   "alerts.max_queue_size": 50,
   "proposals.ttl_hours": 24,
+  "github.repo": null,
+  "github.project_id": null,
+  "github.filter_labels": null,
 };
 
 function genId(): string {
@@ -286,6 +340,40 @@ function todayStr(): string {
   return `${y}-${m}-${day}`;
 }
 
+function localDayFromIso(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function encodeBrowserZipBase64(files: Record<string, string>): string {
+  const payload = JSON.stringify({ format: "auradesk-browser-backup", files });
+  const bytes = new TextEncoder().encode(payload);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function decodeBrowserZipBase64(zipBase64: string): Record<string, string> {
+  const clean = zipBase64.replace(/\s+/g, "");
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const text = new TextDecoder().decode(bytes);
+  const parsed = JSON.parse(text) as { files?: Record<string, string> };
+  if (!parsed || typeof parsed !== "object" || !parsed.files) {
+    throw new IpcError("errors.invalidBackup", "validation");
+  }
+  return parsed.files;
+}
+
 function loadBrowserDb(): BrowserDbState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -299,6 +387,11 @@ function loadBrowserDb(): BrowserDbState {
         alerts: Array.isArray(parsed.alerts) ? parsed.alerts : [],
         dailyPlans: Array.isArray(parsed.dailyPlans) ? parsed.dailyPlans : [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
+        githubLinks: Array.isArray(parsed.githubLinks) ? parsed.githubLinks : [],
+        metricsByDay:
+          parsed.metricsByDay && typeof parsed.metricsByDay === "object"
+            ? parsed.metricsByDay
+            : {},
       };
     }
   } catch {
@@ -312,6 +405,8 @@ function loadBrowserDb(): BrowserDbState {
     alerts: [],
     dailyPlans: [],
     settings: { ...DEFAULT_SETTINGS },
+    githubLinks: [],
+    metricsByDay: {},
   };
 }
 
@@ -810,6 +905,11 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     case "settings_get_all":
       return Object.entries(db.settings);
 
+    case "settings_get": {
+      const key = String(args.key ?? "");
+      return key in db.settings ? db.settings[key] : null;
+    }
+
     case "settings_set": {
       const input = (args.input ?? args) as { key: string; value: unknown };
       db.settings[input.key] = input.value;
@@ -904,6 +1004,216 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         breakIntervalMin: Number(db.settings["routine.break_interval_min"] ?? 90),
         dailyPlanningTime: String(db.settings["routine.daily_planning_time"] ?? "07:50"),
       } satisfies DashboardSummary;
+    }
+
+    case "alerts_sync_desktop_lock":
+      return;
+
+    case "alerts_trigger_test_block": {
+      db.settings["reminders.block_screen"] = true;
+      const alert: Alert = {
+        id: genId(),
+        kind: "routine",
+        title: String(args.title ?? "Test"),
+        body: args.body != null ? String(args.body) : null,
+        severity: "urgent",
+        ref_id: null,
+        resolution: null,
+        resolved_at: null,
+        created_at: nowIso,
+      };
+      db.alerts.unshift(alert);
+      saveBrowserDb(db);
+      return alert;
+    }
+
+    case "integration_state":
+      return {
+        inFocusSession: db.pomodoros.some((p) => p.status === "running" || p.status === "active"),
+      } satisfies IntegrationState;
+
+    case "report_summary": {
+      const days30: ReportDay[] = [];
+      const base = new Date();
+      base.setHours(0, 0, 0, 0);
+      for (let i = 29; i >= 0; i -= 1) {
+        const d = new Date(base);
+        d.setDate(base.getDate() - i);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+          d.getDate()
+        ).padStart(2, "0")}`;
+        const metrics = db.metricsByDay?.[key];
+        days30.push({
+          date: key,
+          focusMin: 0,
+          breakMin: metrics?.breakMin ?? 0,
+          waterCount: metrics?.waterCount ?? 0,
+          pomodoros: 0,
+          tasksDone: 0,
+        });
+      }
+      for (const p of db.pomodoros) {
+        if (p.status === "completed") {
+          const dKey = localDayFromIso(p.started_at);
+          const day = days30.find((x) => x.date === dKey);
+          if (day) {
+            if (p.kind === "focus") {
+              day.focusMin += p.actual_min ?? p.planned_min ?? 0;
+              day.pomodoros += 1;
+            } else {
+              day.breakMin += p.actual_min ?? p.planned_min ?? 0;
+            }
+          }
+        }
+      }
+      for (const a of db.alerts) {
+        if (a.resolution === "resolved" && a.resolved_at) {
+          const dKey = localDayFromIso(a.resolved_at);
+          const day = days30.find((x) => x.date === dKey);
+          if (day && a.kind === "routine") {
+            const lower = a.title.toLowerCase();
+            if (lower.includes("água") || lower.includes("agua") || lower.includes("water") || lower.includes("hidrata")) {
+              day.waterCount += 1;
+            }
+          }
+        }
+      }
+      for (const t of db.tasks) {
+        if (t.status === "done" && t.completed_at) {
+          const dKey = localDayFromIso(t.completed_at);
+          const day = days30.find((x) => x.date === dKey);
+          if (day) day.tasksDone += 1;
+        }
+      }
+      const fold = (slice: ReportDay[]): ReportPeriod =>
+        slice.reduce<ReportPeriod>(
+          (acc, d) => {
+            acc.focusMin += d.focusMin;
+            acc.breakMin += d.breakMin;
+            acc.waterCount += d.waterCount;
+            acc.pomodoros += d.pomodoros;
+            acc.tasksDone += d.tasksDone;
+            if (d.focusMin > 0 || d.pomodoros > 0 || d.tasksDone > 0) {
+              acc.activeDays += 1;
+            }
+            return acc;
+          },
+          { focusMin: 0, breakMin: 0, waterCount: 0, pomodoros: 0, tasksDone: 0, activeDays: 0 }
+        );
+      return {
+        today: days30[days30.length - 1],
+        week: fold(days30.slice(-7)),
+        month: fold(days30),
+        byDay: days30.slice(-14).reverse(),
+      } satisfies ReportSummary;
+    }
+
+    case "github_check_auth":
+      return {
+        available: true,
+        authenticated: Boolean(db.settings["github.repo"]),
+        account: db.settings["github.repo"] ? "browser-demo" : null,
+        message: db.settings["github.repo"] ? null : "github.authRequired",
+      } satisfies GithubAuthStatus;
+
+    case "github_issues_list":
+      return db.githubLinks ?? [];
+
+    case "github_sync_issues": {
+      const repo = String(db.settings["github.repo"] ?? "").trim();
+      if (!repo) {
+        throw new IpcError("kanban.github.repoRequired", "validation");
+      }
+      const links = db.githubLinks ?? [];
+      return {
+        created: 0,
+        updated: 0,
+        skipped: links.length,
+        issues: links,
+      } satisfies GithubSyncSummary;
+    }
+
+    case "github_link_task": {
+      const taskId = String(args.taskId ?? "");
+      const repo = String(args.repo ?? "").trim();
+      const num = Number(args.number ?? 0);
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new IpcError(`Task not found: ${taskId}`, "application");
+      const link: GithubIssueLink = {
+        id: genId(),
+        source: "github",
+        externalId: `${repo}#${num}`,
+        repo,
+        issueNumber: num,
+        issueUrl: `https://github.com/${repo}/issues/${num}`,
+        title: task.title,
+        labels: [],
+        sourceStatus: "open",
+        taskId,
+        titleLocked: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      db.githubLinks = [...(db.githubLinks ?? []).filter((l) => l.taskId !== taskId), link];
+      saveBrowserDb(db);
+      return link;
+    }
+
+    case "github_unlink_task": {
+      const taskId = String(args.taskId ?? "");
+      db.githubLinks = (db.githubLinks ?? []).filter((l) => l.taskId !== taskId);
+      saveBrowserDb(db);
+      return;
+    }
+
+    case "data_export_zip": {
+      return encodeBrowserZipBase64({
+        "settings.json": JSON.stringify(db.settings, null, 2),
+        "browser-state.json": JSON.stringify({
+          tasks: db.tasks,
+          projects: db.projects,
+          pomodoros: db.pomodoros,
+          reminders: db.reminders,
+          dailyPlans: db.dailyPlans,
+          githubLinks: db.githubLinks ?? [],
+        }),
+        "audit-log.json": JSON.stringify({ notifications: [], mcp_proposals: [] }),
+      });
+    }
+
+    case "data_import_zip": {
+      const files = decodeBrowserZipBase64(String(args.zipBase64 ?? ""));
+      let importedTasks = 0;
+      let importedSettings = 0;
+      if (files["settings.json"]) {
+        const s = JSON.parse(files["settings.json"]) as Record<string, unknown>;
+        for (const [k, v] of Object.entries(s)) {
+          db.settings[k] = v;
+          importedSettings += 1;
+        }
+      }
+      if (files["browser-state.json"]) {
+        const st = JSON.parse(files["browser-state.json"]) as Partial<BrowserDbState>;
+        if (Array.isArray(st.tasks)) {
+          const existingIds = new Set(db.tasks.map((t) => t.id));
+          for (const t of st.tasks) {
+            if (!existingIds.has(t.id)) {
+              db.tasks.push(t);
+              importedTasks += 1;
+            }
+          }
+        }
+      }
+      saveBrowserDb(db);
+      return {
+        projects: 0,
+        tasks: importedTasks,
+        pomodoros: 0,
+        reminders: 0,
+        daily_plans: 0,
+        settings: importedSettings,
+        github_issues: 0,
+      } satisfies ImportSummary;
     }
 
     default:
@@ -1022,6 +1332,12 @@ export const alertsApi = {
 
   except: (id: string, note: string): Promise<Alert> =>
     wrapInvoke<Alert>("alerts_except", { id, note }),
+
+  syncDesktopLock: (): Promise<void> =>
+    wrapInvoke<void>("alerts_sync_desktop_lock"),
+
+  triggerTestBlock: (title: string, body?: string | null): Promise<Alert> =>
+    wrapInvoke<Alert>("alerts_trigger_test_block", { title, body: body ?? null }),
 };
 
 export const settingsApi = {
@@ -1049,6 +1365,44 @@ export const dashboardApi = {
     wrapInvoke<DailyPlan>("daily_plan_set_payload", { input: { id, payload } }),
 };
 
+export const integrationApi = {
+  state: (): Promise<IntegrationState> =>
+    wrapInvoke<IntegrationState>("integration_state"),
+};
+
+export const reportsApi = {
+  summary: (): Promise<ReportSummary> =>
+    wrapInvoke<ReportSummary>("report_summary"),
+};
+
+export const githubApi = {
+  syncIssues: (
+    projectId?: string | null,
+    labelFilter?: string | null
+  ): Promise<GithubSyncSummary> =>
+    wrapInvoke<GithubSyncSummary>("github_sync_issues", { projectId, labelFilter }),
+
+  listIssues: (projectId?: string | null): Promise<GithubIssueLink[]> =>
+    wrapInvoke<GithubIssueLink[]>("github_issues_list", { projectId }),
+
+  linkTask: (taskId: string, repo: string, number: number): Promise<GithubIssueLink> =>
+    wrapInvoke<GithubIssueLink>("github_link_task", { taskId, repo, number }),
+
+  unlinkTask: (taskId: string): Promise<void> =>
+    wrapInvoke<void>("github_unlink_task", { taskId }),
+
+  checkAuth: (): Promise<GithubAuthStatus> =>
+    wrapInvoke<GithubAuthStatus>("github_check_auth"),
+};
+
+export const dataIoApi = {
+  exportZipBase64: (): Promise<string> =>
+    wrapInvoke<string>("data_export_zip"),
+
+  importZipBase64: (zipBase64: string): Promise<ImportSummary> =>
+    wrapInvoke<ImportSummary>("data_import_zip", { zipBase64 }),
+};
+
 export const ipc = {
   ping: () => wrapInvoke<string>("ping"),
   tasks: tasksApi,
@@ -1058,4 +1412,8 @@ export const ipc = {
   alerts: alertsApi,
   settings: settingsApi,
   dashboard: dashboardApi,
+  integration: integrationApi,
+  reports: reportsApi,
+  github: githubApi,
+  dataIo: dataIoApi,
 } as const;

@@ -1,27 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Download, ShieldAlert, Upload } from "lucide-react";
 
-import { IpcError, settingsApi } from "@/lib/ipc";
-import { cn } from "@/lib/utils";
+import { alertsApi, dataIoApi, settingsApi } from "@/lib/ipc";
+import { applyTheme } from "@/lib/theme";
 
-interface Setting {
+type SettingType = "string" | "number" | "boolean" | "select";
+
+interface SettingDef {
   key: string;
-  /** i18n key for the row label. */
   labelKey: string;
-  /** i18n key for the row description. */
   descriptionKey: string;
-  type: "string" | "number" | "boolean" | "time" | "select";
-  options?: string[];
-  group: string;
+  type: SettingType;
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+  group: "app" | "pomodoro" | "reminders" | "routines" | "github";
 }
 
-const SETTINGS_DEF: Setting[] = [
+const SETTINGS_DEF: SettingDef[] = [
   {
     key: "app.locale",
     labelKey: "settings.items.locale.label",
     descriptionKey: "settings.items.locale.description",
     type: "select",
-    options: ["pt-BR", "en"],
+    options: [
+      { value: "pt-BR", label: "pt-BR" },
+      { value: "en", label: "en" },
+    ],
     group: "app",
   },
   {
@@ -29,7 +34,11 @@ const SETTINGS_DEF: Setting[] = [
     labelKey: "settings.items.theme.label",
     descriptionKey: "settings.items.theme.description",
     type: "select",
-    options: ["dark", "light", "system"],
+    options: [
+      { value: "dark", label: "dark" },
+      { value: "light", label: "light" },
+      { value: "system", label: "system" },
+    ],
     group: "app",
   },
   {
@@ -68,10 +77,18 @@ const SETTINGS_DEF: Setting[] = [
     group: "reminders",
   },
   {
+    key: "reminders.block_screen",
+    labelKey: "settings.items.blockScreen.label",
+    descriptionKey: "settings.items.blockScreen.description",
+    type: "boolean",
+    group: "reminders",
+  },
+  {
     key: "routine.daily_planning_time",
     labelKey: "settings.items.planningTime.label",
     descriptionKey: "settings.items.planningTime.description",
-    type: "time",
+    type: "string",
+    placeholder: "07:50",
     group: "routines",
   },
   {
@@ -88,17 +105,56 @@ const SETTINGS_DEF: Setting[] = [
     type: "number",
     group: "routines",
   },
+  {
+    key: "github.repo",
+    labelKey: "settings.items.githubRepo.label",
+    descriptionKey: "settings.items.githubRepo.description",
+    type: "string",
+    placeholder: "owner/repo",
+    group: "github",
+  },
+  {
+    key: "github.filter_labels",
+    labelKey: "settings.items.githubLabels.label",
+    descriptionKey: "settings.items.githubLabels.description",
+    type: "string",
+    placeholder: "bug,enhancement",
+    group: "github",
+  },
 ];
 
-/** i18n key for each settings group heading. */
 const GROUP_LABEL_KEYS: Record<string, string> = {
   app: "settings.groups.app",
   pomodoro: "settings.groups.pomodoro",
   reminders: "settings.groups.reminders",
   routines: "settings.groups.routines",
+  github: "settings.groups.github",
 };
 
-export function SettingsPage() {
+export interface SettingsPageProps {
+  onSettingSaved?: (key: string, value: unknown) => void;
+  onAlertTriggered?: () => void;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBlob(base64: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: "application/zip" });
+}
+
+export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageProps = {}) {
   const { t, i18n } = useTranslation();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const initial: Record<string, unknown> = {};
@@ -108,24 +164,27 @@ export function SettingsPage() {
     return initial;
   });
   const [loading, setLoading] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadAll = async () => {
+    try {
+      const entries = await settingsApi.getAll();
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of entries) {
+          next[k] = v;
+        }
+        return next;
+      });
+    } catch {
+      // Keep defaults when IPC is unavailable
+    }
+  };
 
   useEffect(() => {
-    settingsApi
-      .getAll()
-      .then((pairs) => {
-        setValues((prev) => {
-          const next = { ...prev };
-          for (const [k, v] of pairs) {
-            next[k] = v;
-          }
-          return next;
-        });
-      })
-      .catch(() => {
-        // Fallback to local defaults if running in browser preview outside Tauri
-      });
+    void loadAll();
   }, []);
 
   async function saveOne(key: string, value: unknown) {
@@ -134,19 +193,91 @@ export function SettingsPage() {
     try {
       await settingsApi.set(key, value);
       setValues((v) => ({ ...v, [key]: value }));
+
       if (key === "app.locale" && typeof value === "string") {
         await i18n.changeLanguage(value);
+      } else if (key === "app.theme") {
+        applyTheme(value);
+      } else if (key === "reminders.block_screen") {
+        await alertsApi.syncDesktopLock().catch(() => {});
       }
-      setSavedAt(new Date().toLocaleTimeString());
+
+      onSettingSaved?.(key, value);
+      setSavedMsg(t("settings.saved"));
+      setTimeout(() => setSavedMsg(null), 2000);
     } catch (e) {
-      if (key === "app.locale" && typeof value === "string") {
-        await i18n.changeLanguage(value);
-        setSavedAt(new Date().toLocaleTimeString());
-      } else {
-        setError(e instanceof IpcError ? e.message : String(e));
-      }
+      setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleTestBlockingModal() {
+    setLoading(true);
+    setError(null);
+    try {
+      await alertsApi.triggerTestBlock(
+        t("reminders.testBlockTitle"),
+        t("reminders.testBlockBody")
+      );
+      setValues((v) => ({ ...v, "reminders.block_screen": true }));
+      onSettingSaved?.("reminders.block_screen", true);
+      onAlertTriggered?.();
+      setSavedMsg(t("reminders.firedNow"));
+      setTimeout(() => setSavedMsg(null), 2000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExportZip() {
+    setLoading(true);
+    setError(null);
+    try {
+      const zipBase64 = await dataIoApi.exportZipBase64();
+      const blob = base64ToBlob(zipBase64);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const today = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `auradesk-backup-${today}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setSavedMsg(t("settings.backup.exportSuccess"));
+      setTimeout(() => setSavedMsg(null), 3000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleImportZip(file: File | undefined) {
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = bytesToBase64(new Uint8Array(buf));
+      const summary = await dataIoApi.importZipBase64(b64);
+      await loadAll();
+      onAlertTriggered?.();
+      setSavedMsg(
+        t("settings.backup.importSuccess", {
+          tasks: summary.tasks,
+          settings: summary.settings,
+        })
+      );
+      setTimeout(() => setSavedMsg(null), 3500);
+    } catch (e) {
+      setError(String(e) || t("settings.backup.invalidZip"));
+    } finally {
+      setLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -156,22 +287,13 @@ export function SettingsPage() {
     <div className="flex h-full flex-col gap-4 overflow-y-auto">
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-slate-50">
-            {t("settings.title")}
-          </h2>
+          <h2 className="text-xl font-bold text-slate-50">{t("settings.title")}</h2>
         </div>
-        {savedAt ? (
-          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30">
-            ✓ {t("settings.saved")} ({savedAt})
-          </span>
-        ) : null}
+        <div className="flex items-center gap-3 text-xs">
+          {savedMsg && <span className="text-emerald-400">✓ {savedMsg}</span>}
+          {error && <span className="text-red-400">{error}</span>}
+        </div>
       </div>
-
-      {error ? (
-        <div className="rounded-md bg-red-500/15 px-3 py-2 text-sm text-red-300 ring-1 ring-red-500/30">
-          {error}
-        </div>
-      ) : null}
 
       {Object.entries(groups).map(([group, items]) => (
         <section
@@ -181,118 +303,179 @@ export function SettingsPage() {
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-400">
             {t(GROUP_LABEL_KEYS[group] ?? group)}
           </h3>
-          <div className="space-y-3">
+          <div className="divide-y divide-slate-800/80">
             {items.map((s) => (
               <SettingRow
                 key={s.key}
-                setting={s}
-                value={values[s.key]}
+                def={s}
+                value={values[s.key] ?? defaultFor(s)}
                 disabled={loading}
-                onChange={(v) =>
-                  setValues((prev) => ({ ...prev, [s.key]: v }))
-                }
+                onChange={(val) => setValues((v) => ({ ...v, [s.key]: val }))}
                 onSave={(v) => void saveOne(s.key, v)}
               />
             ))}
+
+            {group === "reminders" && (
+              <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                <div>
+                  <div className="text-sm font-medium text-slate-100">
+                    {t("settings.testBlockLabel")}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {t("settings.testBlockDescription")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleTestBlockingModal()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 ring-1 ring-rose-500/40 hover:bg-rose-500/30 disabled:opacity-40 cursor-pointer"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  {t("reminders.testBlockButton")}
+                </button>
+              </div>
+            )}
           </div>
         </section>
       ))}
+
+      {/* Backup & Portability (.zip) */}
+      <section className="rounded-xl bg-slate-900/50 p-4 ring-1 ring-slate-800/80 space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+          {t("settings.groups.backup")}
+        </h3>
+        <p className="text-xs text-slate-400">{t("settings.backup.description")}</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void handleExportZip()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {t("settings.backup.exportButton")}
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            data-testid="backup-zip-input"
+            onChange={(e) => void handleImportZip(e.target.files?.[0])}
+            className="hidden"
+          />
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {t("settings.backup.importButton")}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
 
-interface SettingRowProps {
-  setting: Setting;
+function SettingRow({
+  def,
+  value,
+  disabled,
+  onChange,
+  onSave,
+}: {
+  def: SettingDef;
   value: unknown;
   disabled: boolean;
   onChange: (v: unknown) => void;
   onSave: (v: unknown) => void;
-}
-
-function SettingRow({ setting, value, disabled, onChange, onSave }: SettingRowProps) {
+}) {
   const { t } = useTranslation();
+
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-slate-800/50 pb-2.5 last:border-0 last:pb-0">
+    <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
       <div>
-        <div className="text-sm font-medium text-slate-200">
-          {t(setting.labelKey)}
-        </div>
-        <div className="text-xs text-slate-400">{t(setting.descriptionKey)}</div>
+        <div className="text-sm font-medium text-slate-100">{t(def.labelKey)}</div>
+        <div className="text-xs text-slate-400">{t(def.descriptionKey)}</div>
       </div>
       <div className="flex items-center gap-2">
-        {setting.type === "number" ? (
-          <input
-            type="number"
-            min={1}
-            value={typeof value === "number" ? value : ""}
-            onChange={(e) => onChange(parseInt(e.target.value || "0", 10))}
-            className="w-24 rounded-md bg-slate-800 px-2.5 py-1.5 text-right text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500 outline-none tabular-nums"
-          />
-        ) : setting.type === "boolean" ? (
+        {def.type === "boolean" ? (
           <button
             type="button"
+            disabled={disabled}
+            aria-label={t(def.labelKey)}
+            aria-pressed={Boolean(value)}
             onClick={() => {
               const next = !value;
               onChange(next);
               onSave(next);
             }}
-            className={cn(
-              "relative h-6 w-11 rounded-full transition-colors cursor-pointer",
+            className={`h-6 w-11 rounded-full transition-colors cursor-pointer ${
               value ? "bg-sky-500" : "bg-slate-700"
-            )}
-            aria-pressed={!!value}
+            }`}
           >
             <span
-              className={cn(
-                "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                value ? "translate-x-5" : "translate-x-0"
-              )}
+              className={`block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                value ? "translate-x-5" : "translate-x-0.5"
+              }`}
             />
           </button>
-        ) : setting.type === "select" ? (
+        ) : def.type === "select" ? (
           <select
-            value={typeof value === "string" ? value : ""}
+            aria-label={t(def.labelKey)}
+            disabled={disabled}
+            value={String(value ?? "")}
             onChange={(e) => {
-              onChange(e.target.value);
-              onSave(e.target.value);
+              const next = e.target.value;
+              onChange(next);
+              onSave(next);
             }}
-            className="rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
+            className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           >
-            {(setting.options ?? []).map((o) => (
-              <option key={o} value={o}>
-                {o}
+            {def.options?.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>
-        ) : setting.type === "time" ? (
+        ) : def.type === "number" ? (
           <input
-            type="time"
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
-            className="rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
+            aria-label={t(def.labelKey)}
+            type="number"
+            value={Number(value ?? 0)}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-24 rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           />
         ) : (
           <input
+            aria-label={t(def.labelKey)}
             type="text"
-            value={typeof value === "string" ? value : ""}
+            placeholder={def.placeholder ?? ""}
+            value={value == null ? "" : String(value)}
             onChange={(e) => onChange(e.target.value)}
-            className="w-40 rounded-md bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700 focus:ring-sky-500"
+            className="w-40 rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           />
         )}
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onSave(value)}
-          className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50 cursor-pointer transition-colors"
-        >
-          Salvar
-        </button>
+
+        {(def.type === "number" || def.type === "string") && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSave(value)}
+            className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+          >
+            {t("kanban.save")}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function defaultFor(s: Setting): unknown {
+function defaultFor(s: SettingDef): unknown {
   switch (s.key) {
     case "app.locale":
       return "pt-BR";
@@ -308,23 +491,27 @@ function defaultFor(s: Setting): unknown {
       return 4;
     case "reminders.sound":
       return true;
+    case "reminders.block_screen":
+      return false;
     case "routine.daily_planning_time":
       return "07:50";
     case "routine.water_interval_min":
-      return 90;
+      return 60;
     case "routine.break_interval_min":
-      return 50;
+      return 90;
+    case "github.repo":
+    case "github.filter_labels":
+      return "";
     default:
-      return null;
+      return "";
   }
 }
 
-function groupBy<T, K extends string>(items: T[], fn: (x: T) => K): Record<K, T[]> {
-  const out: Record<K, T[]> = {} as Record<K, T[]>;
-  for (const it of items) {
-    const k = fn(it);
-    if (!out[k]) out[k] = [];
-    out[k].push(it);
+function groupBy<T>(list: T[], fn: (item: T) => string): Record<string, T[]> {
+  const out: Record<string, T[]> = {};
+  for (const item of list) {
+    const k = fn(item);
+    (out[k] ??= []).push(item);
   }
   return out;
 }

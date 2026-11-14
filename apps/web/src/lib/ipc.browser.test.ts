@@ -13,10 +13,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   alertsApi,
   dashboardApi,
+  dataIoApi,
+  githubApi,
+  integrationApi,
   ipc,
   pomodoroApi,
   projectsApi,
   remindersApi,
+  reportsApi,
   settingsApi,
   tasksApi,
 } from "./ipc";
@@ -375,5 +379,57 @@ describe("browser fallback (localStorage engine)", () => {
   it("ignores a stored payload with the wrong shape", async () => {
     seedDb({ tasks: "not-an-array", settings: null });
     await expect(tasksApi.list()).resolves.toEqual([]);
+  });
+
+  describe("reports, screen block, github, and zip backup fallbacks", () => {
+    it("reads settings_get and triggers blocking test alert", async () => {
+      expect(await settingsApi.get("reminders.block_screen")).toBe(false);
+      expect(await settingsApi.get("nonexistent.key")).toBeNull();
+
+      const alert = await alertsApi.triggerTestBlock("Teste Lock", "Confirmar leitura");
+      expect(alert.severity).toBe("urgent");
+      expect(await settingsApi.get("reminders.block_screen")).toBe(true);
+      await expect(alertsApi.syncDesktopLock()).resolves.toBeUndefined();
+    });
+
+    it("computes 30-day report summary with water counts and integration state", async () => {
+      const a = await alertsApi.create({
+        kind: "routine",
+        title: "Hora da água",
+        severity: "normal",
+      });
+      await alertsApi.resolve(a.id);
+
+      const session = await pomodoroApi.start({ kind: "focus", planned_min: 25 });
+      expect((await integrationApi.state()).inFocusSession).toBe(true);
+      await pomodoroApi.complete(18);
+      expect(session.planned_min).toBe(25);
+
+      const report = await reportsApi.summary();
+      expect(report.byDay).toHaveLength(14);
+      expect(report.today.focusMin).toBe(18);
+      expect(report.today.waterCount).toBe(1);
+    });
+
+    it("handles github issue links and zip export/import roundtrip", async () => {
+      await expect(githubApi.syncIssues()).rejects.toThrow(/repoRequired/);
+      await settingsApi.set("github.repo", "RAGton/AuraDesk");
+      const auth = await githubApi.checkAuth();
+      expect(auth.authenticated).toBe(true);
+
+      const task = await tasksApi.create({ title: "Fix kanban drag", priority: "high" });
+      const linked = await githubApi.linkTask(task.id, "RAGton/AuraDesk", 42);
+      expect(linked.externalId).toBe("RAGton/AuraDesk#42");
+      expect(await githubApi.listIssues()).toHaveLength(1);
+
+      const zipB64 = await dataIoApi.exportZipBase64();
+      localStorage.clear();
+      const summary = await dataIoApi.importZipBase64(zipB64);
+      expect(summary.tasks).toBe(1);
+      expect((await tasksApi.list())[0].title).toBe("Fix kanban drag");
+
+      await githubApi.unlinkTask(task.id);
+      expect(await githubApi.listIssues()).toHaveLength(0);
+    });
   });
 });

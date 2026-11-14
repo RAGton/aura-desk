@@ -11,6 +11,7 @@
     "kanban": "Tasks & Kanban",
     "pomodoro": "Pomodoro & Focus",
     "reminders": "Reminders & Alerts",
+    "reports": "Reports",
     "settings": "Settings"
   },
   "dashboard": {
@@ -42,6 +43,8 @@
     "dailyPlan": "Daily Planning",
     "planNotesPlaceholder": "Write your top 3 priorities for today...",
     "saveNotes": "Save Notes",
+    "dailyNotesSaved": "✓ Daily notes saved!",
+    "focusSuffix": "m focus",
     "planStatus": {
       "not_started": "Not started",
       "in_progress": "In progress",
@@ -64,10 +67,14 @@
     "searchPlaceholder": "Search tasks...",
     "allPriorities": "All priorities",
     "create": "Create Card",
+    "taskCreated": "✓ Card created!",
     "edit": "Edit",
     "save": "Save",
     "cancel": "Cancel",
     "focusTask": "Focus",
+    "focusSuffix": "m focus",
+    "moveTo": "Move to {{col}}",
+    "holdingToDrag": "Drop into target column",
     "columns": {
       "todo": "To Do",
       "doing": "In Progress",
@@ -82,24 +89,54 @@
     },
     "emptyColumn": "Drag a card here or create a task",
     "delete": "Delete",
-    "taskDeleted": "Task deleted."
+    "taskDeleted": "Task deleted.",
+    "github": {
+      "importButton": "Import issues",
+      "importing": "Syncing…",
+      "importedSummary": "{{created}} created, {{updated}} updated",
+      "authRequired": "Run gh auth login in terminal first",
+      "repoRequired": "Set github.repo in settings",
+      "unlink": "Unlink",
+      "unlinked": "Issue unlinked from card",
+      "openExternal": "Open on GitHub",
+      "issueOpen": "Open",
+      "issueClosed": "Closed"
+    }
   },
   "pomodoro": {
     "title": "Pomodoro Timer & Deep Work",
     "running": "Session in Progress",
+    "paused": "Paused",
     "idle": "Select an optional task and start a focus block",
     "selectTask": "Link to task (optional)...",
     "noTaskLinked": "No linked task",
     "startFocus": "Start Focus (25 min)",
     "startShortBreak": "Short Break (5 min)",
     "startLongBreak": "Long Break (15 min)",
+    "startFocusCustom": "Start Focus ({{min}} min)",
+    "startShortBreakCustom": "Short Break ({{min}} min)",
+    "startLongBreakCustom": "Long Break ({{min}} min)",
     "pauseTimer": "Pause Clock",
     "resumeTimer": "Resume Clock",
     "complete": "Complete Session",
     "abandon": "Abandon",
     "history": "Recent Session History",
     "noHistory": "No sessions recorded yet.",
-    "sessionInterrupted": "Session interrupted."
+    "sessionStarted": "▶ Focus started ({{min}}m)!",
+    "sessionCompleted": "🎉 Session complete! +{{min}}m logged.",
+    "sessionInterrupted": "Session interrupted.",
+    "kinds": {
+      "focus": "Focus",
+      "short_break": "Short Break",
+      "long_break": "Long Break"
+    },
+    "statuses": {
+      "running": "In progress",
+      "active": "Active",
+      "completed": "Completed",
+      "abandoned": "Abandoned",
+      "interrupted": "Interrupted"
+    }
   },
   "reminders": {
     "title": "Reminders & Persistent Alerts",
@@ -108,6 +145,8 @@
     "addIn1Min": "Schedule (+1 min)",
     "addIn15Min": "Schedule (+15 min)",
     "addIn1Hour": "Schedule (+1h)",
+    "scheduled": "🔔 Reminder scheduled!",
+    "firedNow": "⚡ Reminder fired!",
     "activeAlerts": "Triggered Alerts",
     "noAlerts": "No pending alerts right now.",
     "resolve": "Resolve",
@@ -116,9 +155,31 @@
     "except": "Exception",
     "exceptPlaceholder": "Reason for exception...",
     "modalMustResolve": "This notice stays on screen until you resolve, snooze, or dismiss the reminder.",
+    "lockTitle": "PC Lock Mode Active",
+    "lockBanner": "This alert locks your screen until you confirm you read it and pick an action below.",
+    "confirmReadLabel": "I confirm I read and understood this alert",
+    "confirmReadRequired": "Check the read confirmation before unlocking your PC.",
+    "testBlockButton": "Test blocking modal",
+    "testBlockTitle": "Blocking Modal Test",
+    "testBlockBody": "This is a test alert to validate screen locking and read confirmation.",
     "upcoming": "Reminders List",
     "noReminders": "No reminders scheduled.",
     "titleRequired": "Enter a reminder title first."
+  },
+  "reports": {
+    "title": "Reports & Metrics",
+    "subtitle": "Consolidated summary for the last 30 days",
+    "today": "Today",
+    "week": "Last 7 days",
+    "month": "Last 30 days",
+    "focusLabel": "Focus minutes",
+    "breakLabel": "Break minutes",
+    "waterLabel": "Hydration checks",
+    "tasksLabel": "Tasks completed",
+    "activeDays": "Active days",
+    "pomodoros": "Pomodoros",
+    "dailyChartTitle": "Daily History (Last 14 days)",
+    "noData": "No metrics recorded in this period yet."
   },
   "settings": {
     "title": "System Settings",
@@ -127,7 +188,9 @@
       "app": "Application",
       "pomodoro": "Pomodoro",
       "reminders": "Reminders",
-      "routines": "Routines"
+      "routines": "Routines",
+      "github": "GitHub Issues",
+      "backup": "Backup & Portability"
     },
     "items": {
       "locale": {
@@ -158,6 +221,10 @@
         "label": "Reminder sound",
         "description": "Play a sound when a reminder fires."
       },
+      "blockScreen": {
+        "label": "Lock PC until read confirmed",
+        "description": "Opens a fullscreen overlay across all monitors when an alert fires and requires read confirmation."
+      },
       "planningTime": {
         "label": "Daily planning",
         "description": "Local time (HH:MM) for the daily planning."
@@ -169,7 +236,25 @@
       "breakInterval": {
         "label": "Break interval (min)",
         "description": "How often to be reminded to take a break."
+      },
+      "githubRepo": {
+        "label": "Default repository (owner/repo)",
+        "description": "Repository used when importing GitHub issues into Kanban."
+      },
+      "githubLabels": {
+        "label": "Label filter (optional)",
+        "description": "Comma-separated label list to filter imported issues."
       }
+    },
+    "testBlockLabel": "Lock Validation",
+    "testBlockDescription": "Trigger a test alert to verify the desktop blocking modal.",
+    "backup": {
+      "exportButton": "Export Backup (.zip)",
+      "importButton": "Restore Backup (.zip)",
+      "description": "Creates a .zip archive containing auradesk.db, settings.json, and audit-log.json.",
+      "exportSuccess": "✓ .zip backup exported!",
+      "importSuccess": "✓ Backup restored ({{tasks}} tasks, {{settings}} settings)!",
+      "invalidZip": "Invalid or corrupted .zip archive."
     }
   },
   "errors": {

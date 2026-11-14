@@ -6,9 +6,11 @@
 //! Phase 2+: Pomodoro-aware RoutineRunner (see `routines.rs`) that
 //! suppresses hydration/break alerts while a focus block runs.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use auradesk_core::application::settings::SettingsService;
+use auradesk_core::domain::settings_key::SettingsKey;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -16,6 +18,9 @@ use tauri::{
 };
 
 use auradesk_core::infrastructure::db::Db;
+
+use crate::alert_lock::LOCK_WINDOW_PREFIX;
+use crate::github::GhCliIssueFetcher;
 
 pub use crate::ipc;
 
@@ -25,12 +30,13 @@ pub use crate::ipc;
 /// `in_focus_session` is set to `true` while a Pomodoro *focus*
 /// session is running. The `RoutineRunner` reads it to suppress
 /// routine alerts (water/break) while the user is in deep work.
-/// This is the integration glue between Pomodoro and the
-/// reminder/alert pipeline: the focus block is sacred, routine
-/// interruptions are not surfaced until the focus ends.
+/// `screen_lock_active` tracks whether fullscreen blocking alert
+/// overlays are currently enforced.
 pub struct AppState {
     pub db: Arc<Db>,
     pub in_focus_session: Arc<AtomicBool>,
+    pub screen_lock_active: Arc<AtomicBool>,
+    pub github_fetcher: Arc<GhCliIssueFetcher>,
 }
 
 pub fn build() -> tauri::Builder<tauri::Wry> {
@@ -51,22 +57,34 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             // `Db::open` joins `auradesk.db` itself; pass the data dir, not a file path.
             let db =
                 Arc::new(Db::open(&data_dir).map_err(|e| format!("open db {data_dir:?}: {e}"))?);
+
+            if let Ok(Some(locale_val)) = SettingsService::new(&db).get(SettingsKey::AppLocale) {
+                if let Some(locale_str) = locale_val.as_str() {
+                    auradesk_core::i18n::set_locale(locale_str);
+                }
+            }
+
             let in_focus = Arc::new(AtomicBool::new(false));
+            let screen_lock_active = Arc::new(AtomicBool::new(false));
+            let github_fetcher = Arc::new(GhCliIssueFetcher::new());
             app.manage(AppState {
                 db: Arc::clone(&db),
                 in_focus_session: Arc::clone(&in_focus),
+                screen_lock_active,
+                github_fetcher,
             });
 
-            // Launch the routine runner as a background task. It
-            // owns its own `Db` handle and a clone of the focus flag,
-            // so it survives even if the IPC state moves. The task
-            // ticks every 15s and is the single source of truth for
-            // routine-driven alerts (water, break, daily planning).
+            // Sync fullscreen alert overlays at startup in case pending alerts
+            // survived an OS reboot or app restart with `reminders.block_screen` enabled.
+            crate::alert_lock::sync_blocking_windows(app.handle(), &db);
+
+            // Launch the routine runner as a background task.
             std::thread::spawn({
+                let app_handle = app.handle().clone();
                 let db = Arc::clone(&db);
                 let in_focus = Arc::clone(&in_focus);
                 move || {
-                    crate::routines::run_loop(db, in_focus);
+                    crate::routines::run_loop(app_handle, db, in_focus);
                 }
             });
 
@@ -88,8 +106,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
             // System tray
-            let _tray = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut tray_builder = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -117,18 +134,48 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+            let _tray = tray_builder.build(app)?;
 
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Close-to-tray: closing the window does NOT exit the process.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    let _ = window.hide();
-                    api.prevent_close();
+            let label = window.label();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    if label == "main" {
+                        // Close-to-tray: closing the main window does NOT exit the process.
+                        let _ = window.hide();
+                        api.prevent_close();
+                    } else if label.starts_with(LOCK_WINDOW_PREFIX) {
+                        if let Some(state) = window.app_handle().try_state::<AppState>() {
+                            if state.screen_lock_active.load(Ordering::SeqCst) {
+                                api.prevent_close();
+                                let _ = window.set_always_on_top(true);
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
                 }
+                tauri::WindowEvent::Focused(false) if label == "alert-lock-0" => {
+                    let app = window.app_handle();
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if state.screen_lock_active.load(Ordering::SeqCst) {
+                            let any_auradesk_focused = app
+                                .webview_windows()
+                                .values()
+                                .any(|w| w.is_focused().unwrap_or(false));
+                            if !any_auradesk_focused {
+                                let _ = window.set_always_on_top(true);
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -153,6 +200,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::reminders_delete,
             crate::ipc::reminders_dismiss,
             crate::ipc::reminders_snooze,
+            crate::ipc::settings_get,
             crate::ipc::settings_get_all,
             crate::ipc::settings_set,
             crate::ipc::dashboard_summary,
@@ -162,11 +210,20 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::alerts_snooze,
             crate::ipc::alerts_dismiss,
             crate::ipc::alerts_except,
+            crate::ipc::alerts_sync_desktop_lock,
+            crate::ipc::alerts_trigger_test_block,
             crate::ipc::report_summary,
             crate::ipc::integration_state,
             crate::ipc::daily_plan_get,
             crate::ipc::daily_plan_set_state,
             crate::ipc::daily_plan_set_payload,
+            crate::ipc::github_sync_issues,
+            crate::ipc::github_issues_list,
+            crate::ipc::github_link_task,
+            crate::ipc::github_unlink_task,
+            crate::ipc::github_check_auth,
+            crate::ipc::data_export_zip,
+            crate::ipc::data_import_zip,
         ])
 }
 

@@ -73,12 +73,23 @@ impl<'a> RoutinesService<'a> {
     }
 
     pub fn record_fired(&self, id: &str, fired_at: DateTime<Utc>) -> Result<Routine, CoreError> {
-        let _ = self.get(id)?;
+        let existing = self.get(id)?;
         let fired_str = fired_at.to_rfc3339();
+        let cleaned_meta = existing.metadata.as_deref().and_then(|s| {
+            let mut obj =
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).ok()?;
+            obj.remove("snooze_until");
+            obj.remove("snooze_alert_id");
+            if obj.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(obj).to_string())
+            }
+        });
         let conn = self.db.writer();
         conn.execute(
-            "UPDATE routines SET last_fired_at = ?1, updated_at = ?1 WHERE id = ?2",
-            params![fired_str, id],
+            "UPDATE routines SET last_fired_at = ?1, metadata = ?2, updated_at = ?1 WHERE id = ?3",
+            params![fired_str, cleaned_meta, id],
         )
         .map_err(|e| CoreError::internal(format!("routines record_fired: {e}")))?;
         drop(conn);

@@ -11,6 +11,7 @@
     "kanban": "Tarefas & Kanban",
     "pomodoro": "Pomodoro & Foco",
     "reminders": "Lembretes & Alertas",
+    "reports": "Relatórios",
     "settings": "Configurações"
   },
   "dashboard": {
@@ -42,6 +43,8 @@
     "dailyPlan": "Planejamento Diário",
     "planNotesPlaceholder": "Anote suas 3 prioridades do dia...",
     "saveNotes": "Salvar Notas",
+    "dailyNotesSaved": "✓ Notas do dia salvas!",
+    "focusSuffix": "m foco",
     "planStatus": {
       "not_started": "Não iniciado",
       "in_progress": "Em andamento",
@@ -64,10 +67,14 @@
     "searchPlaceholder": "Buscar tarefa...",
     "allPriorities": "Todas prioridades",
     "create": "Criar Card",
+    "taskCreated": "✓ Card criado!",
     "edit": "Editar",
     "save": "Salvar",
     "cancel": "Cancelar",
     "focusTask": "Focar",
+    "focusSuffix": "m foco",
+    "moveTo": "Mover para {{col}}",
+    "holdingToDrag": "Solte na coluna desejada",
     "columns": {
       "todo": "A Fazer",
       "doing": "Em Andamento",
@@ -82,24 +89,54 @@
     },
     "emptyColumn": "Arraste um card ou crie uma tarefa",
     "delete": "Excluir",
-    "taskDeleted": "Tarefa excluída."
+    "taskDeleted": "Tarefa excluída.",
+    "github": {
+      "importButton": "Importar issues",
+      "importing": "Sincronizando…",
+      "importedSummary": "{{created}} criadas, {{updated}} atualizadas",
+      "authRequired": "Configure o token em gh auth login no terminal",
+      "repoRequired": "Defina github.repo nas configurações",
+      "unlink": "Desvincular",
+      "unlinked": "Issue desvinculada do card",
+      "openExternal": "Abrir no GitHub",
+      "issueOpen": "Aberta",
+      "issueClosed": "Fechada"
+    }
   },
   "pomodoro": {
     "title": "Timer Pomodoro & Deep Work",
     "running": "Sessão em Andamento",
+    "paused": "Pausado",
     "idle": "Selecione uma tarefa opcional e inicie um bloco de foco",
     "selectTask": "Vincular à tarefa (opcional)...",
     "noTaskLinked": "Sem tarefa vinculada",
     "startFocus": "Iniciar Foco (25 min)",
     "startShortBreak": "Pausa Curta (5 min)",
     "startLongBreak": "Pausa Longa (15 min)",
+    "startFocusCustom": "Iniciar Foco ({{min}} min)",
+    "startShortBreakCustom": "Pausa Curta ({{min}} min)",
+    "startLongBreakCustom": "Pausa Longa ({{min}} min)",
     "pauseTimer": "Pausar Relógio",
     "resumeTimer": "Retomar Relógio",
     "complete": "Concluir Sessão",
     "abandon": "Interromper",
     "history": "Histórico Recente de Sessões",
     "noHistory": "Nenhuma sessão registrada ainda.",
-    "sessionInterrupted": "Sessão interrompida."
+    "sessionStarted": "▶ Foco iniciado ({{min}}m)!",
+    "sessionCompleted": "🎉 Bloco concluído! +{{min}}m registrados.",
+    "sessionInterrupted": "Sessão interrompida.",
+    "kinds": {
+      "focus": "Foco",
+      "short_break": "Pausa Curta",
+      "long_break": "Pausa Longa"
+    },
+    "statuses": {
+      "running": "Em andamento",
+      "active": "Ativa",
+      "completed": "Concluída",
+      "abandoned": "Interrompida",
+      "interrupted": "Interrompida"
+    }
   },
   "reminders": {
     "title": "Lembretes & Alertas Persistentes",
@@ -108,6 +145,8 @@
     "addIn1Min": "Agendar (+1 min)",
     "addIn15Min": "Agendar (+15 min)",
     "addIn1Hour": "Agendar (+1h)",
+    "scheduled": "🔔 Lembrete agendado!",
+    "firedNow": "⚡ Lembrete disparado!",
     "activeAlerts": "Alertas Disparados",
     "noAlerts": "Nenhum alerta pendente no momento.",
     "resolve": "Resolver",
@@ -116,9 +155,31 @@
     "except": "Exceção",
     "exceptPlaceholder": "Justificativa para exceção...",
     "modalMustResolve": "Este aviso permanece na tela até você resolver, adiar ou dispensar o lembrete.",
+    "lockTitle": "Modo Bloqueio de Tela Ativo",
+    "lockBanner": "Este aviso bloqueia a tela até você confirmar a leitura e escolher uma ação abaixo.",
+    "confirmReadLabel": "Confirmo que li e entendi este aviso",
+    "confirmReadRequired": "Marque a confirmação de leitura antes de liberar o computador.",
+    "testBlockButton": "Testar modal bloqueante",
+    "testBlockTitle": "Teste do Modal Bloqueante",
+    "testBlockBody": "Este é um aviso de teste para validar o bloqueio de tela e a confirmação de leitura.",
     "upcoming": "Lista de Lembretes",
     "noReminders": "Nenhum lembrete cadastrado.",
     "titleRequired": "Digite o título do lembrete primeiro."
+  },
+  "reports": {
+    "title": "Relatórios & Métricas",
+    "subtitle": "Resumo consolidado dos últimos 30 dias",
+    "today": "Hoje",
+    "week": "Últimos 7 dias",
+    "month": "Últimos 30 dias",
+    "focusLabel": "Minutos de foco",
+    "breakLabel": "Minutos de pausa",
+    "waterLabel": "Hidratações concluídas",
+    "tasksLabel": "Tarefas concluídas",
+    "activeDays": "Dias ativos",
+    "pomodoros": "Pomodoros",
+    "dailyChartTitle": "Histórico Diário (Últimos 14 dias)",
+    "noData": "Nenhuma métrica registrada no período ainda."
   },
   "settings": {
     "title": "Configurações do Sistema",
@@ -127,7 +188,9 @@
       "app": "Aplicativo",
       "pomodoro": "Pomodoro",
       "reminders": "Lembretes",
-      "routines": "Rotinas"
+      "routines": "Rotinas",
+      "github": "GitHub Issues",
+      "backup": "Backup & Portabilidade"
     },
     "items": {
       "locale": {
@@ -158,6 +221,10 @@
         "label": "Som dos lembretes",
         "description": "Tocar som ao disparar um lembrete."
       },
+      "blockScreen": {
+        "label": "Bloquear PC até confirmar leitura",
+        "description": "Abre um overlay em tela cheia em todos os monitores quando um lembrete dispara e exige confirmação de leitura."
+      },
       "planningTime": {
         "label": "Planejamento diário",
         "description": "Horário local (HH:MM) do planejamento diário."
@@ -169,7 +236,25 @@
       "breakInterval": {
         "label": "Intervalo de pausa (min)",
         "description": "A cada quantos minutos lembrar de fazer uma pausa."
+      },
+      "githubRepo": {
+        "label": "Repositório padrão (owner/repo)",
+        "description": "Repositório usado ao importar issues do GitHub para o Kanban."
+      },
+      "githubLabels": {
+        "label": "Filtro de labels (opcional)",
+        "description": "Lista separada por vírgulas para filtrar issues importadas."
       }
+    },
+    "testBlockLabel": "Validação de Bloqueio",
+    "testBlockDescription": "Dispare um alerta de teste para experimentar o modal bloqueante no desktop.",
+    "backup": {
+      "exportButton": "Exportar Backup (.zip)",
+      "importButton": "Restaurar Backup (.zip)",
+      "description": "Gera um arquivo .zip contendo auradesk.db, settings.json e audit-log.json.",
+      "exportSuccess": "✓ Backup .zip exportado!",
+      "importSuccess": "✓ Backup restaurado ({{tasks}} tarefas, {{settings}} configurações)!",
+      "invalidZip": "Arquivo .zip inválido ou corrompido."
     }
   },
   "errors": {

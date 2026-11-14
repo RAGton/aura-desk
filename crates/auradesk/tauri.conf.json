@@ -16,7 +16,8 @@
         "title": "AuraDesk",
         "width": 1200,
         "height": 800,
-        "visible": true
+        "visible": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

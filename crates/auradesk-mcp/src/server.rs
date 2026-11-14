@@ -2,6 +2,7 @@
 //! `auradesk-core` and exposes all 19 tools as JSON-RPC over stdio.
 
 use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rmcp::model::{
@@ -43,6 +44,57 @@ impl AuraDeskService {
     pub fn new() -> Self {
         let db = Db::open_in_memory().expect("initialize AuraDeskService database");
         Self { db: Arc::new(db) }
+    }
+
+    /// Build a service backed by a persistent SQLite database inside `data_dir`.
+    pub fn open(data_dir: &Path) -> Result<Self, CoreError> {
+        std::fs::create_dir_all(data_dir).map_err(|e| {
+            CoreError::internal(format!("create data dir {}: {e}", data_dir.display()))
+        })?;
+        let db = Db::open(data_dir)?;
+        Ok(Self { db: Arc::new(db) })
+    }
+
+    /// Resolve the default OS data directory shared with the AuraDesk desktop app (`com.ragton.auradesk`).
+    pub fn resolve_data_dir(cli_override: Option<&Path>) -> PathBuf {
+        if let Some(p) = cli_override {
+            return p.to_path_buf();
+        }
+        if let Some(env_dir) = std::env::var_os("AURADESK_DB_DIR").filter(|s| !s.is_empty()) {
+            return PathBuf::from(env_dir);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(appdata) = std::env::var_os("APPDATA").filter(|s| !s.is_empty()) {
+                return PathBuf::from(appdata).join("com.ragton.auradesk");
+            }
+            if let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|s| !s.is_empty()) {
+                return PathBuf::from(local).join("com.ragton.auradesk");
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(home) = std::env::var_os("HOME").filter(|s| !s.is_empty()) {
+                let app_support = ["Application", "Support"].join(" ");
+                return PathBuf::from(home)
+                    .join("Library")
+                    .join(app_support)
+                    .join("com.ragton.auradesk");
+            }
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            if let Some(xdg) = std::env::var_os("XDG_DATA_HOME").filter(|s| !s.is_empty()) {
+                return PathBuf::from(xdg).join("com.ragton.auradesk");
+            }
+            if let Some(home) = std::env::var_os("HOME").filter(|s| !s.is_empty()) {
+                return PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("com.ragton.auradesk");
+            }
+        }
+        std::env::temp_dir().join("com.ragton.auradesk")
     }
 
     /// Build a service sharing an existing `Arc<Db>`.

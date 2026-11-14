@@ -25,6 +25,8 @@ pub enum SettingsKey {
     MonitorFallbackStrategy,
     /// Whether reminder sound effects are enabled.
     RemindersSound,
+    /// Whether desktop alerts lock the screen with a full-screen blocking modal until read.
+    RemindersBlockScreen,
     /// Until when reminders are snoozed (ISO-8601 string or null).
     RemindersPausedUntil,
     /// Focus phase duration in minutes.
@@ -67,6 +69,7 @@ impl SettingsKey {
             Self::MonitorPreferred => "monitor.preferred",
             Self::MonitorFallbackStrategy => "monitor.fallback_strategy",
             Self::RemindersSound => "reminders.sound",
+            Self::RemindersBlockScreen => "reminders.block_screen",
             Self::RemindersPausedUntil => "reminders.paused_until",
             Self::PomodoroFocusMin => "pomodoro.focus_min",
             Self::PomodoroShortMin => "pomodoro.short_min",
@@ -100,6 +103,7 @@ impl SettingsKey {
             "monitor.preferred" => Self::MonitorPreferred,
             "monitor.fallback_strategy" => Self::MonitorFallbackStrategy,
             "reminders.sound" => Self::RemindersSound,
+            "reminders.block_screen" => Self::RemindersBlockScreen,
             "reminders.paused_until" => Self::RemindersPausedUntil,
             "pomodoro.focus_min" => Self::PomodoroFocusMin,
             "pomodoro.short_min" => Self::PomodoroShortMin,
@@ -128,6 +132,7 @@ impl SettingsKey {
         Self::MonitorPreferred,
         Self::MonitorFallbackStrategy,
         Self::RemindersSound,
+        Self::RemindersBlockScreen,
         Self::RemindersPausedUntil,
         Self::PomodoroFocusMin,
         Self::PomodoroShortMin,

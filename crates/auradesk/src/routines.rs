@@ -18,6 +18,9 @@ use std::time::Duration;
 use auradesk_core::infrastructure::clock::SystemClock;
 use auradesk_core::infrastructure::db::Db;
 use auradesk_core::infrastructure::scheduler::Scheduler;
+use tauri::AppHandle;
+
+use crate::audio::DesktopAudio;
 
 /// How often the loop evaluates reminders and routines.
 const TICK_INTERVAL: Duration = Duration::from_secs(15);
@@ -25,20 +28,16 @@ const TICK_INTERVAL: Duration = Duration::from_secs(15);
 /// Run the background routine loop until the process exits.
 ///
 /// The loop ticks the `Scheduler` every [`TICK_INTERVAL`]. Each tick
-/// creates the alerts that are due, and the core handles the
-/// Pomodoro focus suppression: while a focus session is running the
-/// scheduler defers `water` and `break` routines instead of
-/// interrupting deep work.
-///
-/// `in_focus` mirrors the shell's in-memory focus flag. The scheduler
-/// reads the authoritative state from the database; the flag is used
-/// here only to keep the two views consistent when a focus session
-/// starts or stops between two ticks.
-pub fn run_loop(db: Arc<Db>, in_focus: Arc<AtomicBool>) {
+/// creates the alerts that are due, plays native audio cues when enabled,
+/// updates any fullscreen desktop blocking modal overlays if
+/// `reminders.block_screen` is turned on, and keeps `in_focus` synchronized
+/// with PostgreSQL/SQLite state.
+pub fn run_loop(app: AppHandle, db: Arc<Db>, in_focus: Arc<AtomicBool>) {
     let clock = SystemClock;
+    let audio = DesktopAudio::new();
 
     loop {
-        let scheduler = Scheduler::new(&db, &clock);
+        let scheduler = Scheduler::new(&db, &clock).with_audio(&audio);
         match scheduler.tick() {
             Ok(outcome) => {
                 if !outcome.fired_reminder_alerts.is_empty()
@@ -50,6 +49,7 @@ pub fn run_loop(db: Arc<Db>, in_focus: Arc<AtomicBool>) {
                         outcome.fired_routine_alerts.len(),
                         outcome.suppressed_routines,
                     );
+                    crate::alert_lock::sync_blocking_windows(&app, &db);
                 }
                 // Keep the shell flag in sync with what the scheduler
                 // observed. The scheduler reads the database, so it is

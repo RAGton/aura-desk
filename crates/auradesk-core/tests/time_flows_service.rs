@@ -156,13 +156,13 @@ fn test_snooze_alert_and_refire_with_parent_alert_id() {
     assert_eq!(rem_after_snooze.snooze_count, 1);
     assert!(rem_after_snooze.fire_at > now1);
 
-    // 3. Before 5 minutes elapse, nothing fires
-    let now2 = Utc::now() + Duration::minutes(2);
+    // 3. Before 10 minutes elapse, nothing fires
+    let now2 = Utc::now() + Duration::minutes(9);
     let fired2 = reminders_svc.poll_and_fire_overdue(now2).unwrap();
     assert_eq!(fired2.len(), 0);
 
-    // 4. After 5 minutes elapse, it fires again, linked via parent_alert_id!
-    let now3 = Utc::now() + Duration::minutes(6);
+    // 4. After 10 minutes elapse, it fires again, linked via parent_alert_id!
+    let now3 = Utc::now() + Duration::minutes(11);
     let fired3 = reminders_svc.poll_and_fire_overdue(now3).unwrap();
     assert_eq!(fired3.len(), 1);
     let second_alert_id = fired3[0].id.clone();
@@ -486,7 +486,12 @@ fn test_scheduler_suppresses_routines_during_focus_and_fires_after_break() {
     let outcome_free = scheduler.tick().unwrap();
     assert!(!outcome_free.in_focus_session);
     assert_eq!(outcome_free.suppressed_routines, 0);
-    assert_eq!(outcome_free.fired_routine_alerts.len(), 2);
+    let non_planning_routines: Vec<_> = outcome_free
+        .fired_routine_alerts
+        .iter()
+        .filter(|a| a.title != "Planejamento diário")
+        .collect();
+    assert_eq!(non_planning_routines.len(), 2);
 }
 
 #[test]
@@ -520,4 +525,323 @@ fn test_daily_plans_unique_per_date_and_state_transitions() {
     let done = svc.set_state(&plan.id, PlanState::Completed).unwrap();
     assert_eq!(done.state, PlanState::Completed);
     assert!(done.completed_at.is_some());
+}
+
+#[test]
+fn test_fixed_clock_reminder_fires_within_five_seconds_window() {
+    use auradesk_core::infrastructure::clock::FixedClock;
+    use auradesk_core::infrastructure::scheduler::Scheduler;
+
+    let db = Db::open_in_memory().unwrap();
+    let t0 = Utc.with_ymd_and_hms(2026, 11, 14, 15, 0, 0).unwrap();
+    let fire_at = t0 + Duration::minutes(10);
+    let clock = FixedClock::new(t0);
+    let reminders_svc = RemindersService::with_clock(&db, &clock);
+
+    reminders_svc
+        .create(NewReminder {
+            title: "Precision Check".into(),
+            body: None,
+            fire_at,
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Normal,
+            task_id: None,
+        })
+        .unwrap();
+
+    clock.set(fire_at - Duration::seconds(1));
+    assert!(Scheduler::new(&db, &clock)
+        .tick()
+        .unwrap()
+        .fired_reminder_alerts
+        .is_empty());
+
+    clock.set(fire_at + Duration::seconds(4));
+    let fired = Scheduler::new(&db, &clock)
+        .tick()
+        .unwrap()
+        .fired_reminder_alerts;
+    assert_eq!(fired.len(), 1);
+    assert_eq!(fired[0].title, "Precision Check");
+}
+
+#[test]
+fn test_suspend_resume_30min_replays_overdue_alerts_without_duplicating() {
+    use auradesk_core::infrastructure::clock::FixedClock;
+    use auradesk_core::infrastructure::scheduler::Scheduler;
+
+    let db = Db::open_in_memory().unwrap();
+    let base = Utc::now();
+    let clock = FixedClock::new(base);
+    let reminders_svc = RemindersService::with_clock(&db, &clock);
+
+    // Scheduled 15 min after `base`, missed while machine was suspended for 30 min.
+    reminders_svc
+        .create(NewReminder {
+            title: "While Suspended".into(),
+            body: Some("Missed during sleep".into()),
+            fire_at: base + Duration::minutes(15),
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Urgent,
+            task_id: None,
+        })
+        .unwrap();
+
+    clock.advance(Duration::minutes(30));
+    let scheduler = Scheduler::new(&db, &clock);
+    let first = scheduler.tick().unwrap();
+    assert_eq!(first.fired_reminder_alerts.len(), 1);
+    assert_eq!(first.fired_reminder_alerts[0].title, "While Suspended");
+
+    // Subsequent tick must not duplicate the replayed reminder.
+    let second = scheduler.tick().unwrap();
+    assert_eq!(second.fired_reminder_alerts.len(), 0);
+}
+
+#[test]
+fn test_scheduler_audio_respects_mute_setting() {
+    use auradesk_core::application::settings::SettingsService;
+    use auradesk_core::domain::settings_key::SettingsKey;
+    use auradesk_core::infrastructure::audio::NoopAudio;
+    use auradesk_core::infrastructure::clock::FixedClock;
+    use auradesk_core::infrastructure::scheduler::Scheduler;
+
+    let db = Db::open_in_memory().unwrap();
+    let t0 = Utc.with_ymd_and_hms(2026, 11, 14, 16, 0, 0).unwrap();
+    let clock = FixedClock::new(t0);
+    let audio = NoopAudio::new();
+    let rem_svc = RemindersService::with_clock(&db, &clock);
+
+    rem_svc
+        .create(NewReminder {
+            title: "Sound On".into(),
+            body: None,
+            fire_at: t0,
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Normal,
+            task_id: None,
+        })
+        .unwrap();
+
+    Scheduler::new(&db, &clock)
+        .with_audio(&audio)
+        .tick()
+        .unwrap();
+    assert_eq!(audio.played_sounds().len(), 1);
+
+    SettingsService::new(&db)
+        .set(SettingsKey::RemindersSound, serde_json::Value::Bool(false))
+        .unwrap();
+    rem_svc
+        .create(NewReminder {
+            title: "Muted Alert".into(),
+            body: None,
+            fire_at: t0,
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Urgent,
+            task_id: None,
+        })
+        .unwrap();
+
+    Scheduler::new(&db, &clock)
+        .with_audio(&audio)
+        .tick()
+        .unwrap();
+    // Still 1 sound played total because mute prevented dispatching the second alert.
+    assert_eq!(audio.played_sounds().len(), 1);
+}
+
+#[test]
+fn test_resolve_atomic_transaction_and_rollback_on_notification_failure() {
+    let db = Arc::new(Db::open_in_memory().unwrap());
+    let reminders_svc = RemindersService::new(&db);
+    let alerts_svc = AlertsService::new(&db);
+
+    let r = reminders_svc
+        .create(NewReminder {
+            title: "Atomic Resolve Target".into(),
+            body: None,
+            fire_at: Utc::now() - Duration::minutes(1),
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Normal,
+            task_id: None,
+        })
+        .unwrap();
+
+    let fired = reminders_svc.poll_and_fire_overdue(Utc::now()).unwrap();
+    let alert_id = &fired[0].id;
+
+    // Install a failing trigger on notifications AFTER reminders was already modified in tx.
+    {
+        let conn = db.writer();
+        conn.execute_batch(
+            "CREATE TRIGGER abort_notif_on_resolve BEFORE INSERT ON notifications \
+             WHEN NEW.read_at IS NOT NULL \
+             BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;",
+        )
+        .unwrap();
+    }
+
+    let err = alerts_svc.resolve(alert_id);
+    assert!(err.is_err());
+
+    // Both alerts_pending AND reminders must remain rolled back cleanly.
+    let alert_after_rollback = alerts_svc.get(alert_id).unwrap();
+    assert_eq!(alert_after_rollback.resolution, None);
+    let rem_after_rollback = reminders_svc.get(&r.id).unwrap();
+    assert_eq!(rem_after_rollback.status, ReminderStatus::Fired);
+
+    // Drop failing trigger and prove normal resolve writes all 3 atomically.
+    {
+        let conn = db.writer();
+        conn.execute_batch("DROP TRIGGER abort_notif_on_resolve;")
+            .unwrap();
+    }
+    alerts_svc.resolve(alert_id).unwrap();
+    assert_eq!(
+        alerts_svc.get(alert_id).unwrap().resolution,
+        Some(AlertResolution::Resolved)
+    );
+    assert_eq!(
+        reminders_svc.get(&r.id).unwrap().status,
+        ReminderStatus::Resolved
+    );
+    let conn = db.writer();
+    let read_notifs: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM notifications WHERE alert_id = ?1 AND read_at IS NOT NULL",
+            rusqlite::params![alert_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(read_notifs, 1);
+}
+
+#[test]
+fn test_routine_snooze_10m_refires_with_parent_alert_id_and_no_duplicates() {
+    use auradesk_core::infrastructure::clock::FixedClock;
+    use auradesk_core::infrastructure::scheduler::Scheduler;
+
+    let db = Db::open_in_memory().unwrap();
+    let clock = FixedClock::new(Utc::now() + Duration::hours(2));
+    let alerts_svc = AlertsService::with_clock(&db, &clock);
+
+    let tick1 = Scheduler::new(&db, &clock).tick().unwrap();
+    let water_alert = tick1
+        .fired_routine_alerts
+        .into_iter()
+        .find(|a| a.title == "Hidratação")
+        .unwrap();
+
+    // Ticking again while water alert is still pending must not duplicate.
+    let tick_dup = Scheduler::new(&db, &clock).tick().unwrap();
+    assert!(!tick_dup
+        .fired_routine_alerts
+        .iter()
+        .any(|a| a.title == "Hidratação"));
+
+    alerts_svc.snooze(&water_alert.id).unwrap();
+
+    // After 9 minutes, snoozed routine has not fired yet.
+    clock.advance(Duration::minutes(9));
+    let tick_before = Scheduler::new(&db, &clock).tick().unwrap();
+    assert!(!tick_before
+        .fired_routine_alerts
+        .iter()
+        .any(|a| a.title == "Hidratação"));
+
+    // After 10+ minutes, snoozed routine re-fires linked to the snoozed alert.
+    clock.advance(Duration::minutes(2));
+    let tick_after = Scheduler::new(&db, &clock).tick().unwrap();
+    let refired = tick_after
+        .fired_routine_alerts
+        .iter()
+        .find(|a| a.title == "Hidratação")
+        .unwrap();
+
+    let conn = db.writer();
+    let parent: Option<String> = conn
+        .query_row(
+            "SELECT parent_alert_id FROM alerts_pending WHERE id = ?1",
+            rusqlite::params![refired.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(parent, Some(water_alert.id));
+}
+
+#[test]
+fn test_pomodoro_start_rejects_concurrent_running_session() {
+    let db = Db::open_in_memory().unwrap();
+    let pomos = PomodorosService::new(&db);
+    pomos
+        .start(NewPomodoroSession {
+            kind: SessionKind::Focus,
+            planned_min: 25,
+            task_id: None,
+        })
+        .unwrap();
+    let second = pomos.start(NewPomodoroSession {
+        kind: SessionKind::ShortBreak,
+        planned_min: 5,
+        task_id: None,
+    });
+    assert!(matches!(
+        second,
+        Err(auradesk_core::CoreError::Conflict { .. })
+    ));
+}
+
+#[test]
+fn test_data_io_zip_export_and_import_roundtrip() {
+    use auradesk_core::application::data_io::DataIoService;
+    use auradesk_core::application::settings::SettingsService;
+    use auradesk_core::domain::settings_key::SettingsKey;
+
+    let src = Db::open_in_memory().unwrap();
+    let tasks = TasksService::new(&src);
+    let created = tasks
+        .create(NewTask {
+            title: "Zip Exported Task".into(),
+            description: Some("Should survive zip restore".into()),
+            project_id: None,
+            parent_task_id: None,
+            priority: TaskPriority::Urgent,
+            status: TaskStatus::Doing,
+            due_at: None,
+            estimate_min: Some(45),
+            tags: Some(vec!["backup".into()]),
+        })
+        .unwrap();
+    SettingsService::new(&src)
+        .set(
+            SettingsKey::RemindersBlockScreen,
+            serde_json::Value::Bool(true),
+        )
+        .unwrap();
+
+    let zip_bytes = DataIoService::new(&src).export_zip_bytes().unwrap();
+
+    // Verify the zip archive contains all 3 required artifacts.
+    {
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&zip_bytes)).unwrap();
+        assert!(archive.by_name("auradesk.db").is_ok());
+        assert!(archive.by_name("settings.json").is_ok());
+        assert!(archive.by_name("audit-log.json").is_ok());
+    }
+
+    let dst = Db::open_in_memory().unwrap();
+    let summary = DataIoService::new(&dst)
+        .import_zip_bytes(&zip_bytes)
+        .unwrap();
+    assert_eq!(summary.tasks, 1);
+
+    let restored_task = TasksService::new(&dst).get(&created.id).unwrap();
+    assert_eq!(restored_task.title, "Zip Exported Task");
+    assert_eq!(
+        SettingsService::new(&dst)
+            .get(SettingsKey::RemindersBlockScreen)
+            .unwrap(),
+        Some(serde_json::Value::Bool(true))
+    );
 }

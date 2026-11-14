@@ -9,17 +9,28 @@ use crate::domain::alert::{Alert, AlertSeverity};
 use crate::domain::reminder::{
     NewReminder, Reminder, ReminderSound, ReminderStatus, RepeatKind, UpdateReminder,
 };
+use crate::infrastructure::clock::{Clock, SystemClock};
 use crate::infrastructure::db::Db;
 use crate::CoreError;
+
+static SYSTEM_CLOCK: SystemClock = SystemClock;
 
 /// Service for managing reminders and firing overdue reminders into the alert queue.
 pub struct RemindersService<'a> {
     pub db: &'a Db,
+    pub clock: &'a dyn Clock,
 }
 
 impl<'a> RemindersService<'a> {
     pub fn new(db: &'a Db) -> Self {
-        Self { db }
+        Self {
+            db,
+            clock: &SYSTEM_CLOCK,
+        }
+    }
+
+    pub fn with_clock(db: &'a Db, clock: &'a dyn Clock) -> Self {
+        Self { db, clock }
     }
 
     pub fn create(&self, new: NewReminder) -> Result<Reminder, CoreError> {
@@ -28,7 +39,7 @@ impl<'a> RemindersService<'a> {
         }
 
         let id = uuid::Uuid::new_v4().to_string();
-        let now = Utc::now();
+        let now = self.clock.now();
         let now_str = now.to_rfc3339();
         let fire_str = new.fire_at.to_rfc3339();
         let repeat_str = new.repeat_kind.as_str();
@@ -102,34 +113,43 @@ impl<'a> RemindersService<'a> {
     /// creates `alerts_pending` + `notifications` records, and transitions
     /// each fired reminder to `status = 'fired'`.
     pub fn poll_and_fire_overdue(&self, now: DateTime<Utc>) -> Result<Vec<Alert>, CoreError> {
-        let conn = self.db.writer();
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, task_id, title, body, fire_at, repeat_kind, sound, status, \
-                 snooze_count, last_snoozed_at, resolved_at, exceptions_log, created_at, updated_at \
-                 FROM reminders WHERE status = 'pending' ORDER BY fire_at ASC",
-            )
-            .map_err(|e| CoreError::internal(format!("poll_overdue prepare: {e}")))?;
-
-        let rows = stmt
-            .query_map([], Self::map_row)
-            .map_err(|e| CoreError::internal(format!("poll_overdue query: {e}")))?;
-
+        let mut conn = self.db.writer();
+        let tx = conn
+            .transaction()
+            .map_err(|e| CoreError::internal(format!("poll_overdue tx: {e}")))?;
         let mut due_reminders = Vec::new();
-        for r in rows {
-            let rem = r.map_err(|e| CoreError::internal(format!("poll_overdue row: {e}")))?;
-            if rem.fire_at <= now {
-                due_reminders.push(rem);
+        {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT id, task_id, title, body, fire_at, repeat_kind, sound, status, \
+                     snooze_count, last_snoozed_at, resolved_at, exceptions_log, created_at, updated_at \
+                     FROM reminders WHERE status = 'pending' \
+                     AND NOT EXISTS ( \
+                         SELECT 1 FROM alerts_pending ap \
+                         WHERE ap.kind = 'reminder' AND ap.ref_id = reminders.id AND ap.resolved_at IS NULL \
+                     ) \
+                     ORDER BY fire_at ASC",
+                )
+                .map_err(|e| CoreError::internal(format!("poll_overdue prepare: {e}")))?;
+
+            let rows = stmt
+                .query_map([], Self::map_row)
+                .map_err(|e| CoreError::internal(format!("poll_overdue query: {e}")))?;
+
+            for r in rows {
+                let rem = r.map_err(|e| CoreError::internal(format!("poll_overdue row: {e}")))?;
+                if rem.fire_at <= now {
+                    due_reminders.push(rem);
+                }
             }
         }
-        drop(stmt);
 
         let now_str = now.to_rfc3339();
         let mut fired_alerts = Vec::new();
 
         for rem in due_reminders {
             // Check if there was a previous snoozed alert for this reminder
-            let parent_alert_id: Option<String> = conn
+            let parent_alert_id: Option<String> = tx
                 .query_row(
                     "SELECT id FROM alerts_pending \
                      WHERE kind = 'reminder' AND ref_id = ?1 AND resolution = 'snoozed' \
@@ -152,7 +172,7 @@ impl<'a> RemindersService<'a> {
             };
 
             let alert_id = uuid::Uuid::new_v4().to_string();
-            conn.execute(
+            tx.execute(
                 "INSERT INTO alerts_pending \
                  (id, kind, ref_id, title, body, severity, options, parent_alert_id, created_at) \
                  VALUES (?1, 'reminder', ?2, ?3, ?4, ?5, NULL, ?6, ?7)",
@@ -169,7 +189,7 @@ impl<'a> RemindersService<'a> {
             .map_err(|e| CoreError::internal(format!("insert alert from reminder: {e}")))?;
 
             let notif_id = uuid::Uuid::new_v4().to_string();
-            conn.execute(
+            tx.execute(
                 "INSERT INTO notifications (id, alert_id, kind, ref_id, title, body, delivered_at) \
                  VALUES (?1, ?2, 'reminder', ?3, ?4, ?5, ?6)",
                 params![
@@ -183,7 +203,7 @@ impl<'a> RemindersService<'a> {
             )
             .map_err(|e| CoreError::internal(format!("insert notification: {e}")))?;
 
-            conn.execute(
+            tx.execute(
                 "UPDATE reminders SET status = 'fired', updated_at = ?1 WHERE id = ?2",
                 params![now_str, rem.id],
             )
@@ -203,6 +223,8 @@ impl<'a> RemindersService<'a> {
             });
         }
 
+        tx.commit()
+            .map_err(|e| CoreError::internal(format!("poll_overdue commit: {e}")))?;
         Ok(fired_alerts)
     }
 
@@ -229,7 +251,7 @@ impl<'a> RemindersService<'a> {
         if let Some(status) = patch.status {
             r.status = status;
         }
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = self.clock.now().to_rfc3339();
 
         let conn = self.db.writer();
         conn.execute(
@@ -265,7 +287,7 @@ impl<'a> RemindersService<'a> {
 
     pub fn dismiss(&self, id: &str) -> Result<Reminder, CoreError> {
         let _existing = self.get(id)?;
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = self.clock.now().to_rfc3339();
         let conn = self.db.writer();
         conn.execute(
             "UPDATE reminders SET status = 'dismissed', resolved_at = ?1, updated_at = ?1 WHERE id = ?2",
@@ -279,7 +301,7 @@ impl<'a> RemindersService<'a> {
 
     pub fn snooze(&self, id: &str, minutes: i32) -> Result<Reminder, CoreError> {
         let _existing = self.get(id)?;
-        let now = Utc::now();
+        let now = self.clock.now();
         let now_str = now.to_rfc3339();
         let fire_at_str = (now + Duration::minutes(minutes as i64)).to_rfc3339();
 

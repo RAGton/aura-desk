@@ -98,16 +98,32 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
       get: vi.fn(async () => undefined),
       set: vi.fn(async () => undefined),
     },
+    githubApi: {
+      syncIssues: vi.fn(async () => ({ created: 2, updated: 1, skipped: 0, issues: [] })),
+      listIssues: vi.fn(async () => empty),
+      linkTask: vi.fn(async () => undefined),
+      unlinkTask: vi.fn(async () => undefined),
+      checkAuth: vi.fn(async () => ({ available: true, authenticated: true })),
+    },
+    reportsApi: {
+      summary: vi.fn(async () => ({
+        today: { date: "2026-11-08", focusMin: 25, breakMin: 5, waterCount: 1, pomodoros: 1, tasksDone: 1 },
+        week: { focusMin: 25, breakMin: 5, waterCount: 1, pomodoros: 1, tasksDone: 1, activeDays: 1 },
+        month: { focusMin: 25, breakMin: 5, waterCount: 1, pomodoros: 1, tasksDone: 1, activeDays: 1 },
+        byDay: [{ date: "2026-11-08", focusMin: 25, breakMin: 5, waterCount: 1, pomodoros: 1, tasksDone: 1 }],
+      })),
+    },
     projectsApi: { list: vi.fn(async () => empty), create: vi.fn(async () => undefined) },
   };
 });
 
-import { alertsApi, pomodoroApi, remindersApi, tasksApi } from "../../lib/ipc";
+import { alertsApi, githubApi, pomodoroApi, remindersApi, tasksApi } from "../../lib/ipc";
 
 const mockedTasks = vi.mocked(tasksApi);
 const mockedAlerts = vi.mocked(alertsApi);
 const mockedReminders = vi.mocked(remindersApi);
 const mockedPomodoro = vi.mocked(pomodoroApi);
+const mockedGithub = vi.mocked(githubApi);
 
 // The tab title and the nav item share the same label, so pick the nav
 // button: it is the one inside the <nav> landmark.
@@ -317,6 +333,59 @@ describe("AppShell tabs", () => {
     await user.click(screen.getByRole("button", { name: "pt-BR" }));
     await waitFor(() => {
       expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+    });
+  });
+
+  it("imports GitHub issues from the Kanban toolbar", async () => {
+    render(<AppShell />);
+    await openTab(/Kanban/i);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Importar issues/i }));
+
+    await waitFor(() => {
+      expect(mockedGithub.syncIssues).toHaveBeenCalled();
+    });
+    expect(await screen.findByText(/2 criadas, 1 atualizadas/i)).toBeInTheDocument();
+  });
+
+  it("switches to the reports tab and renders KPI metrics and chart", async () => {
+    render(<AppShell />);
+    await openTab(/Relatórios/i);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Relatórios & Métricas/i)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("reports-chart")).toBeInTheDocument();
+  });
+
+  it("pauses and resumes pomodoro clock cleanly", async () => {
+    const runningSession = {
+      id: "s-pause-1",
+      kind: "focus" as const,
+      status: "running" as const,
+      planned_min: 25,
+      actual_min: 0,
+      task_id: null,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+    };
+    mockedPomodoro.active.mockResolvedValue(runningSession);
+
+    render(<AppShell />);
+    await openTab(/Pomodoro/i);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Pausar Relógio/i })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Pausar Relógio/i }));
+    expect(screen.getByRole("button", { name: /Retomar Relógio/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Concluir Sessão/i }));
+    await waitFor(() => {
+      expect(mockedPomodoro.complete).toHaveBeenCalledWith(expect.any(Number));
     });
   });
 });

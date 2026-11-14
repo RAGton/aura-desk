@@ -541,6 +541,245 @@ impl<'a> DataIoService<'a> {
             .map_err(|e| CoreError::validation("json", format!("invalid json bundle: {e}")))?;
         self.import(bundle)
     }
+
+    /// Build the formatted JSON audit log (`notifications`, `ia_commands`, `ia_proposals`).
+    pub fn export_audit_log_json(&self) -> Result<String, CoreError> {
+        let conn = self.db.writer();
+        let mut notifications = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, alert_id, proposal_id, kind, ref_id, title, body, delivered_at, read_at \
+                     FROM notifications ORDER BY delivered_at DESC",
+                )
+                .map_err(|e| CoreError::internal(format!("audit notifications prepare: {e}")))?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(serde_json::json!({
+                        "id": r.get::<_, String>(0)?,
+                        "alert_id": r.get::<_, Option<String>>(1)?,
+                        "proposal_id": r.get::<_, Option<String>>(2)?,
+                        "kind": r.get::<_, String>(3)?,
+                        "ref_id": r.get::<_, Option<String>>(4)?,
+                        "title": r.get::<_, String>(5)?,
+                        "body": r.get::<_, Option<String>>(6)?,
+                        "delivered_at": r.get::<_, String>(7)?,
+                        "read_at": r.get::<_, Option<String>>(8)?,
+                    }))
+                })
+                .map_err(|e| CoreError::internal(format!("audit notifications query: {e}")))?;
+            for row in rows {
+                notifications.push(
+                    row.map_err(|e| CoreError::internal(format!("audit notifications row: {e}")))?,
+                );
+            }
+        }
+
+        let mut ia_commands = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, source, tool_name, args_json, result_status, result_message, proposal_id, invoked_at \
+                     FROM ia_commands ORDER BY invoked_at DESC",
+                )
+                .map_err(|e| CoreError::internal(format!("audit ia_commands prepare: {e}")))?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(serde_json::json!({
+                        "id": r.get::<_, String>(0)?,
+                        "source": r.get::<_, String>(1)?,
+                        "tool_name": r.get::<_, String>(2)?,
+                        "args_json": r.get::<_, String>(3)?,
+                        "result_status": r.get::<_, String>(4)?,
+                        "result_message": r.get::<_, Option<String>>(5)?,
+                        "proposal_id": r.get::<_, Option<String>>(6)?,
+                        "invoked_at": r.get::<_, String>(7)?,
+                    }))
+                })
+                .map_err(|e| CoreError::internal(format!("audit ia_commands query: {e}")))?;
+            for row in rows {
+                ia_commands.push(
+                    row.map_err(|e| CoreError::internal(format!("audit ia_commands row: {e}")))?,
+                );
+            }
+        }
+
+        let mut ia_proposals = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, source, kind, summary, status, created_at, expires_at, decided_at, decision_note, result_ref_id, decided_by \
+                     FROM ia_proposals ORDER BY created_at DESC",
+                )
+                .map_err(|e| CoreError::internal(format!("audit ia_proposals prepare: {e}")))?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(serde_json::json!({
+                        "id": r.get::<_, String>(0)?,
+                        "source": r.get::<_, String>(1)?,
+                        "kind": r.get::<_, String>(2)?,
+                        "summary": r.get::<_, String>(3)?,
+                        "status": r.get::<_, String>(4)?,
+                        "created_at": r.get::<_, String>(5)?,
+                        "expires_at": r.get::<_, String>(6)?,
+                        "decided_at": r.get::<_, Option<String>>(7)?,
+                        "decision_note": r.get::<_, Option<String>>(8)?,
+                        "result_ref_id": r.get::<_, Option<String>>(9)?,
+                        "decided_by": r.get::<_, Option<String>>(10)?,
+                    }))
+                })
+                .map_err(|e| CoreError::internal(format!("audit ia_proposals query: {e}")))?;
+            for row in rows {
+                ia_proposals.push(
+                    row.map_err(|e| CoreError::internal(format!("audit ia_proposals row: {e}")))?,
+                );
+            }
+        }
+        drop(conn);
+
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": SCHEMA_VERSION,
+            "exported_at": chrono::Utc::now().to_rfc3339(),
+            "notifications": notifications,
+            "ia_commands": ia_commands,
+            "ia_proposals": ia_proposals,
+        }))
+        .map_err(|e| CoreError::internal(format!("audit_log json serialization: {e}")))
+    }
+
+    /// Export a `.zip` archive containing `auradesk.db`, `settings.json`, and `audit-log.json`.
+    pub fn export_zip_bytes(&self) -> Result<Vec<u8>, CoreError> {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+        use zip::{CompressionMethod, ZipWriter};
+
+        let db_bytes = self.db.backup_to_bytes()?;
+        let settings: Vec<SettingItem> = SettingsService::new(self.db)
+            .list_raw()?
+            .into_iter()
+            .map(|(key, value, updated_at)| SettingItem {
+                key,
+                value,
+                updated_at,
+            })
+            .collect();
+        let settings_json = serde_json::to_string_pretty(&settings)
+            .map_err(|e| CoreError::internal(format!("export settings.json: {e}")))?;
+        let audit_json = self.export_audit_log_json()?;
+
+        let buf = std::io::Cursor::new(Vec::new());
+        let mut writer = ZipWriter::new(buf);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        writer
+            .start_file("auradesk.db", opts)
+            .map_err(|e| CoreError::internal(format!("zip start auradesk.db: {e}")))?;
+        writer
+            .write_all(&db_bytes)
+            .map_err(|e| CoreError::internal(format!("zip write auradesk.db: {e}")))?;
+
+        writer
+            .start_file("settings.json", opts)
+            .map_err(|e| CoreError::internal(format!("zip start settings.json: {e}")))?;
+        writer
+            .write_all(settings_json.as_bytes())
+            .map_err(|e| CoreError::internal(format!("zip write settings.json: {e}")))?;
+
+        writer
+            .start_file("audit-log.json", opts)
+            .map_err(|e| CoreError::internal(format!("zip start audit-log.json: {e}")))?;
+        writer
+            .write_all(audit_json.as_bytes())
+            .map_err(|e| CoreError::internal(format!("zip write audit-log.json: {e}")))?;
+
+        let cursor = writer
+            .finish()
+            .map_err(|e| CoreError::internal(format!("zip finish: {e}")))?;
+        Ok(cursor.into_inner())
+    }
+
+    /// Export the `.zip` backup encoded as standard base64 (for IPC transport).
+    pub fn export_zip_base64(&self) -> Result<String, CoreError> {
+        use base64::Engine;
+        let bytes = self.export_zip_bytes()?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    /// Validate and restore data transactionally from a `.zip` archive created by [`Self::export_zip_bytes`].
+    pub fn import_zip_bytes(&self, zip_bytes: &[u8]) -> Result<ImportSummary, CoreError> {
+        use std::io::Read;
+
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes))
+            .map_err(|e| CoreError::validation("zip", format!("invalid zip archive: {e}")))?;
+
+        let mut db_bytes = Vec::new();
+        {
+            let mut db_entry = archive.by_name("auradesk.db").map_err(|_| {
+                CoreError::validation("zip", "zip archive missing auradesk.db entry")
+            })?;
+            db_entry
+                .read_to_end(&mut db_bytes)
+                .map_err(|e| CoreError::validation("zip", format!("read auradesk.db: {e}")))?;
+        }
+
+        const SQLITE_MAGIC: [u8; 16] = [
+            b'S', b'Q', b'L', b'i', b't', b'e', b' ', b'f', b'o', b'r', b'm', b'a', b't', b' ',
+            b'3', 0,
+        ];
+        if !db_bytes.starts_with(&SQLITE_MAGIC) {
+            return Err(CoreError::validation(
+                "zip",
+                "auradesk.db is not a valid SQLite 3 database",
+            ));
+        }
+
+        let settings_override: Option<Vec<SettingItem>> = match archive.by_name("settings.json") {
+            Ok(mut entry) => {
+                let mut raw = String::new();
+                entry.read_to_string(&mut raw).map_err(|e| {
+                    CoreError::validation("zip", format!("read settings.json: {e}"))
+                })?;
+                let parsed: Vec<SettingItem> = serde_json::from_str(&raw).map_err(|e| {
+                    CoreError::validation("zip", format!("invalid settings.json: {e}"))
+                })?;
+                Some(parsed)
+            }
+            Err(_) => None,
+        };
+
+        let tmp_dir =
+            std::env::temp_dir().join(format!("auradesk-restore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir)
+            .map_err(|e| CoreError::internal(format!("create temp restore dir: {e}")))?;
+        let tmp_db_path = tmp_dir.join("auradesk.db");
+        if let Err(e) = std::fs::write(&tmp_db_path, &db_bytes) {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Err(CoreError::internal(format!("write temp db: {e}")));
+        }
+
+        let res = (|| {
+            let src_db = Db::open(&tmp_dir)?;
+            let mut bundle = DataIoService::new(&src_db).export()?;
+            if let Some(items) = settings_override {
+                bundle.settings = items;
+            }
+            self.import(bundle)
+        })();
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        res
+    }
+
+    /// Decode base64 `.zip` bytes and restore transactionally.
+    pub fn import_zip_base64(&self, b64: &str) -> Result<ImportSummary, CoreError> {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .map_err(|e| {
+                CoreError::validation("zip", format!("invalid base64 zip payload: {e}"))
+            })?;
+        self.import_zip_bytes(&bytes)
+    }
 }
 
 fn validate_hex_color(s: &str) -> bool {
