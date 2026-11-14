@@ -81,7 +81,8 @@
       "urgent": "Urgent"
     },
     "emptyColumn": "Drag a card here or create a task",
-    "delete": "Delete"
+    "delete": "Delete",
+    "taskDeleted": "Task deleted."
   },
   "pomodoro": {
     "title": "Pomodoro Timer & Deep Work",
@@ -97,7 +98,8 @@
     "complete": "Complete Session",
     "abandon": "Abandon",
     "history": "Recent Session History",
-    "noHistory": "No sessions recorded yet."
+    "noHistory": "No sessions recorded yet.",
+    "sessionInterrupted": "Session interrupted."
   },
   "reminders": {
     "title": "Reminders & Persistent Alerts",
@@ -113,11 +115,71 @@
     "dismiss": "Dismiss",
     "except": "Exception",
     "exceptPlaceholder": "Reason for exception...",
+    "modalMustResolve": "This notice stays on screen until you resolve, snooze, or dismiss the reminder.",
     "upcoming": "Reminders List",
-    "noReminders": "No reminders scheduled."
+    "noReminders": "No reminders scheduled.",
+    "titleRequired": "Enter a reminder title first."
   },
   "settings": {
     "title": "System Settings",
-    "saved": "Saved successfully!"
+    "saved": "Saved successfully!",
+    "groups": {
+      "app": "Application",
+      "pomodoro": "Pomodoro",
+      "reminders": "Reminders",
+      "routines": "Routines"
+    },
+    "items": {
+      "locale": {
+        "label": "Language",
+        "description": "Interface language (pt-BR | en)."
+      },
+      "theme": {
+        "label": "Theme",
+        "description": "Interface theme."
+      },
+      "focusMin": {
+        "label": "Focus (min)",
+        "description": "Duration of the focus block in minutes."
+      },
+      "shortMin": {
+        "label": "Short break (min)",
+        "description": "Duration of the short break in minutes."
+      },
+      "longMin": {
+        "label": "Long break (min)",
+        "description": "Duration of the long break in minutes."
+      },
+      "cyclesToLong": {
+        "label": "Cycles until long break",
+        "description": "How many focus blocks before a long break."
+      },
+      "sound": {
+        "label": "Reminder sound",
+        "description": "Play a sound when a reminder fires."
+      },
+      "planningTime": {
+        "label": "Daily planning",
+        "description": "Local time (HH:MM) for the daily planning."
+      },
+      "waterInterval": {
+        "label": "Hydration interval (min)",
+        "description": "How often to be reminded to drink water."
+      },
+      "breakInterval": {
+        "label": "Break interval (min)",
+        "description": "How often to be reminded to take a break."
+      }
+    }
+  },
+  "errors": {
+    "taskTitleEmpty": "The task title cannot be empty.",
+    "taskTitleInvalid": "Invalid title",
+    "projectNameRequired": "Project name is required",
+    "pomodoroNotRunning": "No Pomodoro session in progress.",
+    "pomodoroNoneActive": "No active Pomodoro session.",
+    "focusCompletedBody": "Time to stretch and drink water! Start a short break.",
+    "reminderTitleRequired": "Reminder title is required",
+    "exceptionNoteRequired": "A justification is required"
   }
 }

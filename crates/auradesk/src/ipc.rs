@@ -392,17 +392,18 @@ fn clear_focus_and_celebrate(
         // Re-queue a "focus done" alert so the user explicitly
         // acknowledges the transition into the break.
         let title = if aborted {
-            "Foco interrompido".to_string()
+            auradesk_core::i18n::t("alerts.focus_interrupted")
         } else {
             format!(
-                "✓ Foco concluído · {} min",
+                "{} · {} min",
+                auradesk_core::i18n::t("alerts.focus_completed"),
                 actual_min.max(session.planned_min)
             )
         };
         let body = if aborted {
-            "A sessão de foco foi cancelada. Retomando rotina de pausas."
+            auradesk_core::i18n::t("alerts.focus_interrupted_body")
         } else {
-            "Hora de alongar. Clique em ✓ para iniciar a pausa."
+            auradesk_core::i18n::t("alerts.focus_completed_body")
         };
         let db = db_from(&state);
         let alerts = AlertsService::new(&db);

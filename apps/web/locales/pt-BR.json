@@ -81,7 +81,8 @@
       "urgent": "Urgente"
     },
     "emptyColumn": "Arraste um card ou crie uma tarefa",
-    "delete": "Excluir"
+    "delete": "Excluir",
+    "taskDeleted": "Tarefa excluída."
   },
   "pomodoro": {
     "title": "Timer Pomodoro & Deep Work",
@@ -97,7 +98,8 @@
     "complete": "Concluir Sessão",
     "abandon": "Interromper",
     "history": "Histórico Recente de Sessões",
-    "noHistory": "Nenhuma sessão registrada ainda."
+    "noHistory": "Nenhuma sessão registrada ainda.",
+    "sessionInterrupted": "Sessão interrompida."
   },
   "reminders": {
     "title": "Lembretes & Alertas Persistentes",
@@ -113,11 +115,71 @@
     "dismiss": "Dispensar",
     "except": "Exceção",
     "exceptPlaceholder": "Justificativa para exceção...",
+    "modalMustResolve": "Este aviso permanece na tela até você resolver, adiar ou dispensar o lembrete.",
     "upcoming": "Lista de Lembretes",
-    "noReminders": "Nenhum lembrete cadastrado."
+    "noReminders": "Nenhum lembrete cadastrado.",
+    "titleRequired": "Digite o título do lembrete primeiro."
   },
   "settings": {
     "title": "Configurações do Sistema",
-    "saved": "Salvo com sucesso!"
+    "saved": "Salvo com sucesso!",
+    "groups": {
+      "app": "Aplicativo",
+      "pomodoro": "Pomodoro",
+      "reminders": "Lembretes",
+      "routines": "Rotinas"
+    },
+    "items": {
+      "locale": {
+        "label": "Idioma / Language",
+        "description": "Idioma da interface (pt-BR | en)."
+      },
+      "theme": {
+        "label": "Tema",
+        "description": "Tema da interface."
+      },
+      "focusMin": {
+        "label": "Foco (min)",
+        "description": "Duração do bloco de foco em minutos."
+      },
+      "shortMin": {
+        "label": "Pausa curta (min)",
+        "description": "Duração da pausa curta em minutos."
+      },
+      "longMin": {
+        "label": "Pausa longa (min)",
+        "description": "Duração da pausa longa em minutos."
+      },
+      "cyclesToLong": {
+        "label": "Ciclos até pausa longa",
+        "description": "Quantos blocos de foco antes de uma pausa longa."
+      },
+      "sound": {
+        "label": "Som dos lembretes",
+        "description": "Tocar som ao disparar um lembrete."
+      },
+      "planningTime": {
+        "label": "Planejamento diário",
+        "description": "Horário local (HH:MM) do planejamento diário."
+      },
+      "waterInterval": {
+        "label": "Intervalo de hidratação (min)",
+        "description": "A cada quantos minutos lembrar de beber água."
+      },
+      "breakInterval": {
+        "label": "Intervalo de pausa (min)",
+        "description": "A cada quantos minutos lembrar de fazer uma pausa."
+      }
+    }
+  },
+  "errors": {
+    "taskTitleEmpty": "O título da tarefa não pode estar vazio.",
+    "taskTitleInvalid": "Título inválido",
+    "projectNameRequired": "Nome do projeto obrigatório",
+    "pomodoroNotRunning": "Nenhuma sessão Pomodoro em andamento.",
+    "pomodoroNoneActive": "Nenhuma sessão Pomodoro ativa.",
+    "focusCompletedBody": "Hora de alongar e beber água! Inicie uma pausa curta.",
+    "reminderTitleRequired": "Título do lembrete obrigatório",
+    "exceptionNoteRequired": "Justificativa obrigatória"
   }
 }

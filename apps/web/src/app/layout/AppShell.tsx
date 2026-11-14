@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDown,
@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { AuraDeskLogo } from "../../components/AuraDeskLogo";
+import { ReminderModal } from "../../components/ReminderModal";
 import {
   alertsApi,
   dashboardApi,
@@ -92,7 +93,13 @@ function loadDashboardLayout(): DashboardLayoutState {
 
 export function AppShell() {
   const { t, i18n } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  // The initial tab follows the URL, so a deep link like /reminders opens
+  // that tab directly. Unknown paths fall back to the dashboard.
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const path = window.location.pathname.replace(/^\//, "");
+    const known: TabKey[] = ["dashboard", "kanban", "pomodoro", "reminders", "settings"];
+    return known.includes(path as TabKey) ? (path as TabKey) : "dashboard";
+  });
   const [currentLang, setCurrentLang] = useState<string>(i18n.language || "pt-BR");
   const [inTauri] = useState<boolean>(() => isTauriRuntime());
 
@@ -105,6 +112,13 @@ export function AppShell() {
   const [pomoHistory, setPomoHistory] = useState<PomodoroSession[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  // The modal pops up for interruptions that need a decision: routines
+  // (water, break) and scheduled reminders. A `pomodoro` alert is a
+  // celebration, not an interruption, so it stays in the list.
+  const popupAlert = useMemo(
+    () => alerts.find((a) => a.kind === "routine" || a.kind === "reminder") ?? null,
+    [alerts]
+  );
   const [statusBanner, setStatusBanner] = useState<{
     text: string;
     isError?: boolean;
@@ -202,6 +216,45 @@ export function AppShell() {
     return () => clearInterval(id);
   }, [activePomo, timerPaused]);
 
+  // Modal actions. Each one resolves the alert on the backend and then
+  // refreshes, which is what actually closes the modal: once the alert
+  // is no longer pending, `popupAlert` becomes null.
+  const handlePopupResolve = useCallback(
+    async (id: string) => {
+      try {
+        await alertsApi.resolve(id);
+        await refreshAll();
+      } catch (err) {
+        notify(String(err), true);
+      }
+    },
+    [notify, refreshAll]
+  );
+
+  const handlePopupSnooze = useCallback(
+    async (id: string) => {
+      try {
+        await alertsApi.snooze(id);
+        await refreshAll();
+      } catch (err) {
+        notify(String(err), true);
+      }
+    },
+    [notify, refreshAll]
+  );
+
+  const handlePopupDismiss = useCallback(
+    async (id: string) => {
+      try {
+        await alertsApi.dismiss(id);
+        await refreshAll();
+      } catch (err) {
+        notify(String(err), true);
+      }
+    },
+    [notify, refreshAll]
+  );
+
   const handleLanguageChange = async (lng: "pt-BR" | "en") => {
     await i18n.changeLanguage(lng);
     setCurrentLang(lng);
@@ -270,7 +323,7 @@ export function AppShell() {
     try {
       await tasksApi.delete(id);
       await refreshAll();
-      notify(currentLang.startsWith("pt") ? "Tarefa excluída." : "Task deleted.");
+      notify(t("kanban.taskDeleted"));
     } catch (err) {
       notify(String(err), true);
     }
@@ -322,9 +375,7 @@ export function AppShell() {
     try {
       await pomodoroApi.abandon(0);
       await refreshAll();
-      notify(
-        currentLang.startsWith("pt") ? "Sessão interrompida." : "Session interrupted."
-      );
+      notify(t("pomodoro.sessionInterrupted"));
     } catch (err) {
       notify(String(err), true);
     }
@@ -335,12 +386,7 @@ export function AppShell() {
   const handleCreateReminder = async (minutesFromNow: number) => {
     const trimmed = newReminderTitle.trim();
     if (!trimmed) {
-      notify(
-        currentLang.startsWith("pt")
-          ? "Digite o título do lembrete primeiro."
-          : "Enter a reminder title first.",
-        true
-      );
+      notify(t("reminders.titleRequired"), true);
       return;
     }
     try {
@@ -1597,6 +1643,15 @@ export function AppShell() {
         {/* ================= SETTINGS TAB ================= */}
         {activeTab === "settings" && <SettingsPage />}
       </main>
+
+      {/* Reminder popup. Renders only when there is a pending routine or
+          scheduled reminder, and stays open until the alert is resolved. */}
+      <ReminderModal
+        alert={popupAlert}
+        onResolve={handlePopupResolve}
+        onSnooze={handlePopupSnooze}
+        onDismiss={handlePopupDismiss}
+      />
     </div>
   );
 }

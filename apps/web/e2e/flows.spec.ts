@@ -1,8 +1,14 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const screenshotDir = path.resolve(__dirname, "../e2e-screenshots");
+// The package is ESM ("type": "module"), so `__dirname` is not defined.
+// Derive it from the module URL instead.
+const screenshotDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../e2e-screenshots"
+);
 
 test.beforeAll(() => {
   fs.mkdirSync(screenshotDir, { recursive: true });
@@ -65,6 +71,51 @@ test.beforeEach(async ({ page }) => {
           const input = (args?.input ?? {}) as Record<string, unknown>;
           settings[String(input.key)] = input.value;
           return null;
+        }
+        // The shell queries these on boot. Each has to answer with the
+        // shape the app expects: a list stays a list, so the app can call
+        // `.find()` on it without a null dereference.
+        if (cmd === "alerts_list_pending") {
+          return [];
+        }
+        if (cmd === "reminders_list") {
+          return [];
+        }
+        if (cmd === "pomodoro_active") {
+          return null;
+        }
+        if (cmd === "pomodoro_list") {
+          return [];
+        }
+        if (cmd === "projects_list") {
+          return [];
+        }
+        if (cmd === "daily_plan_get") {
+          return {
+            id: "plan-1",
+            plan_date: new Date().toISOString().slice(0, 10),
+            state: "not_started",
+            payload: null,
+          };
+        }
+        if (cmd === "dashboard_summary") {
+          return {
+            nextTask: null,
+            pendingCount: tasks.length,
+            completedToday: 0,
+            overdueCount: 0,
+            runningPomodoro: null,
+            pendingReminders: 0,
+            recentReminders: [],
+            todayPomodoros: 0,
+            todayFocusMin: 0,
+            waterIntervalMin: 60,
+            breakIntervalMin: 90,
+            dailyPlanningTime: "07:50",
+          };
+        }
+        if (cmd === "integration_state") {
+          return { inFocusSession: false };
         }
         return null;
       },

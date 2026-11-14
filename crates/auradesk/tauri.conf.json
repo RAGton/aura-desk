@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "AuraDesk",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "visible": true
       }
     ],
     "security": {

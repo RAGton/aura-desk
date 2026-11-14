@@ -1,2 +1,12 @@
-_:
+en:
   hello: Hello
+  alerts:
+    focus_interrupted: Focus interrupted
+    focus_completed: Focus completed
+    focus_interrupted_body: The focus session was cancelled. Returning to the break routine.
+    focus_completed_body: Time to stretch. Click ✓ to start the break.
+  tray:
+    show: Show AuraDesk
+    quit: Quit
+  github:
+    issue_label: Issue
