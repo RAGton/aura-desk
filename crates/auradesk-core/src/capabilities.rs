@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -1008,7 +1008,7 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
         }
         "today_overview" => {
             let now = Utc::now();
-            let today_date = now.date_naive();
+            let today_date = Local::now().date_naive();
             let today_str = today_date.format("%Y-%m-%d").to_string();
             let all_tasks = TasksService::new(db).list(&TaskFilter::default())?;
 
@@ -1020,8 +1020,10 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
             for task in all_tasks {
                 let is_open = !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled);
                 let is_overdue = is_open && task.due_at.is_some_and(|d| d < now);
-                let is_due_today =
-                    is_open && task.due_at.is_some_and(|d| d.date_naive() == today_date);
+                let is_due_today = is_open
+                    && task
+                        .due_at
+                        .is_some_and(|d| d.with_timezone(&Local).date_naive() == today_date);
                 let is_doing = task.status == TaskStatus::Doing;
 
                 match (is_overdue, is_due_today, is_doing) {
@@ -1079,7 +1081,7 @@ pub fn dispatch_capability(db: &Db, name: &str, input: Value) -> Result<Value, C
             })
         }
         "get_today_plan" => {
-            let today_str = Utc::now().format("%Y-%m-%d").to_string();
+            let today_str = Local::now().format("%Y-%m-%d").to_string();
             let plan = DailyPlansService::new(db).get_by_date(&today_str)?;
             match plan {
                 None => Value::Null,

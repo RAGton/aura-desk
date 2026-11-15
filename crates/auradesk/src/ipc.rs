@@ -31,6 +31,8 @@ use auradesk_core::domain::settings_key::SettingsKey;
 use auradesk_core::domain::task::{
     NewTask, Task, TaskFilter, TaskPriority, TaskStatus, UpdateTask,
 };
+use auradesk_core::infrastructure::audio::SoundDispatcher;
+use auradesk_core::infrastructure::clock::SystemClock;
 use auradesk_core::CoreError;
 use serde::Deserialize;
 use tauri::{AppHandle, State};
@@ -530,6 +532,7 @@ pub fn reminders_list(
 
 #[tauri::command]
 pub fn reminders_create(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: NewReminderInput,
 ) -> Result<Reminder, String> {
@@ -538,8 +541,25 @@ pub fn reminders_create(
     let new: NewReminder = input
         .try_into()
         .map_err(|e: CoreError| format!("invalid input: {e}"))?;
-    svc.create(new)
-        .map_err(|e| format!("reminders_create: {e}"))
+    let created = svc
+        .create(new)
+        .map_err(|e| format!("reminders_create: {e}"))?;
+
+    // If the reminder is due immediately (e.g. "Disparar Agora"), promote it
+    // to a pending alert right away instead of waiting for the 15s loop tick.
+    let now = chrono::Utc::now();
+    if created.fire_at <= now {
+        let fired = RemindersService::with_clock(&db, &SystemClock)
+            .poll_and_fire_overdue(now)
+            .unwrap_or_default();
+        if !fired.is_empty() {
+            let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
+                .dispatch(created.sound);
+            crate::alert_lock::sync_blocking_windows(&app, &db);
+        }
+    }
+
+    Ok(created)
 }
 
 #[tauri::command]
@@ -1044,6 +1064,8 @@ pub fn alerts_trigger_test_block(
             options: None,
         })
         .map_err(|e| format!("alerts_trigger_test_block: {e}"))?;
+    let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
+        .dispatch(ReminderSound::Urgent);
     crate::alert_lock::sync_blocking_windows(&app, &db);
     Ok(alert)
 }

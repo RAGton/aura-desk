@@ -8,5 +8,6 @@ en:
   tray:
     show: Show AuraDesk
     quit: Quit
+    alert_title: AuraDesk — Reminder
   github:
     issue_label: Issue

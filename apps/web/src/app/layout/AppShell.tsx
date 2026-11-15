@@ -798,14 +798,16 @@ export function AppShell() {
         )}
       </main>
 
-      <ReminderModal
-        alert={popupAlert}
-        locked={blockScreenEnabled}
-        playSound={soundEnabled}
-        onResolve={handlePopupResolve}
-        onSnooze={handlePopupSnooze}
-        onDismiss={handlePopupDismiss}
-      />
+      {!isTauriRuntime() && (
+        <ReminderModal
+          alert={popupAlert}
+          locked={blockScreenEnabled}
+          playSound={soundEnabled}
+          onResolve={handlePopupResolve}
+          onSnooze={handlePopupSnooze}
+          onDismiss={handlePopupDismiss}
+        />
+      )}
     </div>
   );
 }

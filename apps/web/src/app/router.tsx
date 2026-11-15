@@ -15,6 +15,7 @@ export function AppRouter() {
         <Route path="/reminders" element={<AppShell />} />
         <Route path="/reports" element={<AppShell />} />
         <Route path="/settings" element={<AppShell />} />
+        <Route path="/alert-popup" element={<AlertLockPage popupWindow />} />
         <Route path="/alert-lock" element={<AlertLockPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

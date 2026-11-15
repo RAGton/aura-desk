@@ -16,6 +16,11 @@ export interface ReminderModalProps {
   locked?: boolean;
   /** Controls optional Web Audio notification chime (respects `reminders.sound`). */
   playSound?: boolean;
+  /**
+   * When true, fills an external standalone popup OS window cleanly instead of
+   * rendering a full-viewport translucent backdrop around a centered card.
+   */
+  inline?: boolean;
 }
 
 function isWaterAlert(alert: Alert): boolean {
@@ -64,6 +69,7 @@ export function ReminderModal({
   onDismiss,
   locked = false,
   playSound = true,
+  inline = false,
 }: ReminderModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -136,17 +142,27 @@ export function ReminderModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
-        locked ? "bg-slate-950/95 backdrop-blur-md" : "bg-slate-950/80 backdrop-blur-sm"
-      }`}
+      className={
+        inline
+          ? "flex min-h-screen w-full items-stretch justify-center bg-slate-900"
+          : `fixed inset-0 z-50 flex items-center justify-center p-4 ${
+              locked ? "bg-slate-950/95 backdrop-blur-md" : "bg-slate-950/80 backdrop-blur-sm"
+            }`
+      }
     >
       <div
         ref={dialogRef}
-        className={`w-full max-w-md rounded-2xl bg-slate-900 p-6 shadow-2xl space-y-5 ring-2 ${
-          locked
-            ? "ring-rose-500/80 shadow-rose-500/20"
-            : "ring-amber-500/60 shadow-amber-500/10"
-        }`}
+        className={
+          inline
+            ? `flex w-full flex-col justify-between bg-slate-900 p-5 space-y-4 border-t-4 ${
+                locked ? "border-rose-500" : "border-amber-400"
+              }`
+            : `w-full max-w-md rounded-2xl bg-slate-900 p-6 shadow-2xl space-y-5 ring-2 ${
+                locked
+                  ? "ring-rose-500/80 shadow-rose-500/20"
+                  : "ring-amber-500/60 shadow-amber-500/10"
+              }`
+        }
       >
         {locked && (
           <div className="flex items-start gap-2.5 rounded-xl bg-rose-500/15 px-3.5 py-2.5 ring-1 ring-rose-500/40 text-xs text-rose-200">
