@@ -100,19 +100,61 @@ test.beforeEach(async ({ page }) => {
         }
         if (cmd === "dashboard_summary") {
           return {
-            nextTask: null,
-            pendingCount: tasks.length,
-            completedToday: 0,
+            nextTask: tasks.find((t) => t.status !== "done") ?? null,
+            pendingCount: tasks.filter((t) => t.status !== "done").length,
+            completedToday: tasks.filter((t) => t.status === "done").length,
             overdueCount: 0,
             runningPomodoro: null,
             pendingReminders: 0,
             recentReminders: [],
-            todayPomodoros: 0,
-            todayFocusMin: 0,
+            todayPomodoros: 1,
+            todayFocusMin: 25,
             waterIntervalMin: 60,
             breakIntervalMin: 90,
             dailyPlanningTime: "07:50",
           };
+        }
+        if (cmd === "report_summary") {
+          const today = new Date().toISOString().slice(0, 10);
+          return {
+            today: {
+              date: today,
+              focusMin: 25,
+              breakMin: 5,
+              waterCount: 2,
+              pomodoros: 1,
+              tasksDone: 1,
+            },
+            week: {
+              focusMin: 75,
+              breakMin: 15,
+              waterCount: 6,
+              pomodoros: 3,
+              tasksDone: 2,
+              activeDays: 3,
+            },
+            month: {
+              focusMin: 200,
+              breakMin: 45,
+              waterCount: 15,
+              pomodoros: 8,
+              tasksDone: 5,
+              activeDays: 8,
+            },
+            byDay: [
+              {
+                date: today,
+                focusMin: 25,
+                breakMin: 5,
+                waterCount: 2,
+                pomodoros: 1,
+                tasksDone: 1,
+              },
+            ],
+          };
+        }
+        if (cmd === "github_issues_list") {
+          return [];
         }
         if (cmd === "integration_state") {
           return { inFocusSession: false };
@@ -126,6 +168,7 @@ test.beforeEach(async ({ page }) => {
 test("Flow 1: create-task and shell navigation", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("header")).toBeVisible();
+  await expect(page.getByText("Consolidar arquitetura AuraDesk")).toBeVisible();
   await page.screenshot({
     path: path.join(screenshotDir, "01-create-task-dashboard.png"),
     fullPage: true,
@@ -135,24 +178,46 @@ test("Flow 1: create-task and shell navigation", async ({ page }) => {
 test("Flow 2: fire-reminder and reminders view", async ({ page }) => {
   await page.goto("/reminders");
   await expect(page.locator("main")).toBeVisible();
+  await expect(
+    page.getByPlaceholder(/Título do lembrete|Reminder title/i)
+  ).toBeVisible();
   await page.screenshot({
     path: path.join(screenshotDir, "02-fire-reminder.png"),
     fullPage: true,
   });
 });
 
-test("Flow 3: drag-drop-kanban and tasks board", async ({ page }) => {
+test("Flow 3: drag-drop-kanban and press-and-hold pointer card move", async ({ page }) => {
   await page.goto("/kanban");
   await expect(page.locator("main")).toBeVisible();
+  const card = page.locator('[data-task-card="task-seed-1"]');
+  const doingCol = page.locator('[data-kanban-column="doing"]');
+  await expect(card).toBeVisible();
+  await expect(doingCol).toBeVisible();
+
+  const cardBox = await card.boundingBox();
+  const doingBox = await doingCol.boundingBox();
+  if (cardBox && doingBox) {
+    await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(doingBox.x + doingBox.width / 2, doingBox.y + 80, { steps: 10 });
+    await page.mouse.up();
+    await expect(doingCol.getByText("Consolidar arquitetura AuraDesk")).toBeVisible();
+  }
+
   await page.screenshot({
     path: path.join(screenshotDir, "03-drag-drop-kanban.png"),
     fullPage: true,
   });
 });
 
-test("Flow 4: pause-quit and settings persistence", async ({ page }) => {
+test("Flow 4: reports charts and settings persistence", async ({ page }) => {
+  await page.goto("/reports");
+  await expect(page.getByTestId("reports-chart")).toBeVisible();
   await page.goto("/settings");
-  await expect(page.locator("main")).toBeVisible();
+  await expect(
+    page.getByText(/Bloquear PC até confirmar leitura|Lock PC until read confirmed/i)
+  ).toBeVisible();
   await page.screenshot({
     path: path.join(screenshotDir, "04-pause-quit-settings.png"),
     fullPage: true,

@@ -2,21 +2,32 @@
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 
 use crate::domain::daily_plan::{DailyPlan, PlanState};
+use crate::infrastructure::clock::{Clock, SystemClock};
 use crate::infrastructure::db::Db;
 use crate::CoreError;
+
+static SYSTEM_CLOCK: SystemClock = SystemClock;
 
 /// Service for managing daily plans.
 pub struct DailyPlansService<'a> {
     pub db: &'a Db,
+    pub clock: &'a dyn Clock,
 }
 
 impl<'a> DailyPlansService<'a> {
     pub fn new(db: &'a Db) -> Self {
-        Self { db }
+        Self {
+            db,
+            clock: &SYSTEM_CLOCK,
+        }
+    }
+
+    pub fn with_clock(db: &'a Db, clock: &'a dyn Clock) -> Self {
+        Self { db, clock }
     }
 
     pub fn list(&self) -> Result<Vec<DailyPlan>, CoreError> {
@@ -87,7 +98,7 @@ impl<'a> DailyPlansService<'a> {
         }
 
         let id = uuid::Uuid::new_v4().to_string();
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = self.clock.now().to_rfc3339();
         let conn = self.db.writer();
         let res = conn.execute(
             "INSERT INTO daily_plans (id, plan_date, state, started_at, completed_at, payload, rollover_from, created_at, updated_at) \
@@ -113,7 +124,12 @@ impl<'a> DailyPlansService<'a> {
     }
 
     pub fn current_or_create(&self) -> Result<DailyPlan, CoreError> {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let today = self
+            .clock
+            .now()
+            .with_timezone(&Local)
+            .format("%Y-%m-%d")
+            .to_string();
         if let Some(existing) = self.get_by_date(&today)? {
             return Ok(existing);
         }
@@ -122,7 +138,7 @@ impl<'a> DailyPlansService<'a> {
 
     pub fn set_state(&self, id: &str, state: PlanState) -> Result<DailyPlan, CoreError> {
         let existing = self.get(id)?;
-        let now = Utc::now();
+        let now = self.clock.now();
         let now_str = now.to_rfc3339();
 
         let started_at = match state {
@@ -155,7 +171,7 @@ impl<'a> DailyPlansService<'a> {
                 ));
             }
         }
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = self.clock.now().to_rfc3339();
         let conn = self.db.writer();
         conn.execute(
             "UPDATE daily_plans SET payload = ?1, updated_at = ?2 WHERE id = ?3",

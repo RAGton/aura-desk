@@ -409,3 +409,37 @@ fn jsonrpc_error_mapping_covers_all_core_error_variants() {
         -32603
     );
 }
+
+#[test]
+fn open_persists_data_across_service_restarts() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("auradesk-mcp-test-{}-{nanos}", std::process::id()));
+    {
+        let svc1 = AuraDeskService::open(&dir).unwrap();
+        let proposal = call_json(
+            &svc1,
+            "propose_create_task",
+            json!({
+                "title": "Persisted across MCP restart",
+                "priority": "high"
+            }),
+        )
+        .unwrap();
+        let proposal_id = proposal["proposal_id"].as_str().unwrap();
+        call_json(&svc1, "approve_proposal", json!({ "id": proposal_id })).unwrap();
+    }
+
+    {
+        let svc2 = AuraDeskService::open(&dir).unwrap();
+        let list = call_json(&svc2, "list_tasks", json!({})).unwrap();
+        let items = list.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Persisted across MCP restart");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

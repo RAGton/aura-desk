@@ -17,19 +17,21 @@ const waterAlert: Alert = {
   created_at: "2026-11-08T12:00:00Z",
 };
 
-function renderModal(alert: Alert | null) {
+function renderModal(alert: Alert | null, locked = false) {
   const onResolve = vi.fn();
   const onSnooze = vi.fn();
   const onDismiss = vi.fn();
-  render(
+  const res = render(
     <ReminderModal
       alert={alert}
+      locked={locked}
+      playSound={false}
       onResolve={onResolve}
       onSnooze={onSnooze}
       onDismiss={onDismiss}
     />
   );
-  return { onResolve, onSnooze, onDismiss };
+  return { onResolve, onSnooze, onDismiss, ...res };
 }
 
 describe("ReminderModal", () => {
@@ -86,5 +88,56 @@ describe("ReminderModal", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: /Resolver/i })
     );
+  });
+
+  it("requires confirming read in locked mode before unlock actions enable and resets per alert", () => {
+    const { rerender, onResolve } = renderModal(waterAlert, true);
+
+    expect(screen.getByText(/Modo Bloqueio de Tela Ativo/i)).toBeInTheDocument();
+    const resolveBtn = screen.getByRole("button", { name: /Resolver/i });
+    const snoozeBtn = screen.getByRole("button", { name: /Adiar/i });
+    const dismissBtn = screen.getByRole("button", { name: /Dispensar/i });
+    expect(resolveBtn).toBeDisabled();
+    expect(snoozeBtn).toBeDisabled();
+    expect(dismissBtn).toBeDisabled();
+
+    const checkbox = screen.getByTestId("confirm-read-checkbox") as HTMLInputElement;
+    expect(document.activeElement).toBe(checkbox);
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    expect(resolveBtn).toBeEnabled();
+
+    fireEvent.click(resolveBtn);
+    expect(onResolve).toHaveBeenCalledWith("alert-1");
+
+    // Subsequent queued alert resets confirmation so user must read it separately.
+    rerender(
+      <ReminderModal
+        alert={{ ...waterAlert, id: "alert-2", title: "Drink water" }}
+        locked
+        playSound={false}
+        onResolve={onResolve}
+        onSnooze={vi.fn()}
+        onDismiss={vi.fn()}
+      />
+    );
+    expect(
+      (screen.getByTestId("confirm-read-checkbox") as HTMLInputElement).checked
+    ).toBe(false);
+    expect(screen.getByRole("button", { name: /Resolver/i })).toBeDisabled();
+  });
+
+  it("traps Tab and Shift+Tab keyboard focus inside the modal", () => {
+    renderModal(waterAlert);
+    const resolveBtn = screen.getByRole("button", { name: /Resolver/i });
+    const dismissBtn = screen.getByRole("button", { name: /Dispensar/i });
+
+    expect(document.activeElement).toBe(resolveBtn);
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(dismissBtn);
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(resolveBtn);
   });
 });

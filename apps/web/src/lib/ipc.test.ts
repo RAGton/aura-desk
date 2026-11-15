@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IpcError,
+  alertsApi,
+  dataIoApi,
+  githubApi,
   ipc,
+  reportsApi,
   settingsApi,
   tasksApi,
   toIpcError,
@@ -179,5 +183,37 @@ describe("settingsApi and ipc object", () => {
     const res = await ipc.ping();
     expect(mockInvoke).toHaveBeenCalledWith("ping", undefined);
     expect(res).toBe("pong");
+  });
+
+  it("invokes desktop lock, reports, github, and zip backup commands", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await alertsApi.syncDesktopLock();
+    expect(mockInvoke).toHaveBeenCalledWith("alerts_sync_desktop_lock", undefined);
+
+    mockInvoke.mockResolvedValueOnce({ id: "a1" });
+    await alertsApi.triggerTestBlock("Teste", "Corpo");
+    expect(mockInvoke).toHaveBeenCalledWith("alerts_trigger_test_block", {
+      title: "Teste",
+      body: "Corpo",
+    });
+
+    mockInvoke.mockResolvedValueOnce({ byDay: [] });
+    await reportsApi.summary();
+    expect(mockInvoke).toHaveBeenCalledWith("report_summary", undefined);
+
+    mockInvoke.mockResolvedValueOnce({ created: 1, updated: 0, skipped: 0, issues: [] });
+    await githubApi.syncIssues("p1", "bug");
+    expect(mockInvoke).toHaveBeenCalledWith("github_sync_issues", {
+      projectId: "p1",
+      labelFilter: "bug",
+    });
+
+    mockInvoke.mockResolvedValueOnce("UEs=");
+    await dataIoApi.exportZipBase64();
+    expect(mockInvoke).toHaveBeenCalledWith("data_export_zip", undefined);
+
+    mockInvoke.mockResolvedValueOnce({ tasks: 1 });
+    await dataIoApi.importZipBase64("UEs=");
+    expect(mockInvoke).toHaveBeenCalledWith("data_import_zip", { zipBase64: "UEs=" });
   });
 });

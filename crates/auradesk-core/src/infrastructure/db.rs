@@ -27,7 +27,7 @@ impl Db {
     /// and run all embedded migrations.
     pub fn open(path: &Path) -> Result<Self, CoreError> {
         let db_path = path.join("auradesk.db");
-        let conn = Connection::open_with_flags(
+        let mut conn = Connection::open_with_flags(
             &db_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )
@@ -42,7 +42,7 @@ impl Db {
             .map_err(|e| CoreError::internal(format!("PRAGMA synchronous: {e}")))?;
 
         // Migrations.
-        Self::run_migrations(&conn)?;
+        Self::run_migrations(&mut conn)?;
 
         Ok(Self {
             writer: Arc::new(Mutex::new(conn)),
@@ -51,7 +51,7 @@ impl Db {
 
     /// In-memory database (for tests). Same PRAGMAs + migrations.
     pub fn open_in_memory() -> Result<Self, CoreError> {
-        let conn = Connection::open_in_memory()
+        let mut conn = Connection::open_in_memory()
             .map_err(|e| CoreError::internal(format!("Connection::open_in_memory: {e}")))?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| CoreError::internal(format!("PRAGMA journal_mode: {e}")))?;
@@ -59,7 +59,7 @@ impl Db {
             .map_err(|e| CoreError::internal(format!("PRAGMA foreign_keys: {e}")))?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| CoreError::internal(format!("PRAGMA synchronous: {e}")))?;
-        Self::run_migrations(&conn)?;
+        Self::run_migrations(&mut conn)?;
         Ok(Self {
             writer: Arc::new(Mutex::new(conn)),
         })
@@ -71,12 +71,30 @@ impl Db {
         self.writer.lock().expect("Db writer mutex poisoned")
     }
 
-    /// Run all embedded refinery migrations idempotently.
-    fn run_migrations(_conn: &Connection) -> Result<(), CoreError> {
-        // Phase 0: migrations module is a placeholder. The full refinery
-        // runner is wired in T5 (when the dep is added). For now, the
-        // V001 migration is run directly via the migrate.rs helper.
-        crate::infrastructure::migrate::run_all(_conn)
+    /// Snapshot the active SQLite database into raw `.db` file bytes using
+    /// SQLite's online backup API.
+    pub fn backup_to_bytes(&self) -> Result<Vec<u8>, CoreError> {
+        let tmp_name = format!("auradesk-backup-{}.db", uuid::Uuid::new_v4());
+        let tmp_path = std::env::temp_dir().join(tmp_name);
+        {
+            let src = self.writer();
+            let mut dst = Connection::open(&tmp_path)
+                .map_err(|e| CoreError::internal(format!("open backup target: {e}")))?;
+            let backup = rusqlite::backup::Backup::new(&src, &mut dst)
+                .map_err(|e| CoreError::internal(format!("init sqlite backup: {e}")))?;
+            backup
+                .run_to_completion(100, std::time::Duration::from_millis(5), None)
+                .map_err(|e| CoreError::internal(format!("run sqlite backup: {e}")))?;
+        }
+        let bytes = std::fs::read(&tmp_path)
+            .map_err(|e| CoreError::internal(format!("read backup bytes: {e}")));
+        let _ = std::fs::remove_file(&tmp_path);
+        bytes
+    }
+
+    /// Run all embedded migrations idempotently.
+    fn run_migrations(conn: &mut Connection) -> Result<(), CoreError> {
+        crate::infrastructure::migrate::run_all(conn)
     }
 }
 
