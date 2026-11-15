@@ -1,14 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { GithubIssueLink, Task, TaskPriority, TaskStatus } from "../lib/ipc";
+import type { GithubIssueLink, Project, Task, TaskPriority, TaskStatus } from "../lib/ipc";
 import { KANBAN_COLUMNS, TaskCard } from "./TaskCard";
+
+export interface TaskEditExtra {
+  description?: string | null;
+  estimateMin?: number | null;
+  tags?: string[] | null;
+}
 
 export interface KanbanBoardProps {
   tasks: Task[];
   githubLinks: GithubIssueLink[];
+  projects?: Project[];
+  requireDeleteConfirm?: boolean;
   onMoveTask: (task: Task, targetStatus: TaskStatus) => void | Promise<void>;
-  onUpdateTask: (taskId: string, title: string, priority: TaskPriority) => void | Promise<void>;
+  onReorderTask?: (task: Task, targetIndex: number) => void | Promise<void>;
+  onUpdateTask: (
+    taskId: string,
+    title: string,
+    priority: TaskPriority,
+    extra?: TaskEditExtra
+  ) => void | Promise<void>;
   onDeleteTask: (taskId: string) => void | Promise<void>;
   onFocusTask: (task: Task) => void | Promise<void>;
   onUnlinkGithub?: (taskId: string) => void | Promise<void>;
@@ -63,10 +77,28 @@ function findColumnAtPoint(clientX: number, clientY: number): TaskStatus | null 
   return null;
 }
 
+function findDropIndexInColumn(col: TaskStatus, clientY: number, draggedId: string): number {
+  const colEl = document.querySelector<HTMLElement>(`[data-kanban-column="${col}"]`);
+  if (!colEl) return 0;
+  const cards = Array.from(colEl.querySelectorAll<HTMLElement>("[data-task-card]"));
+  let index = 0;
+  for (const card of cards) {
+    if (card.getAttribute("data-task-card") === draggedId) continue;
+    const rect = card.getBoundingClientRect();
+    if (clientY > rect.top + rect.height / 2) {
+      index += 1;
+    }
+  }
+  return index;
+}
+
 export function KanbanBoard({
   tasks,
   githubLinks,
+  projects = [],
+  requireDeleteConfirm = false,
   onMoveTask,
+  onReorderTask,
   onUpdateTask,
   onDeleteTask,
   onFocusTask,
@@ -78,11 +110,18 @@ export function KanbanBoard({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
   const [editingTaskPriority, setEditingTaskPriority] = useState<TaskPriority>("normal");
+  const [editingTaskDescription, setEditingTaskDescription] = useState("");
+  const [editingTaskEstimate, setEditingTaskEstimate] = useState("");
+  const [editingTaskTags, setEditingTaskTags] = useState("");
 
   const dragSessionRef = useRef<PointerDragSession | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const onMoveTaskRef = useRef(onMoveTask);
   onMoveTaskRef.current = onMoveTask;
+  const onReorderTaskRef = useRef(onReorderTask);
+  onReorderTaskRef.current = onReorderTask;
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
 
   const linkByTaskId = useMemo(() => {
     const map = new Map<string, GithubIssueLink>();
@@ -91,6 +130,14 @@ export function KanbanBoard({
     }
     return map;
   }, [githubLinks]);
+
+  const projectById = useMemo(() => {
+    const map = new Map<string, Project>();
+    for (const p of projects) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [projects]);
 
   const clearHoldTimer = () => {
     if (holdTimerRef.current !== null) {
@@ -139,6 +186,15 @@ export function KanbanBoard({
         const targetCol = findColumnAtPoint(clientX, clientY);
         if (targetCol && targetCol !== cur.task.status) {
           void onMoveTaskRef.current(cur.task, targetCol);
+        } else if (targetCol && targetCol === cur.task.status && onReorderTaskRef.current) {
+          const colTasks = tasksRef.current
+            .filter((x) => x.status === targetCol)
+            .sort((a, b) => a.kanban_order - b.kanban_order);
+          const currentIdx = colTasks.findIndex((x) => x.id === cur.task.id);
+          const targetIdx = findDropIndexInColumn(targetCol, clientY, cur.task.id);
+          if (currentIdx >= 0 && targetIdx !== currentIdx) {
+            void onReorderTaskRef.current(cur.task, targetIdx);
+          }
         }
       }
     };
@@ -191,7 +247,9 @@ export function KanbanBoard({
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {KANBAN_COLUMNS.map((col) => {
-          const colTasks = tasks.filter((x) => x.status === col);
+          const colTasks = tasks
+            .filter((x) => x.status === col)
+            .sort((a, b) => a.kanban_order - b.kanban_order);
           const isDropTarget = Boolean(
             dragSession?.active && hoveredCol === col && dragSession.task.status !== col
           );
@@ -200,17 +258,15 @@ export function KanbanBoard({
             <div
               key={col}
               data-kanban-column={col}
-              className={`rounded-xl bg-slate-900/50 p-3.5 ring-1 flex flex-col gap-3 min-h-[340px] transition-colors ${
-                isDropTarget
-                  ? "ring-2 ring-sky-400 bg-sky-500/10"
-                  : "ring-slate-800/80"
+              className={`rounded-2xl aura-glass p-3.5 flex flex-col gap-3 min-h-[340px] transition-colors ${
+                isDropTarget ? "ring-2 ring-sky-400 bg-sky-500/10" : ""
               }`}
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
                   {t(`kanban.columns.${col}`)}
                 </h3>
-                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-sky-400 tabular-nums">
+                <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-sky-400 tabular-nums">
                   {colTasks.length}
                 </span>
               </div>
@@ -226,21 +282,48 @@ export function KanbanBoard({
                     task={task}
                     col={col}
                     githubLink={linkByTaskId.get(task.id) ?? null}
+                    project={task.project_id ? (projectById.get(task.project_id) ?? null) : null}
+                    requireDeleteConfirm={requireDeleteConfirm}
                     isDragging={Boolean(
                       dragSession?.active && dragSession.task.id === task.id
                     )}
                     isEditing={editingTaskId === task.id}
                     editingTitle={editingTaskTitle}
                     editingPriority={editingTaskPriority}
+                    editingDescription={editingTaskDescription}
+                    editingEstimate={editingTaskEstimate}
+                    editingTags={editingTaskTags}
                     onStartEdit={(tk) => {
                       setEditingTaskId(tk.id);
                       setEditingTaskTitle(tk.title);
                       setEditingTaskPriority(tk.priority);
+                      setEditingTaskDescription(tk.description ?? "");
+                      setEditingTaskEstimate(
+                        tk.estimate_min != null ? String(tk.estimate_min) : ""
+                      );
+                      setEditingTaskTags(Array.isArray(tk.tags) ? tk.tags.join(", ") : "");
                     }}
                     onChangeEditTitle={setEditingTaskTitle}
                     onChangeEditPriority={setEditingTaskPriority}
+                    onChangeEditDescription={setEditingTaskDescription}
+                    onChangeEditEstimate={setEditingTaskEstimate}
+                    onChangeEditTags={setEditingTaskTags}
                     onSaveEdit={async (tk) => {
-                      await onUpdateTask(tk.id, editingTaskTitle, editingTaskPriority);
+                      const parsedTags = editingTaskTags
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      const parsedEst = editingTaskEstimate.trim()
+                        ? Number(editingTaskEstimate)
+                        : null;
+                      await onUpdateTask(tk.id, editingTaskTitle, editingTaskPriority, {
+                        description: editingTaskDescription.trim() || null,
+                        estimateMin:
+                          parsedEst !== null && Number.isFinite(parsedEst) && parsedEst > 0
+                            ? parsedEst
+                            : null,
+                        tags: parsedTags.length > 0 ? parsedTags : null,
+                      });
                       setEditingTaskId(null);
                     }}
                     onCancelEdit={() => setEditingTaskId(null)}
@@ -260,7 +343,7 @@ export function KanbanBoard({
       {dragSession?.active && (
         <div
           data-testid="kanban-drag-ghost"
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-slate-900/95 px-3.5 py-2 shadow-2xl ring-2 ring-sky-400 max-w-xs"
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl aura-glass-elevated px-3.5 py-2 shadow-2xl ring-2 ring-sky-400 max-w-xs"
           style={{ left: dragSession.x, top: dragSession.y }}
         >
           <div className="text-xs font-bold text-slate-100 truncate">

@@ -4,7 +4,10 @@
     "subtitle": "Caderneta de Produtividade & Comando Pessoal • Hermes Agent MCP",
     "connectedTauri": "SQLite Nativo (Tauri IPC)",
     "connectedBrowser": "Modo Navegador (Persistência Local Ativa)",
-    "language": "Idioma"
+    "language": "Idioma",
+    "navTop": "Topo",
+    "navSidebar": "Lateral",
+    "toggleTheme": "Alternar Tema"
   },
   "nav": {
     "dashboard": "Painel Geral",
@@ -53,12 +56,22 @@
     },
     "startPlan": "Iniciar Dia",
     "completePlan": "Concluir Dia",
+    "skipPlan": "Pular Dia",
     "routinesTitle": "Rotinas Automáticas",
     "waterEvery": "Água a cada",
     "breakEvery": "Pausa a cada",
     "planningAt": "Planejamento às",
     "focusActive": "Modo Foco Ativo (rotinas silenciadas)",
-    "startQuickFocus": "Iniciar Foco 25m"
+    "startQuickFocus": "Iniciar Foco 25m",
+    "toggleRoutine": "Alternar rotina",
+    "routineEnabled": "Ativa",
+    "routineDisabled": "Pausada",
+    "openRoutinesSettings": "Ajustar horários",
+    "proposalsTitle": "Propostas do Hermes AI",
+    "proposalsApprove": "Aprovar",
+    "proposalsReject": "Rejeitar",
+    "proposalApproved": "✓ Proposta aprovada e aplicada!",
+    "proposalRejected": "Proposta rejeitada."
   },
   "kanban": {
     "title": "Quadro Kanban (Arraste ou Clique para Mover)",
@@ -66,6 +79,16 @@
     "estimatePlaceholder": "Min",
     "searchPlaceholder": "Buscar tarefa...",
     "allPriorities": "Todas prioridades",
+    "allProjects": "Todos projetos",
+    "noProject": "Sem projeto",
+    "newProject": "Novo Projeto",
+    "projectNamePlaceholder": "Nome do projeto...",
+    "createProject": "Criar Projeto",
+    "projectCreated": "✓ Projeto criado!",
+    "descriptionPlaceholder": "Descrição da tarefa (opcional)...",
+    "tagsPlaceholder": "Tags (ex: urgente, backend)...",
+    "dueAtLabel": "Prazo",
+    "confirmDelete": "Confirmar exclusão?",
     "create": "Criar Card",
     "taskCreated": "✓ Card criado!",
     "edit": "Editar",
@@ -116,6 +139,9 @@
     "startFocusCustom": "Iniciar Foco ({{min}} min)",
     "startShortBreakCustom": "Pausa Curta ({{min}} min)",
     "startLongBreakCustom": "Pausa Longa ({{min}} min)",
+    "cycleProgress": "Ciclo {{current}} de {{total}} até pausa longa",
+    "customMinutesPlaceholder": "Min",
+    "startCustomFocus": "Foco Avulso",
     "pauseTimer": "Pausar Relógio",
     "resumeTimer": "Retomar Relógio",
     "complete": "Concluir Sessão",
@@ -141,6 +167,26 @@
   "reminders": {
     "title": "Lembretes & Alertas Persistentes",
     "newPlaceholder": "Título do lembrete...",
+    "bodyPlaceholder": "Detalhes ou notas (opcional)...",
+    "soundLabel": "Som",
+    "sounds": {
+      "normal": "Normal",
+      "urgent": "Urgente",
+      "none": "Silencioso"
+    },
+    "repeatLabel": "Repetição",
+    "repeats": {
+      "none": "Sem repetição",
+      "daily": "Diário",
+      "weekly": "Semanal",
+      "monthly": "Mensal"
+    },
+    "customDateTime": "Data e hora",
+    "scheduleCustom": "Agendar Horário",
+    "dndEnable": "Não Perturbe (1h)",
+    "dndDisable": "Desativar Não Perturbe",
+    "dndActiveUntil": "Silenciado até {{time}}",
+    "confirmDelete": "Remover",
     "addNow": "Disparar Agora (Teste)",
     "addIn1Min": "Agendar (+1 min)",
     "addIn15Min": "Agendar (+15 min)",
@@ -178,9 +224,12 @@
     "breakLabel": "Minutos de pausa",
     "waterLabel": "Hidratações concluídas",
     "tasksLabel": "Tarefas concluídas",
+    "pomodorosLabel": "Sessões Pomodoro",
     "activeDays": "Dias ativos",
     "pomodoros": "Pomodoros",
     "dailyChartTitle": "Histórico Diário (Últimos 14 dias)",
+    "exportCsv": "Exportar CSV",
+    "exportJson": "Exportar JSON",
     "noData": "Nenhuma métrica registrada no período ainda."
   },
   "settings": {
@@ -188,6 +237,7 @@
     "saved": "Salvo com sucesso!",
     "groups": {
       "app": "Aplicativo",
+      "appearance": "Aparência & Liquid Glass",
       "pomodoro": "Pomodoro",
       "reminders": "Lembretes",
       "routines": "Rotinas",
@@ -202,6 +252,50 @@
       "theme": {
         "label": "Tema",
         "description": "Tema da interface."
+      },
+      "preset": {
+        "label": "Preset de Tema Glass",
+        "description": "Paleta ambiente para as superfícies Liquid Glass."
+      },
+      "presets": {
+        "aurora": "Aurora Liquid (Azul & Índigo)",
+        "obsidian": "Obsidiana Profunda",
+        "frosted": "Neve Fosca (Claro Premium)",
+        "emerald": "Esmeralda Boreal",
+        "sunset": "Crepúsculo Rubi"
+      },
+      "accent": {
+        "label": "Cor de Destaque",
+        "description": "Cor principal para botões ativos, focos e realces."
+      },
+      "accents": {
+        "sky": "Azul Celeste",
+        "indigo": "Índigo",
+        "emerald": "Esmeralda",
+        "amber": "Âmbar",
+        "rose": "Rosa",
+        "violet": "Violeta"
+      },
+      "glass": {
+        "label": "Intensidade do Blur Glass",
+        "description": "Nível de desfoque translúcido nos painéis e modais."
+      },
+      "glasses": {
+        "subtle": "Sutil",
+        "medium": "Médio",
+        "intense": "Intenso"
+      },
+      "navLayout": {
+        "label": "Layout de Navegação",
+        "description": "Posição do menu principal (Topo ou Barra Lateral)."
+      },
+      "navLayouts": {
+        "top": "Barra Superior",
+        "sidebar": "Barra Lateral"
+      },
+      "refreshSec": {
+        "label": "Atualização do painel (seg)",
+        "description": "Intervalo de sincronização automática da tela."
       },
       "focusMin": {
         "label": "Foco (min)",
@@ -227,6 +321,14 @@
         "label": "Bloquear PC até confirmar leitura",
         "description": "Abre um overlay em tela cheia em todos os monitores quando um lembrete dispara e exige confirmação de leitura."
       },
+      "maxQueue": {
+        "label": "Máximo de alertas na fila",
+        "description": "Limite de alertas simultâneos pendentes."
+      },
+      "proposalsTtl": {
+        "label": "Expiração de propostas IA (h)",
+        "description": "Horas até propostas não decididas expirarem."
+      },
       "planningTime": {
         "label": "Planejamento diário",
         "description": "Horário local (HH:MM) do planejamento diário."
@@ -246,8 +348,20 @@
       "githubLabels": {
         "label": "Filtro de labels (opcional)",
         "description": "Lista separada por vírgulas para filtrar issues importadas."
+      },
+      "githubAutoSync": {
+        "label": "Sincronização automática GitHub",
+        "description": "Manter flag de sincronização automática ativa."
       }
     },
+    "validation": {
+      "invalidNumber": "Informe um número inteiro positivo.",
+      "invalidTime": "Informe um horário válido no formato HH:MM."
+    },
+    "githubCheckButton": "Verificar GitHub CLI",
+    "githubConnected": "Conectado como {{account}}",
+    "githubNotConnected": "CLI encontrado, mas não autenticado",
+    "githubCliMissing": "GitHub CLI (gh) não encontrado",
     "testBlockLabel": "Validação de Bloqueio",
     "testBlockDescription": "Dispare um alerta de teste para experimentar o modal bloqueante no desktop.",
     "backup": {

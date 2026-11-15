@@ -1,18 +1,20 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   ArrowRight,
+  Calendar,
   Clock,
   Edit3,
   ExternalLink,
+  FolderKanban,
   GripVertical,
   Play,
   Trash2,
   Unlink,
 } from "lucide-react";
 
-import type { GithubIssueLink, Task, TaskPriority, TaskStatus } from "../lib/ipc";
+import type { GithubIssueLink, Project, Task, TaskPriority, TaskStatus } from "../lib/ipc";
 
 export const KANBAN_COLUMNS: TaskStatus[] = ["todo", "doing", "waiting", "done"];
 
@@ -20,13 +22,21 @@ export interface TaskCardProps {
   task: Task;
   col: TaskStatus;
   githubLink?: GithubIssueLink | null;
+  project?: Project | null;
   isDragging: boolean;
   isEditing: boolean;
   editingTitle: string;
   editingPriority: TaskPriority;
+  editingDescription?: string;
+  editingEstimate?: string;
+  editingTags?: string;
+  requireDeleteConfirm?: boolean;
   onStartEdit: (task: Task) => void;
   onChangeEditTitle: (title: string) => void;
   onChangeEditPriority: (priority: TaskPriority) => void;
+  onChangeEditDescription?: (description: string) => void;
+  onChangeEditEstimate?: (estimate: string) => void;
+  onChangeEditTags?: (tags: string) => void;
   onSaveEdit: (task: Task) => void;
   onCancelEdit: () => void;
   onMove: (task: Task, status: TaskStatus) => void;
@@ -40,13 +50,21 @@ export function TaskCard({
   task,
   col,
   githubLink,
+  project,
   isDragging,
   isEditing,
   editingTitle,
   editingPriority,
+  editingDescription = "",
+  editingEstimate = "",
+  editingTags = "",
+  requireDeleteConfirm = false,
   onStartEdit,
   onChangeEditTitle,
   onChangeEditPriority,
+  onChangeEditDescription,
+  onChangeEditEstimate,
+  onChangeEditTags,
   onSaveEdit,
   onCancelEdit,
   onMove,
@@ -56,6 +74,13 @@ export function TaskCard({
   onCardPointerDown,
 }: TaskCardProps) {
   const { t } = useTranslation();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const timer = window.setTimeout(() => setConfirmingDelete(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [confirmingDelete]);
 
   const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (isEditing) return;
@@ -89,10 +114,10 @@ export function TaskCard({
         if (!isEditing) onCardPointerDown(e, task);
       }}
       style={{ touchAction: isEditing ? "auto" : "none" }}
-      className={`rounded-xl bg-slate-950/90 p-3 ring-1 transition-all space-y-2 select-none ${
+      className={`rounded-xl aura-glass-elevated p-3 transition-all space-y-2 select-none ${
         isDragging
-          ? "opacity-40 ring-sky-400 scale-[0.98]"
-          : "ring-slate-800 hover:ring-slate-700 cursor-grab active:cursor-grabbing"
+          ? "opacity-40 ring-2 ring-sky-400 scale-[0.98]"
+          : "hover:ring-1 hover:ring-sky-400/50 cursor-grab active:cursor-grabbing"
       }`}
     >
       {isEditing ? (
@@ -101,30 +126,60 @@ export function TaskCard({
             type="text"
             value={editingTitle}
             onChange={(e) => onChangeEditTitle(e.target.value)}
-            className="w-full rounded bg-slate-900 px-2.5 py-1.5 text-xs text-slate-100 ring-1 ring-sky-500 outline-none"
+            className="w-full rounded-lg bg-slate-900/90 px-2.5 py-1.5 text-xs text-slate-100 ring-1 ring-sky-500 outline-none"
           />
-          <select
-            value={editingPriority}
-            onChange={(e) => onChangeEditPriority(e.target.value as TaskPriority)}
-            className="w-full rounded bg-slate-900 px-2 py-1 text-xs text-slate-200 ring-1 ring-slate-700"
-          >
-            <option value="low">{t("kanban.priority.low")}</option>
-            <option value="normal">{t("kanban.priority.normal")}</option>
-            <option value="high">{t("kanban.priority.high")}</option>
-            <option value="urgent">{t("kanban.priority.urgent")}</option>
-          </select>
+          {onChangeEditDescription && (
+            <textarea
+              rows={2}
+              value={editingDescription}
+              onChange={(e) => onChangeEditDescription(e.target.value)}
+              placeholder={t("kanban.descriptionPlaceholder")}
+              className="w-full rounded-lg bg-slate-900/90 px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-slate-700 outline-none focus:ring-sky-500 resize-none"
+            />
+          )}
+          <div className="grid grid-cols-2 gap-1.5">
+            <select
+              value={editingPriority}
+              onChange={(e) => onChangeEditPriority(e.target.value as TaskPriority)}
+              className="w-full rounded-lg bg-slate-900/90 px-2 py-1 text-xs text-slate-200 ring-1 ring-slate-700"
+            >
+              <option value="low">{t("kanban.priority.low")}</option>
+              <option value="normal">{t("kanban.priority.normal")}</option>
+              <option value="high">{t("kanban.priority.high")}</option>
+              <option value="urgent">{t("kanban.priority.urgent")}</option>
+            </select>
+            {onChangeEditEstimate && (
+              <input
+                type="number"
+                min={1}
+                value={editingEstimate}
+                onChange={(e) => onChangeEditEstimate(e.target.value)}
+                placeholder={t("kanban.estimatePlaceholder")}
+                className="w-full rounded-lg bg-slate-900/90 px-2 py-1 text-xs text-slate-200 ring-1 ring-slate-700 outline-none focus:ring-sky-500"
+              />
+            )}
+          </div>
+          {onChangeEditTags && (
+            <input
+              type="text"
+              value={editingTags}
+              onChange={(e) => onChangeEditTags(e.target.value)}
+              placeholder={t("kanban.tagsPlaceholder")}
+              className="w-full rounded-lg bg-slate-900/90 px-2.5 py-1 text-xs text-slate-200 ring-1 ring-slate-700 outline-none focus:ring-sky-500"
+            />
+          )}
           <div className="flex gap-1.5">
             <button
               type="button"
               onClick={() => onSaveEdit(task)}
-              className="flex-1 rounded bg-sky-500 px-2 py-1 text-[11px] font-semibold text-slate-950 cursor-pointer"
+              className="flex-1 rounded-lg bg-sky-500 px-2 py-1 text-[11px] font-semibold text-slate-950 cursor-pointer"
             >
               {t("kanban.save")}
             </button>
             <button
               type="button"
               onClick={onCancelEdit}
-              className="flex-1 rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer"
+              className="flex-1 rounded-lg bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer"
             >
               {t("kanban.cancel")}
             </button>
@@ -152,17 +207,42 @@ export function TaskCard({
               >
                 <Edit3 className="h-3.5 w-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={() => onDeleteTask(task.id)}
-                className="text-slate-500 hover:text-red-400 cursor-pointer"
-                aria-label={t("kanban.delete")}
-                title={t("kanban.delete")}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {requireDeleteConfirm && confirmingDelete ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    onDeleteTask(task.id);
+                  }}
+                  className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-300 ring-1 ring-red-500/40 hover:bg-red-500/30 cursor-pointer"
+                >
+                  {t("kanban.confirmDelete")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (requireDeleteConfirm) {
+                      setConfirmingDelete(true);
+                    } else {
+                      onDeleteTask(task.id);
+                    }
+                  }}
+                  className="text-slate-500 hover:text-red-400 cursor-pointer"
+                  aria-label={t("kanban.delete")}
+                  title={t("kanban.delete")}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
+
+          {task.description && (
+            <p className="text-[11px] text-slate-400 line-clamp-2 break-words pl-5">
+              {task.description}
+            </p>
+          )}
 
           <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
             <span
@@ -177,6 +257,16 @@ export function TaskCard({
               {t(`kanban.priority.${task.priority}`)}
             </span>
 
+            {project && (
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/20">
+                <FolderKanban
+                  className="h-2.5 w-2.5"
+                  style={project.color ? { color: project.color } : undefined}
+                />
+                {project.name}
+              </span>
+            )}
+
             {task.estimate_min ? (
               <span className="inline-flex items-center gap-0.5 text-slate-400">
                 <Clock className="h-3 w-3" /> {task.estimate_min}m
@@ -189,6 +279,23 @@ export function TaskCard({
                 {t("kanban.focusSuffix")}
               </span>
             ) : null}
+
+            {task.due_at ? (
+              <span className="inline-flex items-center gap-0.5 text-amber-300/90">
+                <Calendar className="h-2.5 w-2.5" />
+                {new Date(task.due_at).toLocaleDateString()}
+              </span>
+            ) : null}
+
+            {Array.isArray(task.tags) &&
+              task.tags.slice(0, 4).map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-slate-800/80 px-1.5 py-0.5 text-[9px] text-slate-300 ring-1 ring-slate-700/60"
+                >
+                  #{tag}
+                </span>
+              ))}
 
             {githubLink && (
               <span

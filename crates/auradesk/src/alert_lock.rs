@@ -195,23 +195,26 @@ fn sync_popup_window(
     }
 
     let height = if should_lock { 470.0 } else { 380.0 };
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        POPUP_WINDOW_LABEL,
-        WebviewUrl::App("alert-popup".into()),
-    )
-    .title(&title)
-    .decorations(true)
-    .always_on_top(true)
-    .visible_on_all_workspaces(true)
-    .closable(false)
-    .minimizable(false)
-    .maximizable(false)
-    .resizable(false)
-    .skip_taskbar(false)
-    .inner_size(500.0, height)
-    .center()
-    .focused(true);
+    let make_builder = || {
+        WebviewWindowBuilder::new(
+            app,
+            POPUP_WINDOW_LABEL,
+            WebviewUrl::App("alert-popup".into()),
+        )
+        .title(&title)
+        .decorations(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .closable(false)
+        .minimizable(false)
+        .maximizable(false)
+        .resizable(false)
+        .skip_taskbar(false)
+        .inner_size(500.0, height)
+        .center()
+        .focused(true)
+    };
+    let mut builder = make_builder();
 
     if should_lock {
         if let Some(lock_0) = app.get_webview_window("alert-lock-0") {
@@ -219,7 +222,7 @@ fn sync_popup_window(
                 Ok(owned) => builder = owned,
                 Err(err) => {
                     eprintln!("alert_lock: failed parenting alert-popup to lock window: {err}");
-                    return;
+                    builder = make_builder();
                 }
             }
         }

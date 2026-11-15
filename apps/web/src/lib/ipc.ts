@@ -140,6 +140,27 @@ export interface Alert {
   created_at: string;
 }
 
+export interface Routine {
+  id: string;
+  kind: "water" | "break" | "daily_planning" | "custom";
+  title: string;
+  body?: string | null;
+  cron_expr?: string | null;
+  enabled: boolean;
+  last_fired_at?: string | null;
+}
+
+export interface ProposalItem {
+  id: string;
+  source: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  summary: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
 export type PlanState = "not_started" | "in_progress" | "completed" | "skipped";
 
 export interface DailyPlan {
@@ -294,6 +315,8 @@ interface BrowserDbState {
   reminders: Reminder[];
   alerts: Alert[];
   dailyPlans: DailyPlan[];
+  routines?: Routine[];
+  proposals?: ProposalItem[];
   settings: Record<string, unknown>;
   githubLinks?: GithubIssueLink[];
   metricsByDay?: Record<string, { waterCount: number; breakMin: number }>;
@@ -323,6 +346,7 @@ const DEFAULT_SETTINGS: Record<string, unknown> = {
   "github.repo": null,
   "github.project_id": null,
   "github.filter_labels": null,
+  "github.auto_sync": false,
 };
 
 function genId(): string {
@@ -654,15 +678,17 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     }
 
     case "pomodoro_complete": {
-      const actualMin = Number(args.actualMin ?? args.actual_min ?? 25);
+      const rawActual = args.actualMin ?? args.actual_min;
       const running = db.pomodoros.find(
         (s) => s.status === "active" || s.status === "running"
       );
       if (!running) {
         throw new IpcError(errorMessage(ERROR_KEYS.pomodoroNotRunning), "application");
       }
+      const parsed = rawActual !== undefined && rawActual !== null ? Number(rawActual) : running.planned_min;
+      const actualMin = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : running.planned_min;
       running.status = "completed";
-      running.actual_min = Math.max(1, actualMin || running.planned_min);
+      running.actual_min = Math.max(1, actualMin);
       running.ended_at = nowIso;
 
       // Credit focus minutes to linked task
@@ -1183,8 +1209,13 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
 
     case "data_import_zip": {
       const files = decodeBrowserZipBase64(String(args.zipBase64 ?? ""));
+      let importedProjects = 0;
       let importedTasks = 0;
+      let importedPomodoros = 0;
+      let importedReminders = 0;
+      let importedPlans = 0;
       let importedSettings = 0;
+      let importedGithub = 0;
       if (files["settings.json"]) {
         const s = JSON.parse(files["settings.json"]) as Record<string, unknown>;
         for (const [k, v] of Object.entries(s)) {
@@ -1194,26 +1225,83 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       }
       if (files["browser-state.json"]) {
         const st = JSON.parse(files["browser-state.json"]) as Partial<BrowserDbState>;
-        if (Array.isArray(st.tasks)) {
-          const existingIds = new Set(db.tasks.map((t) => t.id));
-          for (const t of st.tasks) {
-            if (!existingIds.has(t.id)) {
-              db.tasks.push(t);
-              importedTasks += 1;
+        const mergeById = <T extends { id: string }>(target: T[], incoming?: T[]) => {
+          if (!Array.isArray(incoming)) return 0;
+          const existingIds = new Set(target.map((x) => x.id));
+          let added = 0;
+          for (const item of incoming) {
+            if (item && item.id && !existingIds.has(item.id)) {
+              target.push(item);
+              added += 1;
             }
           }
-        }
+          return added;
+        };
+        importedProjects = mergeById(db.projects, st.projects);
+        importedTasks = mergeById(db.tasks, st.tasks);
+        importedPomodoros = mergeById(db.pomodoros, st.pomodoros);
+        importedReminders = mergeById(db.reminders, st.reminders);
+        importedPlans = mergeById(db.dailyPlans, st.dailyPlans);
+        if (!db.githubLinks) db.githubLinks = [];
+        importedGithub = mergeById(db.githubLinks, st.githubLinks);
       }
       saveBrowserDb(db);
       return {
-        projects: 0,
+        projects: importedProjects,
         tasks: importedTasks,
-        pomodoros: 0,
-        reminders: 0,
-        daily_plans: 0,
+        pomodoros: importedPomodoros,
+        reminders: importedReminders,
+        daily_plans: importedPlans,
         settings: importedSettings,
-        github_issues: 0,
+        github_issues: importedGithub,
       } satisfies ImportSummary;
+    }
+
+    case "routines_list": {
+      if (!Array.isArray(db.routines) || db.routines.length === 0) {
+        db.routines = [
+          { id: "water-default", kind: "water", title: "water", enabled: true },
+          { id: "break-default", kind: "break", title: "break", enabled: true },
+          { id: "planning-default", kind: "daily_planning", title: "daily_planning", enabled: true },
+        ];
+        saveBrowserDb(db);
+      }
+      return db.routines;
+    }
+
+    case "routines_set_enabled": {
+      const id = String(args.id ?? "");
+      const enabled = Boolean(args.enabled);
+      if (!Array.isArray(db.routines)) db.routines = [];
+      const found = db.routines.find((r) => r.id === id);
+      if (found) {
+        found.enabled = enabled;
+        saveBrowserDb(db);
+        return found;
+      }
+      const created: Routine = { id, kind: "custom", title: id, enabled };
+      db.routines.push(created);
+      saveBrowserDb(db);
+      return created;
+    }
+
+    case "proposals_list_pending":
+      return (db.proposals ?? []).filter((p) => p.status === "pending");
+
+    case "proposals_approve": {
+      const id = String(args.id ?? "");
+      const prop = (db.proposals ?? []).find((p) => p.id === id);
+      if (prop) prop.status = "approved";
+      saveBrowserDb(db);
+      return prop ?? null;
+    }
+
+    case "proposals_reject": {
+      const id = String(args.id ?? "");
+      const prop = (db.proposals ?? []).find((p) => p.id === id);
+      if (prop) prop.status = "rejected";
+      saveBrowserDb(db);
+      return prop ?? null;
     }
 
     default:
@@ -1403,6 +1491,21 @@ export const dataIoApi = {
     wrapInvoke<ImportSummary>("data_import_zip", { zipBase64 }),
 };
 
+export const routinesApi = {
+  list: (): Promise<Routine[]> => wrapInvoke<Routine[]>("routines_list"),
+  setEnabled: (id: string, enabled: boolean): Promise<Routine> =>
+    wrapInvoke<Routine>("routines_set_enabled", { id, enabled }),
+};
+
+export const proposalsApi = {
+  listPending: (): Promise<ProposalItem[]> =>
+    wrapInvoke<ProposalItem[]>("proposals_list_pending"),
+  approve: (id: string, note?: string | null): Promise<unknown> =>
+    wrapInvoke<unknown>("proposals_approve", { id, note: note ?? null }),
+  reject: (id: string, note?: string | null): Promise<unknown> =>
+    wrapInvoke<unknown>("proposals_reject", { id, note: note ?? null }),
+};
+
 export const ipc = {
   ping: () => wrapInvoke<string>("ping"),
   tasks: tasksApi,
@@ -1416,4 +1519,6 @@ export const ipc = {
   reports: reportsApi,
   github: githubApi,
   dataIo: dataIoApi,
+  routines: routinesApi,
+  proposals: proposalsApi,
 } as const;

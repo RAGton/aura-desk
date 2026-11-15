@@ -139,7 +139,7 @@ impl IssueFetcher for GhCliIssueFetcher {
         let account = stdout.lines().chain(stderr.lines()).find_map(|l| {
             l.split("account ")
                 .nth(1)
-                .map(|a| a.trim().trim_end_matches('(').trim().to_string())
+                .map(|a| a.split('(').next().unwrap_or(a).trim().to_string())
         });
         Ok(account)
     }

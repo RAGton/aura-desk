@@ -1,20 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Download, ShieldAlert, Upload } from "lucide-react";
+import { Download, GitBranch, ShieldAlert, Upload } from "lucide-react";
 
-import { alertsApi, dataIoApi, settingsApi } from "@/lib/ipc";
-import { applyTheme } from "@/lib/theme";
+import { alertsApi, dataIoApi, githubApi, settingsApi, type GithubAuthStatus } from "@/lib/ipc";
+import {
+  applyTheme,
+  loadVisualPrefs,
+  saveVisualPrefs,
+  type VisualPrefs,
+} from "@/lib/theme";
+import { asArray } from "@/lib/utils";
 
 type SettingType = "string" | "number" | "boolean" | "select";
+
+interface SettingOption {
+  value: string;
+  label?: string;
+  labelKey?: string;
+}
 
 interface SettingDef {
   key: string;
   labelKey: string;
   descriptionKey: string;
   type: SettingType;
-  options?: { value: string; label: string }[];
+  options?: SettingOption[];
   placeholder?: string;
-  group: "app" | "pomodoro" | "reminders" | "routines" | "github";
+  numericValue?: boolean;
+  visualField?: keyof VisualPrefs;
+  group: "app" | "appearance" | "pomodoro" | "reminders" | "routines" | "github";
 }
 
 const SETTINGS_DEF: SettingDef[] = [
@@ -40,6 +54,78 @@ const SETTINGS_DEF: SettingDef[] = [
       { value: "system", label: "system" },
     ],
     group: "app",
+  },
+  {
+    key: "dashboard.refresh_sec",
+    labelKey: "settings.items.refreshSec.label",
+    descriptionKey: "settings.items.refreshSec.description",
+    type: "select",
+    numericValue: true,
+    options: [
+      { value: "3", label: "3s" },
+      { value: "5", label: "5s" },
+      { value: "10", label: "10s" },
+      { value: "15", label: "15s" },
+      { value: "30", label: "30s" },
+      { value: "60", label: "60s" },
+    ],
+    group: "app",
+  },
+  {
+    key: "ui.preset",
+    labelKey: "settings.items.preset.label",
+    descriptionKey: "settings.items.preset.description",
+    type: "select",
+    visualField: "preset",
+    options: [
+      { value: "aurora", labelKey: "settings.items.presets.aurora" },
+      { value: "obsidian", labelKey: "settings.items.presets.obsidian" },
+      { value: "frosted", labelKey: "settings.items.presets.frosted" },
+      { value: "emerald", labelKey: "settings.items.presets.emerald" },
+      { value: "sunset", labelKey: "settings.items.presets.sunset" },
+    ],
+    group: "appearance",
+  },
+  {
+    key: "ui.accent",
+    labelKey: "settings.items.accent.label",
+    descriptionKey: "settings.items.accent.description",
+    type: "select",
+    visualField: "accent",
+    options: [
+      { value: "sky", labelKey: "settings.items.accents.sky" },
+      { value: "indigo", labelKey: "settings.items.accents.indigo" },
+      { value: "emerald", labelKey: "settings.items.accents.emerald" },
+      { value: "amber", labelKey: "settings.items.accents.amber" },
+      { value: "rose", labelKey: "settings.items.accents.rose" },
+      { value: "violet", labelKey: "settings.items.accents.violet" },
+    ],
+    group: "appearance",
+  },
+  {
+    key: "ui.glass",
+    labelKey: "settings.items.glass.label",
+    descriptionKey: "settings.items.glass.description",
+    type: "select",
+    visualField: "glass",
+    options: [
+      { value: "subtle", labelKey: "settings.items.glasses.subtle" },
+      { value: "medium", labelKey: "settings.items.glasses.medium" },
+      { value: "intense", labelKey: "settings.items.glasses.intense" },
+    ],
+    group: "appearance",
+  },
+  {
+    key: "ui.navLayout",
+    labelKey: "settings.items.navLayout.label",
+    descriptionKey: "settings.items.navLayout.description",
+    type: "select",
+    visualField: "navLayout",
+    options: [
+      { value: "top", labelKey: "settings.items.navLayouts.top" },
+      { value: "sidebar", labelKey: "settings.items.navLayouts.sidebar" },
+    ],
+    group: "appearance",
   },
   {
     key: "pomodoro.focus_min",
@@ -84,6 +170,20 @@ const SETTINGS_DEF: SettingDef[] = [
     group: "reminders",
   },
   {
+    key: "alerts.max_queue_size",
+    labelKey: "settings.items.maxQueue.label",
+    descriptionKey: "settings.items.maxQueue.description",
+    type: "number",
+    group: "reminders",
+  },
+  {
+    key: "proposals.ttl_hours",
+    labelKey: "settings.items.proposalsTtl.label",
+    descriptionKey: "settings.items.proposalsTtl.description",
+    type: "number",
+    group: "reminders",
+  },
+  {
     key: "routine.daily_planning_time",
     labelKey: "settings.items.planningTime.label",
     descriptionKey: "settings.items.planningTime.description",
@@ -121,10 +221,18 @@ const SETTINGS_DEF: SettingDef[] = [
     placeholder: "bug,enhancement",
     group: "github",
   },
+  {
+    key: "github.auto_sync",
+    labelKey: "settings.items.githubAutoSync.label",
+    descriptionKey: "settings.items.githubAutoSync.description",
+    type: "boolean",
+    group: "github",
+  },
 ];
 
 const GROUP_LABEL_KEYS: Record<string, string> = {
   app: "settings.groups.app",
+  appearance: "settings.groups.appearance",
   pomodoro: "settings.groups.pomodoro",
   reminders: "settings.groups.reminders",
   routines: "settings.groups.routines",
@@ -134,6 +242,7 @@ const GROUP_LABEL_KEYS: Record<string, string> = {
 export interface SettingsPageProps {
   onSettingSaved?: (key: string, value: unknown) => void;
   onAlertTriggered?: () => void;
+  onVisualPrefsChange?: (prefs: VisualPrefs) => void;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -154,7 +263,11 @@ function base64ToBlob(base64: string): Blob {
   return new Blob([bytes], { type: "application/zip" });
 }
 
-export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageProps = {}) {
+export function SettingsPage({
+  onSettingSaved,
+  onAlertTriggered,
+  onVisualPrefsChange,
+}: SettingsPageProps = {}) {
   const { t, i18n } = useTranslation();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const initial: Record<string, unknown> = {};
@@ -163,21 +276,29 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
     }
     return initial;
   });
+  const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
+  const [githubAuth, setGithubAuth] = useState<GithubAuthStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadAll = async () => {
+  const loadAll = async (applyLoaded = false) => {
     try {
-      const entries = await settingsApi.getAll();
-      setValues((prev) => {
-        const next = { ...prev };
-        for (const [k, v] of entries) {
-          next[k] = v;
+      const entries = asArray<[string, unknown]>(await settingsApi.getAll());
+      const map: Record<string, unknown> = {};
+      for (const [k, v] of entries) {
+        map[k] = v;
+      }
+      setValues((prev) => ({ ...prev, ...map }));
+      if (applyLoaded) {
+        if (typeof map["app.locale"] === "string") {
+          await i18n.changeLanguage(map["app.locale"]);
         }
-        return next;
-      });
+        if ("app.theme" in map) {
+          applyTheme(map["app.theme"]);
+        }
+      }
     } catch {
       // Keep defaults when IPC is unavailable
     }
@@ -187,7 +308,39 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
     void loadAll();
   }, []);
 
-  async function saveOne(key: string, value: unknown) {
+  async function saveOne(key: string, rawValue: unknown) {
+    const def = SETTINGS_DEF.find((d) => d.key === key);
+
+    if (def?.visualField) {
+      const nextPrefs = saveVisualPrefs({ [def.visualField]: rawValue as never });
+      setVisualPrefs(nextPrefs);
+      onVisualPrefsChange?.(nextPrefs);
+      setSavedMsg(t("settings.saved"));
+      setTimeout(() => setSavedMsg(null), 2000);
+      if (def.visualField === "preset") {
+        const mappedTheme = rawValue === "frosted" ? "light" : "dark";
+        await saveOne("app.theme", mappedTheme);
+      }
+      return;
+    }
+
+    const value = def?.numericValue ? Number(rawValue) : rawValue;
+
+    if (def?.type === "number" || def?.numericValue) {
+      if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+        setError(t("settings.validation.invalidNumber"));
+        return;
+      }
+    }
+
+    if (key === "routine.daily_planning_time") {
+      const s = String(value ?? "").trim();
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) {
+        setError(t("settings.validation.invalidTime"));
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -205,6 +358,19 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
       onSettingSaved?.(key, value);
       setSavedMsg(t("settings.saved"));
       setTimeout(() => setSavedMsg(null), 2000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCheckGithubAuth() {
+    setLoading(true);
+    setError(null);
+    try {
+      const status = await githubApi.checkAuth();
+      setGithubAuth(status);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -264,7 +430,7 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
       const buf = await file.arrayBuffer();
       const b64 = bytesToBase64(new Uint8Array(buf));
       const summary = await dataIoApi.importZipBase64(b64);
-      await loadAll();
+      await loadAll(true);
       onAlertTriggered?.();
       setSavedMsg(
         t("settings.backup.importSuccess", {
@@ -296,24 +462,30 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
       </div>
 
       {Object.entries(groups).map(([group, items]) => (
-        <section
-          key={group}
-          className="rounded-xl bg-slate-900/50 p-4 ring-1 ring-slate-800/80"
-        >
+        <section key={group} className="rounded-2xl aura-glass p-5">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-400">
             {t(GROUP_LABEL_KEYS[group] ?? group)}
           </h3>
-          <div className="divide-y divide-slate-800/80">
-            {items.map((s) => (
-              <SettingRow
-                key={s.key}
-                def={s}
-                value={values[s.key] ?? defaultFor(s)}
-                disabled={loading}
-                onChange={(val) => setValues((v) => ({ ...v, [s.key]: val }))}
-                onSave={(v) => void saveOne(s.key, v)}
-              />
-            ))}
+          <div className="divide-y divide-slate-800/60">
+            {items.map((s) => {
+              const rowVal = s.visualField
+                ? visualPrefs[s.visualField]
+                : (values[s.key] ?? defaultFor(s));
+              return (
+                <SettingRow
+                  key={s.key}
+                  def={s}
+                  value={rowVal}
+                  disabled={loading}
+                  onChange={(val) => {
+                    if (!s.visualField) {
+                      setValues((v) => ({ ...v, [s.key]: val }));
+                    }
+                  }}
+                  onSave={(v) => void saveOne(s.key, v)}
+                />
+              );
+            })}
 
             {group === "reminders" && (
               <div className="flex flex-wrap items-center justify-between gap-4 py-3">
@@ -336,12 +508,45 @@ export function SettingsPage({ onSettingSaved, onAlertTriggered }: SettingsPageP
                 </button>
               </div>
             )}
+
+            {group === "github" && (
+              <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                  {githubAuth && (
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 font-medium ring-1 ${
+                        githubAuth.authenticated
+                          ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
+                      }`}
+                    >
+                      {!githubAuth.available
+                        ? t("settings.githubCliMissing")
+                        : githubAuth.authenticated
+                          ? t("settings.githubConnected", {
+                              account: githubAuth.account ?? "",
+                            })
+                          : t("settings.githubNotConnected")}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleCheckGithubAuth()}
+                  className="inline-flex items-center gap-1.5 rounded-lg aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
+                >
+                  <GitBranch className="h-3.5 w-3.5" />
+                  {t("settings.githubCheckButton")}
+                </button>
+              </div>
+            )}
           </div>
         </section>
       ))}
 
       {/* Backup & Portability (.zip) */}
-      <section className="rounded-xl bg-slate-900/50 p-4 ring-1 ring-slate-800/80 space-y-3">
+      <section className="rounded-2xl aura-glass p-5 space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
           {t("settings.groups.backup")}
         </h3>
@@ -433,11 +638,11 @@ function SettingRow({
               onChange(next);
               onSave(next);
             }}
-            className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            className="rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           >
             {def.options?.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {o.labelKey ? t(o.labelKey) : o.label}
               </option>
             ))}
           </select>
@@ -447,7 +652,7 @@ function SettingRow({
             type="number"
             value={Number(value ?? 0)}
             onChange={(e) => onChange(Number(e.target.value))}
-            className="w-24 rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            className="w-24 rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           />
         ) : (
           <input
@@ -456,7 +661,7 @@ function SettingRow({
             placeholder={def.placeholder ?? ""}
             value={value == null ? "" : String(value)}
             onChange={(e) => onChange(e.target.value)}
-            className="w-40 rounded-lg bg-slate-950 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            className="w-40 rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
           />
         )}
 
@@ -481,6 +686,8 @@ function defaultFor(s: SettingDef): unknown {
       return "pt-BR";
     case "app.theme":
       return "dark";
+    case "dashboard.refresh_sec":
+      return 5;
     case "pomodoro.focus_min":
       return 25;
     case "pomodoro.short_min":
@@ -493,6 +700,10 @@ function defaultFor(s: SettingDef): unknown {
       return true;
     case "reminders.block_screen":
       return false;
+    case "alerts.max_queue_size":
+      return 20;
+    case "proposals.ttl_hours":
+      return 24;
     case "routine.daily_planning_time":
       return "07:50";
     case "routine.water_interval_min":
@@ -502,6 +713,8 @@ function defaultFor(s: SettingDef): unknown {
     case "github.repo":
     case "github.filter_labels":
       return "";
+    case "github.auto_sync":
+      return false;
     default:
       return "";
   }

@@ -9,7 +9,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use auradesk_core::application::pomodoros::PomodorosService;
 use auradesk_core::application::settings::SettingsService;
+use auradesk_core::domain::pomodoro::SessionKind;
 use auradesk_core::domain::settings_key::SettingsKey;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -70,7 +72,12 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 }
             }
 
-            let in_focus = Arc::new(AtomicBool::new(false));
+            let initial_in_focus = PomodorosService::new(&db)
+                .running_session()
+                .ok()
+                .flatten()
+                .is_some_and(|s| matches!(s.kind, SessionKind::Focus));
+            let in_focus = Arc::new(AtomicBool::new(initial_in_focus));
             let screen_lock_active = Arc::new(AtomicBool::new(false));
             let alert_popup_active = Arc::new(AtomicBool::new(false));
             let popup_locked_mode = Arc::new(AtomicBool::new(false));
@@ -196,7 +203,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                     }
                 }
                 tauri::WindowEvent::Focused(false)
-                    if label == POPUP_WINDOW_LABEL || label == "alert-lock-0" =>
+                    if label == POPUP_WINDOW_LABEL || label.starts_with(LOCK_WINDOW_PREFIX) =>
                 {
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<AppState>() {
@@ -266,6 +273,11 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::github_check_auth,
             crate::ipc::data_export_zip,
             crate::ipc::data_import_zip,
+            crate::ipc::routines_list,
+            crate::ipc::routines_set_enabled,
+            crate::ipc::proposals_list_pending,
+            crate::ipc::proposals_approve,
+            crate::ipc::proposals_reject,
         ])
 }
 

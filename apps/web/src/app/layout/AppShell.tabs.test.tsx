@@ -140,6 +140,7 @@ describe("AppShell tabs", () => {
   });
 
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     vi.clearAllMocks();
     mockedTasks.list.mockResolvedValue([]);
     mockedAlerts.listPending.mockResolvedValue([]);

@@ -144,9 +144,9 @@ export function ReminderModal({
       aria-labelledby={titleId}
       className={
         inline
-          ? "flex min-h-screen w-full items-stretch justify-center bg-slate-900"
+          ? "flex min-h-screen w-full items-stretch justify-center aura-bg"
           : `fixed inset-0 z-50 flex items-center justify-center p-4 ${
-              locked ? "bg-slate-950/95 backdrop-blur-md" : "bg-slate-950/80 backdrop-blur-sm"
+              locked ? "bg-slate-950/90 backdrop-blur-xl" : "bg-slate-950/70 backdrop-blur-md"
             }`
       }
     >
@@ -154,10 +154,10 @@ export function ReminderModal({
         ref={dialogRef}
         className={
           inline
-            ? `flex w-full flex-col justify-between bg-slate-900 p-5 space-y-4 border-t-4 ${
+            ? `flex w-full flex-col justify-between aura-glass-elevated p-5 space-y-4 border-t-4 ${
                 locked ? "border-rose-500" : "border-amber-400"
               }`
-            : `w-full max-w-md rounded-2xl bg-slate-900 p-6 shadow-2xl space-y-5 ring-2 ${
+            : `w-full max-w-md rounded-2xl aura-glass-elevated p-6 shadow-2xl space-y-5 ring-2 ${
                 locked
                   ? "ring-rose-500/80 shadow-rose-500/20"
                   : "ring-amber-500/60 shadow-amber-500/10"

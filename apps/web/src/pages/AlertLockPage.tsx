@@ -110,9 +110,9 @@ export function AlertLockPage({ popupWindow = false }: AlertLockPageProps) {
     return (
       <div
         data-testid="alert-lock-backdrop"
-        className="flex min-h-screen w-screen flex-col items-center justify-center gap-3 bg-slate-950/95 p-6 text-center select-none overflow-hidden"
+        className="flex min-h-screen w-screen flex-col items-center justify-center gap-3 aura-bg p-6 text-center select-none overflow-hidden"
       >
-        <div className="rounded-2xl bg-rose-500/15 p-4 ring-1 ring-rose-500/40">
+        <div className="rounded-2xl aura-glass bg-rose-500/15 p-4 ring-1 ring-rose-500/40">
           <ShieldAlert className="h-8 w-8 text-rose-400" />
         </div>
         <h1 className="text-lg font-bold text-rose-100">{t("reminders.lockBackdropTitle")}</h1>
@@ -124,13 +124,7 @@ export function AlertLockPage({ popupWindow = false }: AlertLockPageProps) {
   }
 
   return (
-    <div
-      className={
-        popupWindow
-          ? "min-h-screen w-screen bg-slate-900 select-none overflow-hidden"
-          : "min-h-screen w-screen bg-slate-950 select-none overflow-hidden"
-      }
-    >
+    <div className="min-h-screen w-screen aura-bg select-none overflow-hidden">
       <ReminderModal
         alert={activeAlert}
         locked={popupWindow ? blockScreen : true}

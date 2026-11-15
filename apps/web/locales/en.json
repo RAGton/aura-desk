@@ -4,7 +4,10 @@
     "subtitle": "Winged Productivity Notebook & Personal Command Center • Hermes Agent MCP",
     "connectedTauri": "Native SQLite (Tauri IPC)",
     "connectedBrowser": "Browser Mode (Local Persistence Active)",
-    "language": "Language"
+    "language": "Language",
+    "navTop": "Top Bar",
+    "navSidebar": "Sidebar",
+    "toggleTheme": "Switch Theme"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -53,12 +56,22 @@
     },
     "startPlan": "Start Day",
     "completePlan": "Complete Day",
+    "skipPlan": "Skip Day",
     "routinesTitle": "Automated Routines",
     "waterEvery": "Water every",
     "breakEvery": "Break every",
     "planningAt": "Daily plan at",
     "focusActive": "Focus Mode Active (routines muted)",
-    "startQuickFocus": "Start 25m Focus"
+    "startQuickFocus": "Start 25m Focus",
+    "toggleRoutine": "Toggle routine",
+    "routineEnabled": "Enabled",
+    "routineDisabled": "Paused",
+    "openRoutinesSettings": "Adjust schedules",
+    "proposalsTitle": "Hermes AI Proposals",
+    "proposalsApprove": "Approve",
+    "proposalsReject": "Reject",
+    "proposalApproved": "✓ Proposal approved and applied!",
+    "proposalRejected": "Proposal rejected."
   },
   "kanban": {
     "title": "Kanban Board (Drag & Drop or Click to Move)",
@@ -66,6 +79,16 @@
     "estimatePlaceholder": "Min",
     "searchPlaceholder": "Search tasks...",
     "allPriorities": "All priorities",
+    "allProjects": "All projects",
+    "noProject": "No project",
+    "newProject": "New Project",
+    "projectNamePlaceholder": "Project name...",
+    "createProject": "Create Project",
+    "projectCreated": "✓ Project created!",
+    "descriptionPlaceholder": "Task description (optional)...",
+    "tagsPlaceholder": "Tags (e.g. urgent, backend)...",
+    "dueAtLabel": "Due date",
+    "confirmDelete": "Confirm delete?",
     "create": "Create Card",
     "taskCreated": "✓ Card created!",
     "edit": "Edit",
@@ -116,6 +139,9 @@
     "startFocusCustom": "Start Focus ({{min}} min)",
     "startShortBreakCustom": "Short Break ({{min}} min)",
     "startLongBreakCustom": "Long Break ({{min}} min)",
+    "cycleProgress": "Cycle {{current}} of {{total}} until long break",
+    "customMinutesPlaceholder": "Min",
+    "startCustomFocus": "Custom Focus",
     "pauseTimer": "Pause Clock",
     "resumeTimer": "Resume Clock",
     "complete": "Complete Session",
@@ -141,6 +167,26 @@
   "reminders": {
     "title": "Reminders & Persistent Alerts",
     "newPlaceholder": "Reminder title...",
+    "bodyPlaceholder": "Details or notes (optional)...",
+    "soundLabel": "Sound",
+    "sounds": {
+      "normal": "Normal",
+      "urgent": "Urgent",
+      "none": "Silent"
+    },
+    "repeatLabel": "Repeat",
+    "repeats": {
+      "none": "One-time",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly"
+    },
+    "customDateTime": "Date & time",
+    "scheduleCustom": "Schedule Time",
+    "dndEnable": "Do Not Disturb (1h)",
+    "dndDisable": "Turn Off DND",
+    "dndActiveUntil": "Silenced until {{time}}",
+    "confirmDelete": "Remove",
     "addNow": "Fire Now (Test)",
     "addIn1Min": "Schedule (+1 min)",
     "addIn15Min": "Schedule (+15 min)",
@@ -178,9 +224,12 @@
     "breakLabel": "Break minutes",
     "waterLabel": "Hydration checks",
     "tasksLabel": "Tasks completed",
+    "pomodorosLabel": "Pomodoro sessions",
     "activeDays": "Active days",
     "pomodoros": "Pomodoros",
     "dailyChartTitle": "Daily History (Last 14 days)",
+    "exportCsv": "Export CSV",
+    "exportJson": "Export JSON",
     "noData": "No metrics recorded in this period yet."
   },
   "settings": {
@@ -188,6 +237,7 @@
     "saved": "Saved successfully!",
     "groups": {
       "app": "Application",
+      "appearance": "Appearance & Liquid Glass",
       "pomodoro": "Pomodoro",
       "reminders": "Reminders",
       "routines": "Routines",
@@ -202,6 +252,50 @@
       "theme": {
         "label": "Theme",
         "description": "Interface theme."
+      },
+      "preset": {
+        "label": "Glass Theme Preset",
+        "description": "Ambient color palette for Liquid Glass surfaces."
+      },
+      "presets": {
+        "aurora": "Aurora Liquid (Sky & Indigo)",
+        "obsidian": "Deep Obsidian",
+        "frosted": "Frosted Snow (Light Premium)",
+        "emerald": "Boreal Emerald",
+        "sunset": "Ruby Sunset"
+      },
+      "accent": {
+        "label": "Accent Color",
+        "description": "Primary highlight color for active controls."
+      },
+      "accents": {
+        "sky": "Sky Blue",
+        "indigo": "Indigo",
+        "emerald": "Emerald",
+        "amber": "Amber",
+        "rose": "Rose",
+        "violet": "Violet"
+      },
+      "glass": {
+        "label": "Glass Blur Intensity",
+        "description": "Backdrop blur strength across panels and modals."
+      },
+      "glasses": {
+        "subtle": "Subtle",
+        "medium": "Medium",
+        "intense": "Intense"
+      },
+      "navLayout": {
+        "label": "Navigation Layout",
+        "description": "Placement of primary navigation (Top Bar or Sidebar)."
+      },
+      "navLayouts": {
+        "top": "Top Bar",
+        "sidebar": "Sidebar"
+      },
+      "refreshSec": {
+        "label": "Dashboard refresh (sec)",
+        "description": "Background auto-refresh interval in seconds."
       },
       "focusMin": {
         "label": "Focus (min)",
@@ -227,6 +321,14 @@
         "label": "Lock PC until read confirmed",
         "description": "Opens a fullscreen overlay across all monitors when an alert fires and requires read confirmation."
       },
+      "maxQueue": {
+        "label": "Max alert queue size",
+        "description": "Maximum concurrent pending alerts."
+      },
+      "proposalsTtl": {
+        "label": "AI proposal TTL (h)",
+        "description": "Hours before undecided proposals expire."
+      },
       "planningTime": {
         "label": "Daily planning",
         "description": "Local time (HH:MM) for the daily planning."
@@ -246,8 +348,20 @@
       "githubLabels": {
         "label": "Label filter (optional)",
         "description": "Comma-separated label list to filter imported issues."
+      },
+      "githubAutoSync": {
+        "label": "Auto-sync GitHub issues",
+        "description": "Keep automatic issue sync flag enabled."
       }
     },
+    "validation": {
+      "invalidNumber": "Enter a positive whole number.",
+      "invalidTime": "Enter a valid time in HH:MM format."
+    },
+    "githubCheckButton": "Verify GitHub CLI",
+    "githubConnected": "Connected as {{account}}",
+    "githubNotConnected": "CLI installed, not authenticated",
+    "githubCliMissing": "GitHub CLI (gh) not found",
     "testBlockLabel": "Lock Validation",
     "testBlockDescription": "Trigger a test alert to verify the desktop blocking modal.",
     "backup": {

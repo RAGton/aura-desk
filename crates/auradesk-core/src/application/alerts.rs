@@ -344,6 +344,14 @@ impl<'a> AlertsService<'a> {
                     })?;
                 }
             }
+        } else {
+            let snoozed_rem_id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO reminders (id, task_id, title, body, fire_at, repeat_kind, sound, status, snooze_count, last_snoozed_at, created_at, updated_at) \
+                 VALUES (?1, NULL, ?2, ?3, ?4, 'none', 'normal', 'pending', 1, ?5, ?5, ?5)",
+                params![snoozed_rem_id, existing.title, existing.body, next_fire, now_str],
+            )
+            .map_err(|e| CoreError::internal(format!("alerts snooze standalone reminder: {e}")))?;
         }
 
         tx.commit()
@@ -444,6 +452,23 @@ impl<'a> AlertsService<'a> {
         drop(conn);
 
         self.get(id)
+    }
+
+    pub fn close_open_for_ref(
+        &self,
+        ref_id: &str,
+        resolution: AlertResolution,
+    ) -> Result<usize, CoreError> {
+        let now_str = self.clock.now().to_rfc3339();
+        let conn = self.db.writer();
+        let affected = conn
+            .execute(
+                "UPDATE alerts_pending SET resolution = ?1, resolved_at = ?2 \
+                 WHERE ref_id = ?3 AND resolution IS NULL",
+                params![resolution.as_str(), now_str, ref_id],
+            )
+            .map_err(|e| CoreError::internal(format!("alerts close_open_for_ref: {e}")))?;
+        Ok(affected)
     }
 
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Alert> {

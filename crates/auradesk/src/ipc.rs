@@ -13,11 +13,13 @@ use auradesk_core::application::{
     github::GithubSyncService,
     pomodoros::PomodorosService,
     projects::ProjectsService,
+    proposals::ProposalsService,
     reminders::RemindersService,
+    routines::RoutinesService,
     settings::SettingsService,
     tasks::TasksService,
 };
-use auradesk_core::domain::alert::{Alert, AlertSeverity, NewAlert};
+use auradesk_core::domain::alert::{Alert, AlertResolution, AlertSeverity, NewAlert};
 use auradesk_core::domain::daily_plan::{DailyPlan, PlanState};
 use auradesk_core::domain::github::{
     GithubAuthStatus, GithubIssueLink, GithubSyncSummary, IssueFetcher,
@@ -27,6 +29,7 @@ use auradesk_core::domain::project::NewProject;
 use auradesk_core::domain::reminder::{
     NewReminder, Reminder, ReminderSound, ReminderStatus, RepeatKind, UpdateReminder,
 };
+use auradesk_core::domain::routine::Routine;
 use auradesk_core::domain::settings_key::SettingsKey;
 use auradesk_core::domain::task::{
     NewTask, Task, TaskFilter, TaskPriority, TaskStatus, UpdateTask,
@@ -360,13 +363,10 @@ pub fn pomodoro_complete(
 ) -> Result<PomodoroSession, String> {
     let db = db_from(&state);
     let svc = PomodorosService::new(&db);
-    let was_focus = state.in_focus_session.load(Ordering::Relaxed);
     let session = svc
         .complete_running(actual_min)
         .map_err(|e| format!("pomodoro_complete: {e}"))?;
-    clear_focus_and_celebrate(
-        &app, &state, was_focus, &session, actual_min, /*aborted=*/ false,
-    );
+    clear_focus_and_celebrate(&app, &state, &session, actual_min, /*aborted=*/ false);
     Ok(session)
 }
 
@@ -378,14 +378,12 @@ pub fn pomodoro_abandon(
 ) -> Result<PomodoroSession, String> {
     let db = db_from(&state);
     let svc = PomodorosService::new(&db);
-    let was_focus = state.in_focus_session.load(Ordering::Relaxed);
     let session = svc
         .interrupt_running(actual_min)
         .map_err(|e| format!("pomodoro_abandon: {e}"))?;
     clear_focus_and_celebrate(
         &app,
         &state,
-        was_focus,
         &session,
         actual_min.unwrap_or(0),
         /*aborted=*/ true,
@@ -401,17 +399,14 @@ pub fn pomodoro_abandon(
 fn clear_focus_and_celebrate(
     app: &AppHandle,
     state: &State<'_, AppState>,
-    was_focus: bool,
     session: &PomodoroSession,
     actual_min: i32,
     aborted: bool,
 ) {
-    if was_focus
-        && matches!(
-            session.kind,
-            auradesk_core::domain::pomodoro::SessionKind::Focus
-        )
-    {
+    if matches!(
+        session.kind,
+        auradesk_core::domain::pomodoro::SessionKind::Focus
+    ) {
         state.in_focus_session.store(false, Ordering::Relaxed);
         // Re-queue a "focus done" alert so the user explicitly
         // acknowledges the transition into the break.
@@ -596,6 +591,7 @@ pub fn reminders_dismiss(
     let res = svc
         .dismiss(&id)
         .map_err(|e| format!("reminders_dismiss: {e}"))?;
+    let _ = AlertsService::new(&db).close_open_for_ref(&id, AlertResolution::Dismissed);
     crate::alert_lock::sync_blocking_windows(&app, &db);
     Ok(res)
 }
@@ -617,6 +613,7 @@ pub fn reminders_snooze(
     let res = svc
         .snooze(&input.id, input.minutes)
         .map_err(|e| format!("reminders_snooze: {e}"))?;
+    let _ = AlertsService::new(&db).close_open_for_ref(&input.id, AlertResolution::Snoozed);
     crate::alert_lock::sync_blocking_windows(&app, &db);
     Ok(res)
 }
@@ -1348,6 +1345,69 @@ pub fn data_import_zip(
     DataIoService::new(&db)
         .import_zip_base64(&zip_base64)
         .map_err(|e| format!("data_import_zip: {e}"))
+}
+
+// ── Routines & IA Proposals (ADR-0011) ────────────────────────────────
+
+#[tauri::command]
+pub fn routines_list(state: State<'_, AppState>) -> Result<Vec<Routine>, String> {
+    let db = db_from(&state);
+    RoutinesService::new(&db)
+        .list(false)
+        .map_err(|e| format!("routines_list: {e}"))
+}
+
+#[tauri::command]
+pub fn routines_set_enabled(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<Routine, String> {
+    let db = db_from(&state);
+    RoutinesService::new(&db)
+        .set_enabled(&id, enabled)
+        .map_err(|e| format!("routines_set_enabled: {e}"))
+}
+
+#[tauri::command]
+pub fn proposals_list_pending(
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = db_from(&state);
+    let list = ProposalsService::new(&db)
+        .list_pending()
+        .map_err(|e| format!("proposals_list_pending: {e}"))?;
+    Ok(list.into_iter().map(|p| p.to_schema_json()).collect())
+}
+
+#[tauri::command]
+pub fn proposals_approve(
+    state: State<'_, AppState>,
+    id: String,
+    note: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let db = db_from(&state);
+    let mut payload = serde_json::json!({ "id": id });
+    if let Some(n) = note {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("note".to_string(), serde_json::Value::String(n));
+        }
+    }
+    auradesk_core::capabilities::dispatch_capability(&db, "approve_proposal", payload)
+        .map_err(|e| format!("proposals_approve: {e}"))
+}
+
+#[tauri::command]
+pub fn proposals_reject(
+    state: State<'_, AppState>,
+    id: String,
+    note: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let db = db_from(&state);
+    ProposalsService::new(&db)
+        .reject(&id, note.as_deref())
+        .map(|p| p.to_schema_json())
+        .map_err(|e| format!("proposals_reject: {e}"))
 }
 
 /// Suppress unused warning for the helper that the macro

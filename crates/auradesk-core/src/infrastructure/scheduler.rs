@@ -58,6 +58,17 @@ impl<'a> Scheduler<'a> {
     /// suppressed so deep work is never interrupted.
     pub fn tick(&self) -> Result<SchedulerTickOutcome, CoreError> {
         let now = self.clock.now();
+        let settings = SettingsService::new(self.db);
+        if let Ok(Some(paused_val)) = settings.get(SettingsKey::RemindersPausedUntil) {
+            if let Some(paused_str) = paused_val.as_str() {
+                if let Some(paused_until) = parse_rfc3339(paused_str) {
+                    if paused_until > now {
+                        return Ok(SchedulerTickOutcome::default());
+                    }
+                }
+            }
+        }
+
         let running = PomodorosService::with_clock(self.db, self.clock).running_session()?;
         let in_focus_session = running
             .as_ref()
@@ -80,7 +91,6 @@ impl<'a> Scheduler<'a> {
             }
         }
 
-        let settings = SettingsService::new(self.db);
         let water_interval_min = settings
             .get(SettingsKey::RoutineWaterIntervalMin)
             .ok()
