@@ -159,6 +159,8 @@
     "lockBanner": "Este aviso bloqueia a tela até você confirmar a leitura e escolher uma ação abaixo.",
     "confirmReadLabel": "Confirmo que li e entendi este aviso",
     "confirmReadRequired": "Marque a confirmação de leitura antes de liberar o computador.",
+    "lockBackdropTitle": "Tela bloqueada — alerta pendente",
+    "lockBackdropSubtitle": "Leia e confirme o lembrete na janela externa do AuraDesk para liberar o uso do PC.",
     "testBlockButton": "Testar modal bloqueante",
     "testBlockTitle": "Teste do Modal Bloqueante",
     "testBlockBody": "Este é um aviso de teste para validar o bloqueio de tela e a confirmação de leitura.",

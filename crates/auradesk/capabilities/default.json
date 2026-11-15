@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "AuraDesk default capability (main shell and desktop alert lock overlays).",
-  "windows": ["main", "alert-lock-*"],
+  "description": "AuraDesk default capability (main shell, external alert popup, and desktop alert lock overlays).",
+  "windows": ["main", "alert-popup", "alert-lock-*"],
   "permissions": [
     "core:default"
   ]

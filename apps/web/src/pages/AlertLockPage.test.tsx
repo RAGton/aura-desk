@@ -62,4 +62,43 @@ describe("AlertLockPage", () => {
       expect(mockInvoke).toHaveBeenCalledWith("alerts_resolve", { id: "lock-alert-1" });
     });
   });
+
+  it("renders external popupWindow unlocked when block_screen is false", async () => {
+    const pending = [
+      {
+        id: "popup-alert-1",
+        kind: "reminder",
+        title: "Revisar pull request",
+        body: "Checar build do CI",
+        severity: "info",
+        ref_id: null,
+        resolution: null,
+        resolved_at: null,
+        created_at: "2026-11-14T12:00:00Z",
+      },
+    ];
+
+    mockInvoke.mockImplementation(async (cmd: string, args) => {
+      const key = (args as Record<string, unknown> | undefined)?.key;
+      if (cmd === "alerts_list_pending") return pending;
+      if (cmd === "settings_get" && key === "reminders.block_screen") return false;
+      if (cmd === "settings_get") return null;
+      return null;
+    });
+
+    render(<AlertLockPage popupWindow />);
+
+    expect(await screen.findByText("Revisar pull request")).toBeInTheDocument();
+    expect(screen.getByTestId("reminder-modal")).toHaveAttribute("data-locked", "false");
+    expect(screen.queryByTestId("confirm-read-checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Resolver/i })).toBeEnabled();
+  });
+
+  it("renders lock backdrop screen when ?backdrop=1 query param is present", async () => {
+    mockInvoke.mockResolvedValue([]);
+    window.history.pushState({}, "", "/alert-lock?backdrop=1");
+    render(<AlertLockPage />);
+    expect(await screen.findByTestId("alert-lock-backdrop")).toBeInTheDocument();
+    window.history.pushState({}, "", "/");
+  });
 });

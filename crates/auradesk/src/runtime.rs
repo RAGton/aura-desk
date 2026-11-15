@@ -19,7 +19,7 @@ use tauri::{
 
 use auradesk_core::infrastructure::db::Db;
 
-use crate::alert_lock::LOCK_WINDOW_PREFIX;
+use crate::alert_lock::{LOCK_WINDOW_PREFIX, POPUP_WINDOW_LABEL};
 use crate::github::GhCliIssueFetcher;
 
 pub use crate::ipc;
@@ -32,10 +32,16 @@ pub use crate::ipc;
 /// routine alerts (water/break) while the user is in deep work.
 /// `screen_lock_active` tracks whether fullscreen blocking alert
 /// overlays are currently enforced.
+/// `alert_popup_active` tracks whether at least one pending alert keeps
+/// the standalone external modal window open.
+/// `popup_locked_mode` remembers whether the currently open `alert-popup`
+/// window was built in PC-lock owned mode.
 pub struct AppState {
     pub db: Arc<Db>,
     pub in_focus_session: Arc<AtomicBool>,
     pub screen_lock_active: Arc<AtomicBool>,
+    pub alert_popup_active: Arc<AtomicBool>,
+    pub popup_locked_mode: Arc<AtomicBool>,
     pub github_fetcher: Arc<GhCliIssueFetcher>,
 }
 
@@ -66,11 +72,15 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
 
             let in_focus = Arc::new(AtomicBool::new(false));
             let screen_lock_active = Arc::new(AtomicBool::new(false));
+            let alert_popup_active = Arc::new(AtomicBool::new(false));
+            let popup_locked_mode = Arc::new(AtomicBool::new(false));
             let github_fetcher = Arc::new(GhCliIssueFetcher::new());
             app.manage(AppState {
                 db: Arc::clone(&db),
                 in_focus_session: Arc::clone(&in_focus),
                 screen_lock_active,
+                alert_popup_active,
+                popup_locked_mode,
                 github_fetcher,
             });
 
@@ -150,17 +160,44 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                         // Close-to-tray: closing the main window does NOT exit the process.
                         let _ = window.hide();
                         api.prevent_close();
-                    } else if label.starts_with(LOCK_WINDOW_PREFIX) {
+                    } else if label == POPUP_WINDOW_LABEL {
                         if let Some(state) = window.app_handle().try_state::<AppState>() {
-                            if state.screen_lock_active.load(Ordering::SeqCst) {
+                            if state.alert_popup_active.load(Ordering::SeqCst) {
                                 api.prevent_close();
                                 let _ = window.set_always_on_top(true);
                                 let _ = window.set_focus();
                             }
                         }
+                    } else if label.starts_with(LOCK_WINDOW_PREFIX) {
+                        let app = window.app_handle();
+                        if let Some(state) = app.try_state::<AppState>() {
+                            if state.screen_lock_active.load(Ordering::SeqCst) {
+                                api.prevent_close();
+                                if let Some(popup) = app.get_webview_window(POPUP_WINDOW_LABEL) {
+                                    let _ = popup.set_always_on_top(true);
+                                    let _ = popup.set_focus();
+                                } else {
+                                    let _ = window.set_always_on_top(true);
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
                     }
                 }
-                tauri::WindowEvent::Focused(false) if label == "alert-lock-0" => {
+                tauri::WindowEvent::Focused(true) if label.starts_with(LOCK_WINDOW_PREFIX) => {
+                    let app = window.app_handle();
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if state.screen_lock_active.load(Ordering::SeqCst) {
+                            if let Some(popup) = app.get_webview_window(POPUP_WINDOW_LABEL) {
+                                let _ = popup.set_always_on_top(true);
+                                let _ = popup.set_focus();
+                            }
+                        }
+                    }
+                }
+                tauri::WindowEvent::Focused(false)
+                    if label == POPUP_WINDOW_LABEL || label == "alert-lock-0" =>
+                {
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<AppState>() {
                         if state.screen_lock_active.load(Ordering::SeqCst) {
@@ -169,8 +206,13 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                                 .values()
                                 .any(|w| w.is_focused().unwrap_or(false));
                             if !any_auradesk_focused {
-                                let _ = window.set_always_on_top(true);
-                                let _ = window.set_focus();
+                                if let Some(popup) = app.get_webview_window(POPUP_WINDOW_LABEL) {
+                                    let _ = popup.set_always_on_top(true);
+                                    let _ = popup.set_focus();
+                                } else {
+                                    let _ = window.set_always_on_top(true);
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
                     }

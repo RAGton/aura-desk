@@ -8,5 +8,6 @@ pt-BR:
   tray:
     show: Mostrar AuraDesk
     quit: Sair
+    alert_title: AuraDesk — Lembrete
   github:
     issue_label: Issue
