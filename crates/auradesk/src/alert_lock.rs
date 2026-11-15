@@ -118,21 +118,20 @@ fn sync_lock_backdrops(app: &AppHandle) -> bool {
         }
 
         let title = auradesk_core::i18n::t("tray.alert_title");
-        let mut builder = WebviewWindowBuilder::new(
-            app,
-            &label,
-            WebviewUrl::App("index.html?view=alert-lock&backdrop=1".into()),
-        )
-        .title(&title)
-        .decorations(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .closable(false)
-        .minimizable(false)
-        .maximizable(false)
-        .resizable(false)
-        .skip_taskbar(true)
-        .focused(false);
+        let mut builder =
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+                .initialization_script("window.__AURADESK_WINDOW_MODE__ = 'alert-lock-backdrop';")
+                .background_color(tauri::window::Color(4, 7, 17, 255))
+                .title(&title)
+                .decorations(false)
+                .always_on_top(true)
+                .visible_on_all_workspaces(true)
+                .closable(false)
+                .minimizable(false)
+                .maximizable(false)
+                .resizable(false)
+                .skip_taskbar(true)
+                .focused(false);
 
         if let Some(mon) = monitors.get(idx) {
             let scale = mon.scale_factor().max(1.0);
@@ -197,13 +196,15 @@ fn sync_popup_window(
         return;
     }
 
-    let height = if should_lock { 470.0 } else { 380.0 };
+    let height = if should_lock { 490.0 } else { 410.0 };
     let make_builder = || {
         WebviewWindowBuilder::new(
             app,
             POPUP_WINDOW_LABEL,
-            WebviewUrl::App("index.html?view=alert-popup".into()),
+            WebviewUrl::App("index.html".into()),
         )
+        .initialization_script("window.__AURADESK_WINDOW_MODE__ = 'alert-popup';")
+        .background_color(tauri::window::Color(4, 7, 17, 255))
         .title(&title)
         .decorations(true)
         .always_on_top(true)
@@ -213,7 +214,7 @@ fn sync_popup_window(
         .maximizable(false)
         .resizable(false)
         .skip_taskbar(false)
-        .inner_size(500.0, height)
+        .inner_size(520.0, height)
         .center()
         .focused(true)
     };
