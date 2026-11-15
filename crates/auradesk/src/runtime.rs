@@ -45,6 +45,33 @@ pub struct AppState {
     pub alert_popup_active: Arc<AtomicBool>,
     pub popup_locked_mode: Arc<AtomicBool>,
     pub github_fetcher: Arc<GhCliIssueFetcher>,
+    #[allow(dead_code)]
+    pub instance_lock: Option<std::fs::File>,
+}
+
+#[cfg(windows)]
+fn try_acquire_instance_lock(data_dir: &std::path::Path) -> Option<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    let lock_path = data_dir.join("auradesk.instance.lock");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .share_mode(0)
+        .open(lock_path)
+        .ok()
+}
+
+#[cfg(not(windows))]
+fn try_acquire_instance_lock(data_dir: &std::path::Path) -> Option<std::fs::File> {
+    let lock_path = data_dir.join("auradesk.instance.lock");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)
+        .ok()
 }
 
 pub fn build() -> tauri::Builder<tauri::Wry> {
@@ -62,6 +89,15 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 .map_err(|e| format!("resolve app data dir: {e}"))?;
             std::fs::create_dir_all(&data_dir)
                 .map_err(|e| format!("create app data dir {data_dir:?}: {e}"))?;
+
+            let show_flag = data_dir.join("auradesk.show");
+            let instance_lock = try_acquire_instance_lock(&data_dir);
+            if instance_lock.is_none() {
+                let _ = std::fs::write(&show_flag, b"show");
+                std::process::exit(0);
+            }
+            let _ = std::fs::remove_file(&show_flag);
+
             // `Db::open` joins `auradesk.db` itself; pass the data dir, not a file path.
             let db =
                 Arc::new(Db::open(&data_dir).map_err(|e| format!("open db {data_dir:?}: {e}"))?);
@@ -89,6 +125,33 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 alert_popup_active,
                 popup_locked_mode,
                 github_fetcher,
+                instance_lock,
+            });
+
+            // Watch for secondary-instance launch signals to bring the existing window forward.
+            std::thread::spawn({
+                let app_handle = app.handle().clone();
+                let show_flag = show_flag.clone();
+                move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    if show_flag.exists() {
+                        let _ = std::fs::remove_file(&show_flag);
+                        let handle = app_handle.clone();
+                        let _ = app_handle.run_on_main_thread(move || {
+                            if let Some(win) = handle.get_webview_window("main") {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                            if let Some(popup) = handle.get_webview_window(POPUP_WINDOW_LABEL) {
+                                let _ = popup.unminimize();
+                                let _ = popup.show();
+                                let _ = popup.set_always_on_top(true);
+                                let _ = popup.set_focus();
+                            }
+                        });
+                    }
+                }
             });
 
             // Sync fullscreen alert overlays at startup in case pending alerts

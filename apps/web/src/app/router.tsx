@@ -3,6 +3,18 @@ import { AppShell } from "./layout/AppShell";
 import { AlertLockPage } from "../pages/AlertLockPage";
 
 export function AppRouter() {
+  const view =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("view")
+      : null;
+
+  if (view === "alert-popup") {
+    return <AlertLockPage popupWindow />;
+  }
+  if (view === "alert-lock") {
+    return <AlertLockPage />;
+  }
+
   return (
     <BrowserRouter>
       <Routes>
