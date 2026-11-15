@@ -103,6 +103,14 @@ export function TaskCard({
   };
 
   const colIdx = KANBAN_COLUMNS.indexOf(col);
+  const priorityStripe =
+    task.priority === "urgent"
+      ? "border-l-4 border-l-rose-500"
+      : task.priority === "high"
+        ? "border-l-4 border-l-amber-400"
+        : task.priority === "normal"
+          ? "border-l-4 border-l-sky-400"
+          : "border-l-4 border-l-slate-600";
 
   return (
     <div
@@ -114,7 +122,7 @@ export function TaskCard({
         if (!isEditing) onCardPointerDown(e, task);
       }}
       style={{ touchAction: isEditing ? "auto" : "none" }}
-      className={`rounded-xl aura-glass-elevated p-3 transition-all space-y-2 select-none ${
+      className={`rounded-xl aura-glass-elevated ${priorityStripe} p-3.5 transition-all space-y-2.5 select-none ${
         isDragging
           ? "opacity-40 ring-2 ring-sky-400 scale-[0.98]"
           : "hover:ring-1 hover:ring-sky-400/50 cursor-grab active:cursor-grabbing"

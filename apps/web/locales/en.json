@@ -19,6 +19,8 @@
   },
   "dashboard": {
     "welcome": "Today's Overview",
+    "subtitle": "Daily command center, deep focus, and smart routines.",
+    "overdueBadge": "{{count}} overdue",
     "customizeLayout": "Customize Layout",
     "closeCustomizer": "Done Customizing",
     "resetLayout": "Reset Default",
@@ -75,6 +77,9 @@
   },
   "kanban": {
     "title": "Kanban Board (Drag & Drop or Click to Move)",
+    "subtitle": "Organize tasks by column, filter by project, and sync with GitHub.",
+    "clearFilters": "Clear filters",
+    "showingCount": "Showing {{shown}} of {{total}} tasks",
     "newTaskPlaceholder": "New task title...",
     "estimatePlaceholder": "Min",
     "searchPlaceholder": "Search tasks...",
@@ -128,6 +133,9 @@
   },
   "pomodoro": {
     "title": "Pomodoro Timer & Deep Work",
+    "subtitle": "Structured deep-concentration blocks with regenerative breaks.",
+    "completedSessions": "Completed sessions",
+    "loggedFocus": "Logged focus",
     "running": "Session in Progress",
     "paused": "Paused",
     "idle": "Select an optional task and start a focus block",
@@ -250,6 +258,7 @@
   },
   "settings": {
     "title": "System Settings",
+    "subtitle": "Customize Liquid Glass appearance, Pomodoro rhythms, alerts, and backups.",
     "saved": "Saved successfully!",
     "groups": {
       "app": "Application",

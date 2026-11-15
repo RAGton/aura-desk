@@ -102,6 +102,8 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
         {[
           {
             key: "today",
+            accentClass: "border-t-2 border-t-sky-400/75",
+            titleColor: "text-sky-400",
             title: t("reports.today"),
             focusMin: report?.today.focusMin ?? 0,
             breakMin: report?.today.breakMin ?? 0,
@@ -112,6 +114,8 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
           },
           {
             key: "week",
+            accentClass: "border-t-2 border-t-indigo-400/75",
+            titleColor: "text-indigo-400",
             title: t("reports.week"),
             ...(report?.week ?? {
               focusMin: 0,
@@ -124,6 +128,8 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
           },
           {
             key: "month",
+            accentClass: "border-t-2 border-t-emerald-400/75",
+            titleColor: "text-emerald-400",
             title: t("reports.month"),
             ...(report?.month ?? {
               focusMin: 0,
@@ -134,65 +140,91 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
               activeDays: 0,
             }),
           },
-        ].map((card) => (
-          <div
-            key={card.key}
-            className="rounded-2xl aura-glass p-4 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
-                {card.title}
-              </span>
-              {card.activeDays !== undefined && (
-                <span className="text-[11px] text-slate-400">
-                  {card.activeDays} {t("reports.activeDays")}
+        ].map((card) => {
+          const totalRatioMin = card.focusMin + card.breakMin;
+          const focusPct = totalRatioMin > 0 ? Math.round((card.focusMin / totalRatioMin) * 100) : 0;
+          return (
+            <div
+              key={card.key}
+              className={`rounded-2xl aura-glass aura-card-interactive ${card.accentClass} p-5 space-y-3`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${card.titleColor}`}>
+                  {card.title}
                 </span>
-              )}
+                {card.activeDays !== undefined && (
+                  <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                    {card.activeDays} {t("reports.activeDays")}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="rounded-xl aura-glass-pill p-2.5">
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <span className="rounded-md bg-sky-500/15 p-1">
+                      <Flame className="h-3 w-3 text-sky-400" />
+                    </span>
+                    {t("reports.focusLabel")}
+                  </div>
+                  <div className="text-lg font-bold text-slate-100 tabular-nums mt-1">
+                    {card.focusMin}m
+                  </div>
+                </div>
+                <div className="rounded-xl aura-glass-pill p-2.5">
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <span className="rounded-md bg-indigo-500/15 p-1">
+                      <Timer className="h-3 w-3 text-indigo-400" />
+                    </span>
+                    {t("reports.breakLabel")}
+                  </div>
+                  <div className="text-lg font-bold text-slate-100 tabular-nums mt-1">
+                    {card.breakMin}m
+                  </div>
+                </div>
+                <div className="rounded-xl aura-glass-pill p-2.5">
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <span className="rounded-md bg-emerald-500/15 p-1">
+                      <Droplets className="h-3 w-3 text-emerald-400" />
+                    </span>
+                    {t("reports.waterLabel")}
+                  </div>
+                  <div className="text-lg font-bold text-emerald-300 tabular-nums mt-1">
+                    {card.waterCount}
+                  </div>
+                </div>
+                <div className="rounded-xl aura-glass-pill p-2.5">
+                  <div className="text-slate-400 flex items-center gap-1.5">
+                    <span className="rounded-md bg-amber-500/15 p-1">
+                      <CheckCircle2 className="h-3 w-3 text-amber-400" />
+                    </span>
+                    {t("reports.tasksLabel")}
+                  </div>
+                  <div className="text-lg font-bold text-amber-300 tabular-nums mt-1">
+                    {card.tasksDone}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5 rounded-xl aura-glass-pill px-3 py-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">{t("reports.pomodorosLabel")}</span>
+                  <span className="font-bold text-sky-300 tabular-nums">{card.pomodoros}</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80 flex">
+                  <div
+                    className="h-full bg-sky-400 transition-all"
+                    style={{ width: `${focusPct}%` }}
+                  />
+                  {totalRatioMin > 0 && (
+                    <div
+                      className="h-full bg-indigo-400/80 transition-all"
+                      style={{ width: `${100 - focusPct}%` }}
+                    />
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2.5 text-xs">
-              <div className="rounded-xl aura-glass-pill p-2.5">
-                <div className="text-slate-400 flex items-center gap-1">
-                  <Flame className="h-3 w-3 text-sky-400" />
-                  {t("reports.focusLabel")}
-                </div>
-                <div className="text-lg font-bold text-slate-100 tabular-nums mt-0.5">
-                  {card.focusMin}m
-                </div>
-              </div>
-              <div className="rounded-xl aura-glass-pill p-2.5">
-                <div className="text-slate-400 flex items-center gap-1">
-                  <Timer className="h-3 w-3 text-indigo-400" />
-                  {t("reports.breakLabel")}
-                </div>
-                <div className="text-lg font-bold text-slate-100 tabular-nums mt-0.5">
-                  {card.breakMin}m
-                </div>
-              </div>
-              <div className="rounded-xl aura-glass-pill p-2.5">
-                <div className="text-slate-400 flex items-center gap-1">
-                  <Droplets className="h-3 w-3 text-emerald-400" />
-                  {t("reports.waterLabel")}
-                </div>
-                <div className="text-lg font-bold text-emerald-300 tabular-nums mt-0.5">
-                  {card.waterCount}
-                </div>
-              </div>
-              <div className="rounded-xl aura-glass-pill p-2.5">
-                <div className="text-slate-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3 text-amber-400" />
-                  {t("reports.tasksLabel")}
-                </div>
-                <div className="text-lg font-bold text-amber-300 tabular-nums mt-0.5">
-                  {card.tasksDone}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between rounded-xl aura-glass-pill px-3 py-1.5 text-xs">
-              <span className="text-slate-400">{t("reports.pomodorosLabel")}</span>
-              <span className="font-bold text-sky-300 tabular-nums">{card.pomodoros}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* 14-Day Focus, Break, Hydration & Tasks Chart */}
@@ -230,8 +262,28 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
               viewBox={`0 0 ${days.length * 46} 180`}
               role="img"
               aria-label={t("reports.dailyChartTitle")}
-              className="w-full min-w-[560px] h-48"
+              className="w-full min-w-[560px] h-52"
             >
+              {[50, 80, 110].map((yPos) => (
+                <line
+                  key={yPos}
+                  x1={0}
+                  x2={days.length * 46}
+                  y1={yPos}
+                  y2={yPos}
+                  stroke="rgba(148, 163, 184, 0.16)"
+                  strokeDasharray="3 3"
+                  strokeWidth={1}
+                />
+              ))}
+              <line
+                x1={0}
+                x2={days.length * 46}
+                y1={140}
+                y2={140}
+                stroke="rgba(148, 163, 184, 0.3)"
+                strokeWidth={1}
+              />
               {days.map((d, idx) => {
                 const xBase = idx * 46 + 8;
                 const focusH = Math.max(2, Math.round((d.focusMin / maxMinutes) * 120));

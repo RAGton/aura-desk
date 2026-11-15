@@ -4,11 +4,15 @@ import {
   ArrowDown,
   ArrowUp,
   Bell,
+  BellRing,
+  CalendarDays,
   CheckCircle2,
+  Coffee,
   Droplets,
   Eye,
   EyeOff,
   Flame,
+  ListTodo,
   Plus,
   RotateCcw,
   SlidersHorizontal,
@@ -94,6 +98,32 @@ function formatClock(secs: number): string {
   return `${m}:${s}`;
 }
 
+function priorityBorderClass(priority: TaskPriority): string {
+  switch (priority) {
+    case "urgent":
+      return "border-l-4 border-l-rose-500";
+    case "high":
+      return "border-l-4 border-l-amber-400";
+    case "normal":
+      return "border-l-4 border-l-sky-400";
+    default:
+      return "border-l-4 border-l-slate-600";
+  }
+}
+
+function planStatusBadgeClass(state: PlanState | undefined): string {
+  switch (state) {
+    case "completed":
+      return "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/35";
+    case "in_progress":
+      return "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/35";
+    case "skipped":
+      return "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/35";
+    default:
+      return "bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/35";
+  }
+}
+
 export function DashboardPage({
   layout,
   customizingLayout,
@@ -125,10 +155,16 @@ export function DashboardPage({
   onApproveProposal,
   onRejectProposal,
 }: DashboardPageProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isCompact = layout.density === "compact";
   const safeRoutines = asArray<Routine>(routines);
   const safeProposals = asArray<ProposalItem>(proposals);
+  const formattedToday = new Date().toLocaleDateString(i18n.language, {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+  });
+  const overdueCount = summary?.overdueCount ?? 0;
 
   const moveWidget = (index: number, delta: -1 | 1) => {
     const target = index + delta;
@@ -170,12 +206,19 @@ export function DashboardPage({
             <div className="flex items-center gap-5">
               <AuraDeskLogo size={isCompact ? 68 : 84} animated />
               <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-slate-50">{t("dashboard.welcome")}</h2>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-2xl font-bold text-slate-50">{t("dashboard.welcome")}</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full aura-glass-pill px-2.5 py-0.5 text-[11px] font-medium text-slate-300 capitalize">
+                    <CalendarDays className="h-3 w-3 text-sky-400" />
+                    {formattedToday}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">{t("dashboard.subtitle")}</p>
                 {activePomo ? (
                   <button
                     type="button"
                     onClick={() => onNavigateTab("pomodoro")}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3.5 py-1 text-xs font-semibold text-amber-300 ring-1 ring-amber-500/30 cursor-pointer hover:bg-amber-500/25"
+                    className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3.5 py-1.5 text-xs font-semibold text-amber-300 ring-1 ring-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-colors"
                   >
                     <Flame className="h-3.5 w-3.5" />
                     {t("dashboard.focusActive")} • {formatClock(timerSecondsLeft)}
@@ -184,7 +227,7 @@ export function DashboardPage({
                   <button
                     type="button"
                     onClick={() => void onStartQuickFocus(null)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 transition-colors cursor-pointer"
                   >
                     <Timer className="h-3.5 w-3.5" />
                     {t("pomodoro.startFocusCustom", { min: focusMin })}
@@ -198,28 +241,35 @@ export function DashboardPage({
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                   {t("dashboard.dailyPlan")}
                 </span>
-                <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[11px] font-medium text-indigo-300">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${planStatusBadgeClass(dailyPlan?.state)}`}
+                >
                   {dailyPlan
                     ? t(`dashboard.planStatus.${dailyPlan.state}`)
                     : t("dashboard.planStatus.not_started")}
                 </span>
               </div>
-              <div className="flex gap-1.5">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void onSavePlanNotes();
+                }}
+                className="flex gap-1.5"
+              >
                 <input
                   type="text"
                   value={planNotes}
                   onChange={(e) => onChangePlanNotes(e.target.value)}
                   placeholder={t("dashboard.planNotesPlaceholder")}
-                  className="flex-1 rounded-lg bg-slate-950/70 px-2.5 py-1 text-xs text-slate-200 ring-1 ring-slate-800 outline-none focus:ring-sky-500"
+                  className="flex-1 rounded-lg bg-slate-950/70 px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-slate-800 outline-none focus:ring-sky-500"
                 />
                 <button
-                  type="button"
-                  onClick={() => void onSavePlanNotes()}
-                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-2.5 py-1 text-[11px] font-medium text-sky-300 cursor-pointer"
+                  type="submit"
+                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-[11px] font-medium text-sky-300 cursor-pointer"
                 >
                   {t("dashboard.saveNotes")}
                 </button>
-              </div>
+              </form>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -253,40 +303,67 @@ export function DashboardPage({
             <button
               type="button"
               onClick={() => onNavigateTab("kanban")}
-              className={`text-left rounded-2xl aura-glass ${padClass} hover:ring-1 hover:ring-sky-500/40 transition-all cursor-pointer`}
+              className={`text-left rounded-2xl aura-glass aura-card-interactive border-t-2 border-t-sky-400/70 ${padClass} hover:ring-1 hover:ring-sky-500/40 cursor-pointer space-y-1.5`}
             >
-              <div className="text-xs text-slate-400">{t("dashboard.pendingTasks")}</div>
-              <div className="mt-1 text-3xl font-bold text-sky-400 tabular-nums">
-                {summary?.pendingCount ?? tasks.filter((x) => x.status !== "done").length}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-400">{t("dashboard.pendingTasks")}</span>
+                <span className="rounded-lg bg-sky-500/15 p-1.5 text-sky-400">
+                  <ListTodo className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-3xl font-bold text-sky-400 tabular-nums">
+                  {summary?.pendingCount ?? tasks.filter((x) => x.status !== "done").length}
+                </span>
+                {overdueCount > 0 && (
+                  <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300 ring-1 ring-rose-500/35">
+                    {t("dashboard.overdueBadge", { count: overdueCount })}
+                  </span>
+                )}
               </div>
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab("kanban")}
-              className={`text-left rounded-2xl aura-glass ${padClass} hover:ring-1 hover:ring-emerald-500/40 transition-all cursor-pointer`}
+              className={`text-left rounded-2xl aura-glass aura-card-interactive border-t-2 border-t-emerald-400/70 ${padClass} hover:ring-1 hover:ring-emerald-500/40 cursor-pointer space-y-1.5`}
             >
-              <div className="text-xs text-slate-400">{t("dashboard.completedToday")}</div>
-              <div className="mt-1 text-3xl font-bold text-emerald-400 tabular-nums">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-400">{t("dashboard.completedToday")}</span>
+                <span className="rounded-lg bg-emerald-500/15 p-1.5 text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-emerald-400 tabular-nums">
                 {summary?.completedToday ?? tasks.filter((x) => x.status === "done").length}
               </div>
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab("pomodoro")}
-              className={`text-left rounded-2xl aura-glass ${padClass} hover:ring-1 hover:ring-amber-500/40 transition-all cursor-pointer`}
+              className={`text-left rounded-2xl aura-glass aura-card-interactive border-t-2 border-t-amber-400/70 ${padClass} hover:ring-1 hover:ring-amber-500/40 cursor-pointer space-y-1.5`}
             >
-              <div className="text-xs text-slate-400">{t("dashboard.focusMinutes")}</div>
-              <div className="mt-1 text-3xl font-bold text-amber-400 tabular-nums">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-400">{t("dashboard.focusMinutes")}</span>
+                <span className="rounded-lg bg-amber-500/15 p-1.5 text-amber-400">
+                  <Flame className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-amber-400 tabular-nums">
                 {summary?.todayFocusMin ?? 0}m
               </div>
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab("reminders")}
-              className={`text-left rounded-2xl aura-glass ${padClass} hover:ring-1 hover:ring-indigo-500/40 transition-all cursor-pointer`}
+              className={`text-left rounded-2xl aura-glass aura-card-interactive border-t-2 border-t-indigo-400/70 ${padClass} hover:ring-1 hover:ring-indigo-500/40 cursor-pointer space-y-1.5`}
             >
-              <div className="text-xs text-slate-400">{t("dashboard.pendingReminders")}</div>
-              <div className="mt-1 text-3xl font-bold text-indigo-400 tabular-nums">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-400">{t("dashboard.pendingReminders")}</span>
+                <span className="rounded-lg bg-indigo-500/15 p-1.5 text-indigo-400">
+                  <Bell className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-indigo-400 tabular-nums">
                 {summary?.pendingReminders ??
                   reminders.filter((r) => r.status === "pending").length}
               </div>
@@ -306,18 +383,37 @@ export function DashboardPage({
             </h3>
 
             {summary?.nextTask ? (
-              <div className="rounded-xl aura-glass-pill p-4 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <div className="font-semibold text-slate-100">{summary.nextTask.title}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {t(`kanban.priority.${summary.nextTask.priority}`)} •{" "}
-                    {t(`kanban.columns.${summary.nextTask.status}`)}
-                    {summary.nextTask.actual_min
-                      ? ` • ${summary.nextTask.actual_min}${t("dashboard.focusSuffix")}`
-                      : ""}
+              <div
+                className={`rounded-xl aura-glass-elevated ${priorityBorderClass(summary.nextTask.priority)} p-4 flex flex-wrap items-center justify-between gap-4`}
+              >
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="font-semibold text-slate-100 break-words">
+                    {summary.nextTask.title}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span
+                      className={`rounded-full px-2 py-0.5 font-semibold ${
+                        summary.nextTask.priority === "urgent"
+                          ? "bg-rose-500/20 text-rose-300"
+                          : summary.nextTask.priority === "high"
+                            ? "bg-amber-500/20 text-amber-300"
+                            : "bg-sky-500/15 text-sky-300"
+                      }`}
+                    >
+                      {t(`kanban.priority.${summary.nextTask.priority}`)}
+                    </span>
+                    <span className="rounded-full aura-glass-pill px-2 py-0.5 text-slate-300">
+                      {t(`kanban.columns.${summary.nextTask.status}`)}
+                    </span>
+                    {summary.nextTask.actual_min ? (
+                      <span className="text-emerald-400 font-medium">
+                        {summary.nextTask.actual_min}
+                        {t("dashboard.focusSuffix")}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() =>
@@ -395,60 +491,95 @@ export function DashboardPage({
             </div>
             {safeRoutines.length > 0 ? (
               <div className="space-y-2 text-xs text-slate-300">
-                {safeRoutines.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between gap-2 rounded-xl aura-glass-pill p-2.5"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-slate-100 truncate">{r.title}</div>
-                      <div className="text-[11px] text-slate-400">
-                        {r.enabled ? t("dashboard.routineEnabled") : t("dashboard.routineDisabled")}
-                        {r.kind === "water"
-                          ? ` • ${summary?.waterIntervalMin ?? 60} min`
-                          : r.kind === "break"
-                            ? ` • ${summary?.breakIntervalMin ?? 90} min`
-                            : r.kind === "daily_planning"
-                              ? ` • ${summary?.dailyPlanningTime ?? "07:50"}`
-                              : ""}
+                {safeRoutines.map((r) => {
+                  const RoutineIcon =
+                    r.kind === "water"
+                      ? Droplets
+                      : r.kind === "break"
+                        ? Coffee
+                        : Sparkles;
+                  const iconColor =
+                    r.kind === "water"
+                      ? "text-sky-400 bg-sky-500/15"
+                      : r.kind === "break"
+                        ? "text-indigo-400 bg-indigo-500/15"
+                        : "text-amber-400 bg-amber-500/15";
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between gap-2.5 rounded-xl aura-glass-pill p-2.5"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`rounded-lg p-1.5 shrink-0 ${iconColor}`}>
+                          <RoutineIcon className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-100 truncate">{r.title}</div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                r.enabled ? "bg-emerald-400" : "bg-slate-500"
+                              }`}
+                            />
+                            {r.enabled
+                              ? t("dashboard.routineEnabled")
+                              : t("dashboard.routineDisabled")}
+                            {r.kind === "water"
+                              ? ` • ${summary?.waterIntervalMin ?? 60} min`
+                              : r.kind === "break"
+                                ? ` • ${summary?.breakIntervalMin ?? 90} min`
+                                : r.kind === "daily_planning"
+                                  ? ` • ${summary?.dailyPlanningTime ?? "07:50"}`
+                                  : ""}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    {onToggleRoutine && (
-                      <button
-                        type="button"
-                        aria-label={`${t("dashboard.toggleRoutine")}: ${r.title}`}
-                        aria-pressed={r.enabled}
-                        onClick={() => void onToggleRoutine(r.id, !r.enabled)}
-                        className={`h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${
-                          r.enabled ? "bg-sky-500" : "bg-slate-700"
-                        }`}
-                      >
-                        <span
-                          className={`block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            r.enabled ? "translate-x-4" : "translate-x-0.5"
+                      {onToggleRoutine && (
+                        <button
+                          type="button"
+                          aria-label={`${t("dashboard.toggleRoutine")}: ${r.title}`}
+                          aria-pressed={r.enabled}
+                          onClick={() => void onToggleRoutine(r.id, !r.enabled)}
+                          className={`h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${
+                            r.enabled ? "bg-sky-500" : "bg-slate-700"
                           }`}
-                        />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                        >
+                          <span
+                            className={`block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              r.enabled ? "translate-x-4" : "translate-x-0.5"
+                            }`}
+                          />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="space-y-2 text-xs text-slate-300">
                 <div className="flex justify-between rounded-xl aura-glass-pill p-2.5">
-                  <span>{t("dashboard.waterEvery")}</span>
+                  <span className="inline-flex items-center gap-2">
+                    <Droplets className="h-3.5 w-3.5 text-sky-400" />
+                    {t("dashboard.waterEvery")}
+                  </span>
                   <span className="font-semibold text-sky-300">
                     {summary?.waterIntervalMin ?? 60} min
                   </span>
                 </div>
                 <div className="flex justify-between rounded-xl aura-glass-pill p-2.5">
-                  <span>{t("dashboard.breakEvery")}</span>
+                  <span className="inline-flex items-center gap-2">
+                    <Coffee className="h-3.5 w-3.5 text-indigo-400" />
+                    {t("dashboard.breakEvery")}
+                  </span>
                   <span className="font-semibold text-indigo-300">
                     {summary?.breakIntervalMin ?? 90} min
                   </span>
                 </div>
                 <div className="flex justify-between rounded-xl aura-glass-pill p-2.5">
-                  <span>{t("dashboard.planningAt")}</span>
+                  <span className="inline-flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                    {t("dashboard.planningAt")}
+                  </span>
                   <span className="font-semibold text-amber-300">
                     {summary?.dailyPlanningTime ?? "07:50"}
                   </span>
@@ -468,6 +599,11 @@ export function DashboardPage({
               <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <Bell className="h-4 w-4 text-amber-400" />
                 {t("dashboard.widgets.mini_alerts")}
+                {alerts.length > 0 && (
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
+                    {alerts.length}
+                  </span>
+                )}
               </h3>
               <button
                 type="button"
@@ -484,16 +620,23 @@ export function DashboardPage({
                 {alerts.slice(0, 4).map((a) => (
                   <div
                     key={a.id}
-                    className="flex items-center justify-between rounded-xl bg-amber-500/10 p-3 ring-1 ring-amber-500/30"
+                    className="flex items-center justify-between gap-2.5 rounded-xl aura-glass-elevated p-3 ring-1 ring-amber-500/30"
                   >
-                    <div>
-                      <div className="text-xs font-semibold text-amber-200">{a.title}</div>
-                      {a.body && <div className="text-[11px] text-amber-300/80">{a.body}</div>}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="rounded-lg bg-amber-500/15 p-1.5 text-amber-400 shrink-0">
+                        <BellRing className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-amber-200 truncate">{a.title}</div>
+                        {a.body && (
+                          <div className="text-[11px] text-slate-400 truncate">{a.body}</div>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => void onResolveAlert(a.id)}
-                      className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white cursor-pointer"
+                      className="rounded-lg bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer shrink-0 transition-colors"
                     >
                       ✓ {t("reminders.resolve")}
                     </button>

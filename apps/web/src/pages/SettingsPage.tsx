@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Download, GitBranch, ShieldAlert, Upload } from "lucide-react";
+import {
+  Bell,
+  Download,
+  Droplets,
+  GitBranch,
+  Palette,
+  Settings,
+  ShieldAlert,
+  Timer,
+  Upload,
+} from "lucide-react";
 
 import { alertsApi, dataIoApi, githubApi, settingsApi, type GithubAuthStatus } from "@/lib/ipc";
 import {
@@ -239,6 +249,15 @@ const GROUP_LABEL_KEYS: Record<string, string> = {
   github: "settings.groups.github",
 };
 
+const GROUP_ICONS: Record<string, typeof Settings> = {
+  app: Settings,
+  appearance: Palette,
+  pomodoro: Timer,
+  reminders: Bell,
+  routines: Droplets,
+  github: GitBranch,
+};
+
 export interface SettingsPageProps {
   onSettingSaved?: (key: string, value: unknown) => void;
   onAlertTriggered?: () => void;
@@ -450,137 +469,165 @@ export function SettingsPage({
   const groups = groupBy(SETTINGS_DEF, (s) => s.group);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto">
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-50">{t("settings.title")}</h2>
+    <div className="flex h-full flex-col gap-5 overflow-y-auto aura-scrollbar pr-1">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5">
+            <Settings className="h-5 w-5 text-sky-400" />
+            <h2 className="text-xl font-bold text-slate-50">{t("settings.title")}</h2>
+          </div>
+          <p className="text-xs text-slate-400">{t("settings.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-3 text-xs">
-          {savedMsg && <span className="text-emerald-400">✓ {savedMsg}</span>}
-          {error && <span className="text-red-400">{error}</span>}
+        <div className="flex items-center gap-2.5 text-xs">
+          {savedMsg && (
+            <span className="rounded-full bg-emerald-500/15 px-3 py-1 font-semibold text-emerald-300 ring-1 ring-emerald-500/35">
+              ✓ {savedMsg}
+            </span>
+          )}
+          {error && (
+            <span className="rounded-full bg-red-500/15 px-3 py-1 font-semibold text-red-300 ring-1 ring-red-500/35">
+              {error}
+            </span>
+          )}
         </div>
       </div>
 
-      {Object.entries(groups).map(([group, items]) => (
-        <section key={group} className="rounded-2xl aura-glass p-5">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-sky-400">
-            {t(GROUP_LABEL_KEYS[group] ?? group)}
-          </h3>
-          <div className="divide-y divide-slate-800/60">
-            {items.map((s) => {
-              const rowVal = s.visualField
-                ? visualPrefs[s.visualField]
-                : (values[s.key] ?? defaultFor(s));
-              return (
-                <SettingRow
-                  key={s.key}
-                  def={s}
-                  value={rowVal}
-                  disabled={loading}
-                  onChange={(val) => {
-                    if (!s.visualField) {
-                      setValues((v) => ({ ...v, [s.key]: val }));
-                    }
-                  }}
-                  onSave={(v) => void saveOne(s.key, v)}
-                />
-              );
-            })}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {Object.entries(groups).map(([group, items]) => {
+          const GroupIcon = GROUP_ICONS[group] ?? Settings;
+          return (
+            <section
+              key={group}
+              className="rounded-2xl aura-glass p-5 flex flex-col justify-between"
+            >
+              <div>
+                <h3 className="mb-3.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+                  <span className="rounded-lg bg-sky-500/15 p-1.5">
+                    <GroupIcon className="h-3.5 w-3.5 text-sky-400" />
+                  </span>
+                  {t(GROUP_LABEL_KEYS[group] ?? group)}
+                </h3>
+                <div className="divide-y divide-slate-800/60">
+                  {items.map((s) => {
+                    const rowVal = s.visualField
+                      ? visualPrefs[s.visualField]
+                      : (values[s.key] ?? defaultFor(s));
+                    return (
+                      <SettingRow
+                        key={s.key}
+                        def={s}
+                        value={rowVal}
+                        disabled={loading}
+                        onChange={(val) => {
+                          if (!s.visualField) {
+                            setValues((v) => ({ ...v, [s.key]: val }));
+                          }
+                        }}
+                        onSave={(v) => void saveOne(s.key, v)}
+                      />
+                    );
+                  })}
 
-            {group === "reminders" && (
-              <div className="flex flex-wrap items-center justify-between gap-4 py-3">
-                <div>
-                  <div className="text-sm font-medium text-slate-100">
-                    {t("settings.testBlockLabel")}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    {t("settings.testBlockDescription")}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void handleTestBlockingModal()}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 ring-1 ring-rose-500/40 hover:bg-rose-500/30 disabled:opacity-40 cursor-pointer"
-                >
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  {t("reminders.testBlockButton")}
-                </button>
-              </div>
-            )}
+                  {group === "reminders" && (
+                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                      <div>
+                        <div className="text-sm font-medium text-slate-100">
+                          {t("settings.testBlockLabel")}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {t("settings.testBlockDescription")}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void handleTestBlockingModal()}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 ring-1 ring-rose-500/40 hover:bg-rose-500/30 disabled:opacity-40 cursor-pointer"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                        {t("reminders.testBlockButton")}
+                      </button>
+                    </div>
+                  )}
 
-            {group === "github" && (
-              <div className="flex flex-wrap items-center justify-between gap-4 py-3">
-                <div className="flex flex-wrap items-center gap-2.5 text-xs">
-                  {githubAuth && (
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 font-medium ring-1 ${
-                        githubAuth.authenticated
-                          ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
-                          : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
-                      }`}
-                    >
-                      {!githubAuth.available
-                        ? t("settings.githubCliMissing")
-                        : githubAuth.authenticated
-                          ? t("settings.githubConnected", {
-                              account: githubAuth.account ?? "",
-                            })
-                          : t("settings.githubNotConnected")}
-                    </span>
+                  {group === "github" && (
+                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                        {githubAuth && (
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 font-medium ring-1 ${
+                              githubAuth.authenticated
+                                ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
+                                : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
+                            }`}
+                          >
+                            {!githubAuth.available
+                              ? t("settings.githubCliMissing")
+                              : githubAuth.authenticated
+                                ? t("settings.githubConnected", {
+                                    account: githubAuth.account ?? "",
+                                  })
+                                : t("settings.githubNotConnected")}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void handleCheckGithubAuth()}
+                        className="inline-flex items-center gap-1.5 rounded-xl aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
+                      >
+                        <GitBranch className="h-3.5 w-3.5" />
+                        {t("settings.githubCheckButton")}
+                      </button>
+                    </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void handleCheckGithubAuth()}
-                  className="inline-flex items-center gap-1.5 rounded-lg aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
-                >
-                  <GitBranch className="h-3.5 w-3.5" />
-                  {t("settings.githubCheckButton")}
-                </button>
               </div>
-            )}
+            </section>
+          );
+        })}
+
+        {/* Backup & Portability (.zip) */}
+        <section className="lg:col-span-2 rounded-2xl aura-glass p-5 space-y-3">
+          <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+            <span className="rounded-lg bg-sky-500/15 p-1.5">
+              <Download className="h-3.5 w-3.5 text-sky-400" />
+            </span>
+            {t("settings.groups.backup")}
+          </h3>
+          <p className="text-xs text-slate-400">{t("settings.backup.description")}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void handleExportZip()}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500 px-3.5 py-2 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {t("settings.backup.exportButton")}
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              data-testid="backup-zip-input"
+              onChange={(e) => void handleImportZip(e.target.files?.[0])}
+              className="hidden"
+            />
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {t("settings.backup.importButton")}
+            </button>
           </div>
         </section>
-      ))}
-
-      {/* Backup & Portability (.zip) */}
-      <section className="rounded-2xl aura-glass p-5 space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
-          {t("settings.groups.backup")}
-        </h3>
-        <p className="text-xs text-slate-400">{t("settings.backup.description")}</p>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void handleExportZip()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {t("settings.backup.exportButton")}
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".zip,application/zip"
-            data-testid="backup-zip-input"
-            onChange={(e) => void handleImportZip(e.target.files?.[0])}
-            className="hidden"
-          />
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            {t("settings.backup.importButton")}
-          </button>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

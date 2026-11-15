@@ -250,29 +250,56 @@ export function KanbanBoard({
           const colTasks = tasks
             .filter((x) => x.status === col)
             .sort((a, b) => a.kanban_order - b.kanban_order);
+          const totalEstimate = colTasks.reduce((sum, tk) => sum + (tk.estimate_min ?? 0), 0);
           const isDropTarget = Boolean(
             dragSession?.active && hoveredCol === col && dragSession.task.status !== col
           );
+          const colAccent =
+            col === "todo"
+              ? "border-t-2 border-t-sky-400/70"
+              : col === "doing"
+                ? "border-t-2 border-t-amber-400/70"
+                : col === "waiting"
+                  ? "border-t-2 border-t-violet-400/70"
+                  : "border-t-2 border-t-emerald-400/70";
+          const dotAccent =
+            col === "todo"
+              ? "bg-sky-400"
+              : col === "doing"
+                ? "bg-amber-400"
+                : col === "waiting"
+                  ? "bg-violet-400"
+                  : "bg-emerald-400";
 
           return (
             <div
               key={col}
               data-kanban-column={col}
-              className={`rounded-2xl aura-glass p-3.5 flex flex-col gap-3 min-h-[340px] transition-colors ${
+              className={`rounded-2xl aura-glass ${colAccent} p-3.5 flex flex-col gap-3 min-h-[360px] transition-colors ${
                 isDropTarget ? "ring-2 ring-sky-400 bg-sky-500/10" : ""
               }`}
             >
-              <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  {t(`kanban.columns.${col}`)}
-                </h3>
-                <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-sky-400 tabular-nums">
-                  {colTasks.length}
-                </span>
+              <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${dotAccent}`} />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {t(`kanban.columns.${col}`)}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {totalEstimate > 0 && (
+                    <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 tabular-nums">
+                      {totalEstimate}m
+                    </span>
+                  )}
+                  <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-sky-400 tabular-nums">
+                    {colTasks.length}
+                  </span>
+                </div>
               </div>
 
               {colTasks.length === 0 ? (
-                <p className="text-xs text-slate-600 text-center py-8">
+                <p className="rounded-xl border border-dashed border-slate-800/80 bg-slate-950/20 text-xs text-slate-500 text-center py-8 px-3">
                   {t("kanban.emptyColumn")}
                 </p>
               ) : (
