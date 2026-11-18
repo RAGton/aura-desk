@@ -9,6 +9,7 @@ en:
     show: Show AuraDesk
     compact: Toggle Compact Mode
     proposals: Open Hermes Proposals
+    check_updates: Check for Updates
     pause_all: Pause Alerts (60 min)
     quit: Quit
     alert_title: AuraDesk — Reminder
@@ -23,3 +24,6 @@ en:
     help_reply: "Offline Aura assistant ready. Try: \"create task <title>\", \"remind me <title>\", or \"summary\"."
     cli_unavailable: "Hermes CLI binary was not found on this host; running in local offline proposal mode."
     cli_failed: "Hermes CLI returned exit code %{code}."
+  crash:
+    title: AuraDesk
+    startup_failed: "AuraDesk failed to start.\n\nError: %{error}\n\nCrash log saved to:\n%{path}"

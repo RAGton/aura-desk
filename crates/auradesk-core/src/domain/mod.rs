@@ -10,3 +10,4 @@ pub mod reminder;
 pub mod routine;
 pub mod settings_key;
 pub mod task;
+pub mod updater;

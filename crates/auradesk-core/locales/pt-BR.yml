@@ -9,6 +9,7 @@ pt-BR:
     show: Mostrar AuraDesk
     compact: Alternar Modo Compacto
     proposals: Abrir Propostas Hermes
+    check_updates: Verificar Atualizações
     pause_all: Pausar Alertas (60 min)
     quit: Sair
     alert_title: AuraDesk — Lembrete
@@ -23,3 +24,6 @@ pt-BR:
     help_reply: "Assistente local pronto. Experimente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\"."
     cli_unavailable: "Binário Hermes CLI não encontrado neste host; executando em modo offline de propostas locais."
     cli_failed: "Hermes CLI encerrou com código %{code}."
+  crash:
+    title: AuraDesk
+    startup_failed: "O AuraDesk falhou ao iniciar.\n\nErro: %{error}\n\nLog de erro salvo em:\n%{path}"

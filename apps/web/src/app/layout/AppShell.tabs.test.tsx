@@ -149,16 +149,67 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
       })),
       setAutostart: vi.fn(async () => false),
     },
+    updaterApi: {
+      getState: vi.fn(async () => ({
+        status: "idle" as const,
+        currentVersion: "0.2.1",
+        latestVersion: null,
+        releaseNotes: null,
+        releaseUrl: null,
+        assetName: null,
+        progressPct: 0,
+        autoUpdateEnabled: true,
+        lastCheckedAt: null,
+        downloadedPath: null,
+        errorMessage: null,
+      })),
+      checkNow: vi.fn(async () => ({
+        status: "up_to_date" as const,
+        currentVersion: "0.2.1",
+        latestVersion: "0.2.1",
+        releaseNotes: null,
+        releaseUrl: null,
+        assetName: null,
+        progressPct: 100,
+        autoUpdateEnabled: true,
+        lastCheckedAt: "2026-11-18T10:00:00Z",
+        downloadedPath: null,
+        errorMessage: null,
+      })),
+      installNow: vi.fn(async () => ({
+        status: "up_to_date" as const,
+        currentVersion: "0.2.1",
+        latestVersion: "0.2.1",
+        releaseNotes: null,
+        releaseUrl: null,
+        assetName: null,
+        progressPct: 100,
+        autoUpdateEnabled: true,
+        lastCheckedAt: "2026-11-18T10:00:00Z",
+        downloadedPath: null,
+        errorMessage: null,
+      })),
+      openLogsDir: vi.fn(async () => "C:\\logs"),
+      getLogsTail: vi.fn(async () => []),
+    },
   };
 });
 
-import { alertsApi, githubApi, pomodoroApi, remindersApi, tasksApi } from "../../lib/ipc";
+import {
+  alertsApi,
+  githubApi,
+  pomodoroApi,
+  remindersApi,
+  tasksApi,
+  updaterApi,
+} from "../../lib/ipc";
 
 const mockedTasks = vi.mocked(tasksApi);
 const mockedAlerts = vi.mocked(alertsApi);
 const mockedReminders = vi.mocked(remindersApi);
 const mockedPomodoro = vi.mocked(pomodoroApi);
 const mockedGithub = vi.mocked(githubApi);
+const mockedUpdater = vi.mocked(updaterApi);
 
 // The tab title and the nav item share the same label, so pick the nav
 // button: it is the one inside the <nav> landmark.
@@ -437,5 +488,33 @@ describe("AppShell tabs", () => {
     });
     expect(screen.getByText(/Fila de Aprovação de Propostas/i)).toBeInTheDocument();
     expect(screen.getByText(/Registro de Auditoria da IA/i)).toBeInTheDocument();
+  });
+
+  it("renders the auto-update banner when an update is available and triggers installNow", async () => {
+    mockedUpdater.getState.mockResolvedValueOnce({
+      status: "available",
+      currentVersion: "0.2.1",
+      latestVersion: "0.2.2",
+      releaseNotes: "Crash logs & auto-update",
+      releaseUrl: "https://github.com/RGT-AI-Solutions/auradesk/releases/tag/v0.2.2",
+      assetName: "AuraDesk_0.2.2_x64-setup.exe",
+      progressPct: 0,
+      autoUpdateEnabled: true,
+      lastCheckedAt: "2026-11-18T10:00:00Z",
+      downloadedPath: null,
+      errorMessage: null,
+    });
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByText(/AuraDesk v0\.2\.2 disponível no GitHub/i)
+    ).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Atualizar e Reiniciar/i }));
+    await waitFor(() => {
+      expect(mockedUpdater.installNow).toHaveBeenCalled();
+    });
   });
 });

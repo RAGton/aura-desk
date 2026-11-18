@@ -115,7 +115,8 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::DesktopCompactMode
         | SettingsKey::RemindersSound
         | SettingsKey::RemindersBlockScreen
-        | SettingsKey::GithubAutoSync => value.is_boolean(),
+        | SettingsKey::GithubAutoSync
+        | SettingsKey::UpdatesAutoUpdate => value.is_boolean(),
         SettingsKey::RemindersPausedUntil | SettingsKey::GithubProjectId => {
             value.is_null() || value.is_string()
         }

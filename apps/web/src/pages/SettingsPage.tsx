@@ -4,11 +4,14 @@ import {
   Bell,
   Download,
   Droplets,
+  FolderOpen,
   GitBranch,
   Monitor,
   Palette,
+  RefreshCw,
   Settings,
   ShieldAlert,
+  Terminal,
   Timer,
   Upload,
 } from "lucide-react";
@@ -20,8 +23,10 @@ import {
   desktopApi,
   githubApi,
   settingsApi,
+  updaterApi,
   type GithubAuthStatus,
   type MonitorInfo,
+  type UpdateStateSnapshot,
 } from "@/lib/ipc";
 import {
   applyTheme,
@@ -89,6 +94,13 @@ const SETTINGS_DEF: SettingDef[] = [
       { value: "30", label: "30s" },
       { value: "60", label: "60s" },
     ],
+    group: "app",
+  },
+  {
+    key: "updates.auto_update",
+    labelKey: "settings.items.autoUpdate.label",
+    descriptionKey: "settings.items.autoUpdate.description",
+    type: "boolean",
     group: "app",
   },
   {
@@ -419,8 +431,100 @@ export function SettingsPage({
     }
   };
 
+  const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [logsTail, setLogsTail] = useState<string[] | null>(null);
+  const [logsOpenedPath, setLogsOpenedPath] = useState<string | null>(null);
+
+  async function refreshDiagnostics() {
+    try {
+      const [snap, lines] = await Promise.all([
+        updaterApi.getState(),
+        updaterApi.getLogsTail(80),
+      ]);
+      if (snap && typeof snap === "object") {
+        setUpdateState(snap);
+      }
+      if (Array.isArray(lines)) {
+        setLogsTail(lines);
+      }
+    } catch {
+      // Non-blocking in browser/test runtimes without native log files.
+    }
+  }
+
+  async function handleCheckUpdates() {
+    setCheckingUpdate(true);
+    setError(null);
+    try {
+      const snap = await updaterApi.checkNow(false);
+      if (snap && typeof snap === "object") {
+        setUpdateState(snap);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    setCheckingUpdate(true);
+    setError(null);
+    try {
+      const snap = await updaterApi.installNow();
+      if (snap && typeof snap === "object") {
+        setUpdateState(snap);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleOpenLogsDir() {
+    setError(null);
+    try {
+      const dir = await updaterApi.openLogsDir();
+      if (dir) {
+        setLogsOpenedPath(dir);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   useEffect(() => {
     void loadAll();
+    void refreshDiagnostics();
+
+    const hasTauriInternals =
+      typeof window !== "undefined" &&
+      Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+    if (!hasTauriInternals) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(async ({ listen }) => {
+        unlisten = await listen<UpdateStateSnapshot>("auradesk://update-status", (event) => {
+          if (cancelled || !event.payload) return;
+          setUpdateState(event.payload);
+          setCheckingUpdate(
+            event.payload.status === "checking" ||
+              event.payload.status === "downloading" ||
+              event.payload.status === "verifying" ||
+              event.payload.status === "installing"
+          );
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   async function saveOne(key: string, rawValue: unknown) {
@@ -767,6 +871,131 @@ export function SettingsPage({
           );
         })}
 
+        {/* Updates & Crash Logs */}
+        <section
+          aria-label={t("settings.updates.title")}
+          className="lg:col-span-2 rounded-2xl aura-glass p-5 space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
+              <span className="rounded-lg bg-indigo-500/15 p-1.5">
+                <RefreshCw className="h-3.5 w-3.5 text-indigo-400" />
+              </span>
+              {t("settings.updates.title")}
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="default" className="rounded-full px-2.5 py-0.5 font-mono text-[11px]">
+                {t("settings.updates.currentVersion")}: v
+                {updateState?.currentVersion ?? String(values["app.version"] ?? "0.2.2")}
+              </Badge>
+              <Badge
+                variant={values["updates.auto_update"] !== false ? "success" : "warning"}
+                className="rounded-full px-2.5 py-0.5 text-[11px]"
+              >
+                {values["updates.auto_update"] !== false
+                  ? t("settings.updates.autoUpdateEnabled")
+                  : t("settings.updates.autoUpdateDisabled")}
+              </Badge>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400">{t("settings.updates.description")}</p>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-4 py-3">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="text-xs font-medium text-slate-200">
+                {formatUpdateStatusMessage(t, updateState)}
+              </p>
+              {updateState?.status === "downloading" && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full bg-indigo-500 transition-all duration-300"
+                    style={{ width: `${Math.max(4, updateState.progressPct)}%` }}
+                  />
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500">
+                {updateState?.lastCheckedAt
+                  ? t("settings.updates.lastChecked", {
+                      time: new Date(updateState.lastCheckedAt).toLocaleString(),
+                    })
+                  : t("settings.updates.neverChecked")}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={checkingUpdate}
+                onClick={() => void handleCheckUpdates()}
+                className="rounded-xl text-xs font-semibold"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${checkingUpdate ? "animate-spin" : ""}`}
+                />
+                {checkingUpdate
+                  ? t("settings.updates.checking")
+                  : t("settings.updates.checkButton")}
+              </Button>
+
+              {(updateState?.status === "available" ||
+                (updateState?.status === "error" && Boolean(updateState.latestVersion))) && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={checkingUpdate}
+                  onClick={() => void handleInstallUpdate()}
+                  className="rounded-xl text-xs font-semibold"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {updateState.status === "error"
+                    ? t("settings.updates.retryButton")
+                    : t("settings.updates.installButton")}
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void handleOpenLogsDir()}
+                className="rounded-xl text-xs font-semibold"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                {t("settings.updates.openLogs")}
+              </Button>
+            </div>
+          </div>
+
+          {logsOpenedPath && (
+            <p className="text-[11px] text-emerald-400">
+              {t("settings.updates.openedLogs", { path: logsOpenedPath })}
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
+                <Terminal className="h-3.5 w-3.5 text-slate-400" />
+                {t("settings.updates.logsTitle")}
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void refreshDiagnostics()}
+                className="rounded-lg px-2.5 py-1 text-[11px]"
+              >
+                {t("settings.updates.refreshLogs")}
+              </Button>
+            </div>
+            <pre className="max-h-40 overflow-auto rounded-xl border border-slate-800/70 bg-slate-950/70 p-3 font-mono text-[11px] leading-relaxed text-slate-300">
+              {logsTail && logsTail.length > 0
+                ? logsTail.join("\n")
+                : t("settings.updates.logsEmpty")}
+            </pre>
+          </div>
+        </section>
+
         {/* Backup & Portability (.zip) */}
         <section className="lg:col-span-2 rounded-2xl aura-glass p-5 space-y-3">
           <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
@@ -980,6 +1209,7 @@ function defaultFor(s: SettingDef): unknown {
     case "pomodoro.cycles_to_long":
       return 4;
     case "reminders.sound":
+    case "updates.auto_update":
       return true;
     case "reminders.block_screen":
       return false;
@@ -1000,6 +1230,37 @@ function defaultFor(s: SettingDef): unknown {
       return false;
     default:
       return "";
+  }
+}
+
+function formatUpdateStatusMessage(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  state: UpdateStateSnapshot | null
+): string {
+  if (!state || state.status === "idle" || state.status === "up_to_date") {
+    return t("settings.updates.upToDate", {
+      version: state?.currentVersion ?? "0.2.2",
+    });
+  }
+  const version = state.latestVersion ?? state.currentVersion;
+  switch (state.status) {
+    case "checking":
+      return t("settings.updates.checking");
+    case "available":
+      return t("settings.updates.available", { version });
+    case "downloading":
+      return t("settings.updates.downloading", {
+        version,
+        pct: state.progressPct,
+      });
+    case "verifying":
+      return t("settings.updates.verifying", { version });
+    case "installing":
+      return t("settings.updates.installing", { version });
+    case "error":
+      return t("settings.updates.error", {
+        message: state.errorMessage ?? "",
+      });
   }
 }
 

@@ -4,21 +4,24 @@ import {
   BarChart3,
   Bell,
   Bot,
+  Download,
   Kanban,
   LayoutDashboard,
   Moon,
   PanelLeft,
   PanelTop,
   PictureInPicture2,
+  RefreshCw,
   Settings,
   SlidersHorizontal,
   Sun,
   Timer,
+  X,
 } from "lucide-react";
 
 import { AuraDeskLogo } from "../../components/AuraDeskLogo";
 import { ReminderModal } from "../../components/ReminderModal";
-import { Badge, Toast } from "../../components/ui";
+import { Badge, Button, Toast } from "../../components/ui";
 import { HermesChatPanel } from "../../features/hermes-chat/HermesChatPanel";
 import {
   alertsApi,
@@ -33,6 +36,7 @@ import {
   routinesApi,
   settingsApi,
   tasksApi,
+  updaterApi,
   type Alert,
   type DailyPlan,
   parseDailyPlanNotes,
@@ -46,6 +50,7 @@ import {
   type Reminder,
   type Routine,
   type Task,
+  type UpdateStateSnapshot,
 } from "../../lib/ipc";
 import { useAlertsController } from "../../hooks/useAlertsController";
 import { usePomodoroController } from "../../hooks/usePomodoroController";
@@ -160,6 +165,8 @@ export function AppShell() {
     text: string;
     isError?: boolean;
   } | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
+  const [dismissedUpdateBanner, setDismissedUpdateBanner] = useState(false);
 
   // Dashboard Customizer State
   const [customizingLayout, setCustomizingLayout] = useState(false);
@@ -427,6 +434,16 @@ export function AppShell() {
     let unlistenResume: (() => void) | undefined;
     let unlistenNavigate: (() => void) | undefined;
     let unlistenProposals: (() => void) | undefined;
+    let unlistenUpdate: (() => void) | undefined;
+    void updaterApi
+      .getState()
+      .then((snap) => {
+        if (snap && typeof snap === "object") {
+          setUpdateState(snap);
+        }
+      })
+      .catch(() => {});
+
     if (isTauriRuntime()) {
       void import("@tauri-apps/api/event")
         .then(async ({ listen }) => {
@@ -449,6 +466,21 @@ export function AppShell() {
           unlistenProposals = await listen("auradesk://proposals-updated", () => {
             void refreshAlertsDomain();
           });
+          unlistenUpdate = await listen<UpdateStateSnapshot>(
+            "auradesk://update-status",
+            (event) => {
+              if (!event.payload) return;
+              setUpdateState(event.payload);
+              if (
+                event.payload.status === "available" ||
+                event.payload.status === "downloading" ||
+                event.payload.status === "verifying" ||
+                event.payload.status === "installing"
+              ) {
+                setDismissedUpdateBanner(false);
+              }
+            }
+          );
           unlistenNavigate = await listen<string>("auradesk://navigate", (event) => {
             const target = event.payload;
             if (
@@ -477,6 +509,7 @@ export function AppShell() {
       if (unlistenSettings) unlistenSettings();
       if (unlistenResume) unlistenResume();
       if (unlistenProposals) unlistenProposals();
+      if (unlistenUpdate) unlistenUpdate();
       if (unlistenNavigate) unlistenNavigate();
     };
   }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain, selectTab]);
@@ -976,6 +1009,86 @@ export function AppShell() {
           onClose={() => setStatusBanner(null)}
         />
       </div>
+
+      {updateState &&
+        !dismissedUpdateBanner &&
+        (updateState.status === "available" ||
+          updateState.status === "downloading" ||
+          updateState.status === "verifying" ||
+          updateState.status === "installing" ||
+          updateState.status === "error") && (
+          <div
+            role="status"
+            aria-label={t("updater.banner.releaseNotes")}
+            className="mx-auto mt-3 flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-2.5 text-xs text-slate-100"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              {updateState.status === "downloading" ||
+              updateState.status === "verifying" ||
+              updateState.status === "installing" ? (
+                <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-indigo-300" />
+              ) : (
+                <Download className="h-4 w-4 shrink-0 text-indigo-300" />
+              )}
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="truncate font-medium">
+                  {updateState.status === "available" &&
+                    t("updater.banner.available", {
+                      version: updateState.latestVersion ?? updateState.currentVersion,
+                    })}
+                  {updateState.status === "downloading" &&
+                    t("updater.banner.downloading", {
+                      version: updateState.latestVersion ?? updateState.currentVersion,
+                      pct: updateState.progressPct,
+                    })}
+                  {updateState.status === "verifying" &&
+                    t("updater.banner.verifying", {
+                      version: updateState.latestVersion ?? updateState.currentVersion,
+                    })}
+                  {updateState.status === "installing" &&
+                    t("updater.banner.installing", {
+                      version: updateState.latestVersion ?? updateState.currentVersion,
+                    })}
+                  {updateState.status === "error" &&
+                    t("updater.banner.error", {
+                      message: updateState.errorMessage ?? "",
+                    })}
+                </p>
+                {updateState.status === "downloading" && (
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-slate-800/80">
+                    <div
+                      className="h-full bg-indigo-400 transition-all duration-300"
+                      style={{ width: `${Math.max(4, updateState.progressPct)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {(updateState.status === "available" || updateState.status === "error") && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void updaterApi.installNow().catch(() => {})}
+                  className="rounded-xl px-3 py-1 text-xs font-semibold"
+                >
+                  {updateState.status === "error"
+                    ? t("updater.banner.retry")
+                    : t("updater.banner.installNow")}
+                </Button>
+              )}
+              <button
+                type="button"
+                aria-label={t("updater.banner.dismiss")}
+                onClick={() => setDismissedUpdateBanner(true)}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800/70 hover:text-slate-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
       {isSidebar ? (
         <div className="flex flex-1 flex-col md:flex-row min-h-0">

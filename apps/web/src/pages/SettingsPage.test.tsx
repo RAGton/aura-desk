@@ -261,4 +261,71 @@ describe("SettingsPage", () => {
     await user.tab();
     expect(screen.getByLabelText("Tema")).toHaveFocus();
   });
+
+  it("renders auto-update status, checks GitHub updates, and displays crash log tail", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "settings_get_all") return [];
+      if (cmd === "desktop_list_monitors") return [];
+      if (cmd === "updater_get_state") {
+        return {
+          status: "available",
+          currentVersion: "0.2.1",
+          latestVersion: "0.2.2",
+          releaseNotes: "Auto updater ready",
+          releaseUrl: "https://github.com/RGT-AI-Solutions/auradesk/releases/tag/v0.2.2",
+          assetName: "AuraDesk_0.2.2_x64-setup.exe",
+          progressPct: 0,
+          autoUpdateEnabled: true,
+          lastCheckedAt: "2026-11-18T10:00:00Z",
+          downloadedPath: null,
+          errorMessage: null,
+        };
+      }
+      if (cmd === "app_get_logs_tail") {
+        return ["[2026-11-18T10:00:00Z] auradesk starting v0.2.1"];
+      }
+      if (cmd === "updater_check_now") {
+        return {
+          status: "available",
+          currentVersion: "0.2.1",
+          latestVersion: "0.2.2",
+          releaseNotes: "Auto updater ready",
+          releaseUrl: "https://github.com/RGT-AI-Solutions/auradesk/releases/tag/v0.2.2",
+          assetName: "AuraDesk_0.2.2_x64-setup.exe",
+          progressPct: 0,
+          autoUpdateEnabled: true,
+          lastCheckedAt: "2026-11-18T10:05:00Z",
+          downloadedPath: null,
+          errorMessage: null,
+        };
+      }
+      if (cmd === "app_open_logs_dir") {
+        return "C:\\Users\\test\\AppData\\Roaming\\com.ragton.auradesk\\logs";
+      }
+      return undefined;
+    });
+
+    render(<SettingsPage />);
+
+    expect(
+      await screen.findByText(/\[2026-11-18T10:00:00Z\] auradesk starting v0\.2\.1/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Atualização v0\.2\.2 disponível/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Atualizações automáticas")).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Verificar atualizações/i }));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("updater_check_now", {
+        autoInstall: false,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Abrir pasta de logs/i }));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("app_open_logs_dir", undefined);
+    });
+  });
 });

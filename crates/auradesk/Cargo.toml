@@ -1,6 +1,6 @@
 [package]
 name = "auradesk"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [lib]
@@ -22,4 +22,5 @@ auradesk-core = { path = "../auradesk-core" }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.13", features = ["blocking", "json"] }
 tauri = { version = "2", features = ["tray-icon"] }

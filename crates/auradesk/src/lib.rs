@@ -8,8 +8,10 @@ pub mod desktop;
 pub mod github;
 pub mod hermes;
 pub mod ipc;
+pub mod logging;
 pub mod routines;
 pub mod runtime;
+pub mod updater;
 
 /// Return the shared capability registry exposed by `auradesk list-capabilities`.
 pub fn list_capabilities() -> &'static [Capability] {

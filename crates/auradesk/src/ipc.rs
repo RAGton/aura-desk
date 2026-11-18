@@ -1630,6 +1630,59 @@ pub fn desktop_set_autostart(state: State<'_, AppState>, enabled: bool) -> Resul
     crate::desktop::set_autostart(&db, enabled)
 }
 
+// ── Auto-Updater & Crash Diagnostics ──────────────────────────────────
+
+#[tauri::command]
+pub fn updater_get_state(state: State<'_, AppState>) -> crate::updater::UpdateStateSnapshot {
+    let db = db_from(&state);
+    state.updater.snapshot(&db)
+}
+
+#[tauri::command]
+pub async fn updater_check_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    auto_install: Option<bool>,
+) -> Result<crate::updater::UpdateStateSnapshot, String> {
+    let db = db_from(&state);
+    let data_dir = state.data_dir.clone();
+    let updater = Arc::clone(&state.updater);
+    tauri::async_runtime::spawn_blocking(move || {
+        let should_install =
+            auto_install.unwrap_or_else(|| crate::updater::read_auto_update_setting(&db));
+        crate::updater::check_and_maybe_install(&app, &db, &data_dir, &updater, should_install)
+    })
+    .await
+    .map_err(|e| format!("updater_check_now join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn updater_install_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::updater::UpdateStateSnapshot, String> {
+    let db = db_from(&state);
+    let data_dir = state.data_dir.clone();
+    let updater = Arc::clone(&state.updater);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::updater::install_update_now(&app, &db, &data_dir, &updater)
+    })
+    .await
+    .map_err(|e| format!("updater_install_now join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn app_open_logs_dir() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(crate::logging::open_logs_directory)
+        .await
+        .map_err(|e| format!("app_open_logs_dir join: {e}"))?
+}
+
+#[tauri::command]
+pub fn app_get_logs_tail(limit: Option<usize>) -> Vec<String> {
+    crate::logging::read_recent_logs(limit.unwrap_or(100))
+}
+
 /// Suppress unused warning for the helper that the macro
 /// `#[tauri::command]` expansion pulls in.
 #[allow(dead_code)]

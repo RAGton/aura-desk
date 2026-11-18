@@ -328,6 +328,30 @@ export interface DesktopStateSnapshot {
   fallbackStrategy: MonitorFallbackStrategy | string;
 }
 
+export type UpdateStatusKind =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "verifying"
+  | "installing"
+  | "up_to_date"
+  | "error";
+
+export interface UpdateStateSnapshot {
+  status: UpdateStatusKind;
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+  assetName: string | null;
+  progressPct: number;
+  autoUpdateEnabled: boolean;
+  lastCheckedAt: string | null;
+  downloadedPath: string | null;
+  errorMessage: string | null;
+}
+
 export type IpcErrorKind = "validation" | "transport" | "application";
 
 export class IpcError extends Error {
@@ -397,10 +421,11 @@ interface BrowserDbState {
 const STORAGE_KEY = "auradesk_browser_db_v1";
 
 const DEFAULT_SETTINGS: Record<string, unknown> = {
-  "app.version": "0.2.1",
+  "app.version": "0.2.2",
   "app.theme": "dark",
   "app.locale": "pt-BR",
   "app.autostart": false,
+  "updates.auto_update": true,
   "desktop.compact_mode": false,
   "dashboard.refresh_sec": 30,
   "monitor.preferred": "primary",
@@ -1905,6 +1930,45 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         fallbackStrategy: String(db.settings["monitor.fallback_strategy"] ?? "primary_then_hide"),
       } satisfies DesktopStateSnapshot;
 
+    case "updater_get_state":
+      return {
+        status: "idle",
+        currentVersion: String(db.settings["app.version"] ?? "0.2.2"),
+        latestVersion: null,
+        releaseNotes: null,
+        releaseUrl: null,
+        assetName: null,
+        progressPct: 0,
+        autoUpdateEnabled: db.settings["updates.auto_update"] !== false,
+        lastCheckedAt: null,
+        downloadedPath: null,
+        errorMessage: null,
+      } satisfies UpdateStateSnapshot;
+
+    case "updater_check_now":
+    case "updater_install_now": {
+      const version = String(db.settings["app.version"] ?? "0.2.2");
+      return {
+        status: "up_to_date",
+        currentVersion: version,
+        latestVersion: version,
+        releaseNotes: null,
+        releaseUrl: null,
+        assetName: null,
+        progressPct: 100,
+        autoUpdateEnabled: db.settings["updates.auto_update"] !== false,
+        lastCheckedAt: new Date().toISOString(),
+        downloadedPath: null,
+        errorMessage: null,
+      } satisfies UpdateStateSnapshot;
+    }
+
+    case "app_open_logs_dir":
+      return "browser://logs";
+
+    case "app_get_logs_tail":
+      return [];
+
     default:
       return null;
   }
@@ -2192,6 +2256,20 @@ export const desktopApi = {
     wrapInvoke<boolean>("desktop_set_autostart", { enabled }),
 };
 
+export const updaterApi = {
+  getState: (): Promise<UpdateStateSnapshot> =>
+    wrapInvoke<UpdateStateSnapshot>("updater_get_state"),
+  checkNow: (autoInstall?: boolean): Promise<UpdateStateSnapshot> =>
+    wrapInvoke<UpdateStateSnapshot>("updater_check_now", {
+      autoInstall: autoInstall ?? null,
+    }),
+  installNow: (): Promise<UpdateStateSnapshot> =>
+    wrapInvoke<UpdateStateSnapshot>("updater_install_now"),
+  openLogsDir: (): Promise<string> => wrapInvoke<string>("app_open_logs_dir"),
+  getLogsTail: (limit = 80): Promise<string[]> =>
+    wrapInvoke<string[]>("app_get_logs_tail", { limit }),
+};
+
 export const ipc = {
   ping: () => wrapInvoke<string>("ping"),
   tasks: tasksApi,
@@ -2210,4 +2288,5 @@ export const ipc = {
   hermes: hermesApi,
   audio: audioApi,
   desktop: desktopApi,
+  updater: updaterApi,
 } as const;
