@@ -1,4 +1,38 @@
-import { defineConfig, devices } from "@playwright/test";
+import fs from "node:fs";
+import { chromium, defineConfig, devices } from "@playwright/test";
+
+function resolveLocalChromiumExecutable(): string | undefined {
+  if (process.env.PLAYWRIGHT_EXECUTABLE_PATH) {
+    return process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+  }
+  if (process.env.CI) {
+    return undefined;
+  }
+  try {
+    if (fs.existsSync(chromium.executablePath())) {
+      return undefined;
+    }
+  } catch {
+    // ignore missing default playwright browser lookup
+  }
+  const candidates =
+    process.platform === "win32"
+      ? [
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        ]
+      : [
+          "/usr/bin/google-chrome",
+          "/usr/bin/chromium",
+          "/usr/bin/chromium-browser",
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ];
+  return candidates.find((p) => fs.existsSync(p));
+}
+
+const resolvedExecutablePath = resolveLocalChromiumExecutable();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -17,10 +51,10 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH
+        ...(resolvedExecutablePath
           ? {
               launchOptions: {
-                executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+                executablePath: resolvedExecutablePath,
               },
             }
           : {}),

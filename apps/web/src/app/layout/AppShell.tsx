@@ -156,6 +156,14 @@ export function AppShell() {
   const appliedSavedLocaleRef = useRef<boolean>(false);
   const toastTimeoutRef = useRef<number | null>(null);
   const pomodoroSyncRef = useRef<(pomo: PomodoroSession | null) => void>(() => {});
+  const mountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Settings-derived Pomodoro durations & alert behavior
   const focusMin = Math.max(1, Number(settingsMap["pomodoro.focus_min"] ?? 25) || 25);
@@ -251,6 +259,8 @@ export function AppShell() {
         proposalsApi.listPending().catch(() => [] as ProposalItem[]),
       ]);
 
+      if (!mountedRef.current) return;
+
       setSummary(sum);
       setDailyPlan(plan);
 
@@ -312,6 +322,8 @@ export function AppShell() {
         githubApi.listIssues().catch(() => [] as GithubIssueLink[]),
         projectsApi.list().catch(() => [] as Project[]),
       ]);
+      if (!mountedRef.current) return;
+
       setSummary(sum);
       setTasks(asArray<Task>(allTasks));
       setGithubLinks(asArray<GithubIssueLink>(links));
@@ -328,6 +340,8 @@ export function AppShell() {
         remindersApi.list(),
         alertsApi.listPending(),
       ]);
+      if (!mountedRef.current) return;
+
       setSummary(sum);
       setReminders(asArray<Reminder>(rems));
       setAlerts(asArray<Alert>(pendingAlerts));
@@ -344,6 +358,8 @@ export function AppShell() {
         pomodoroApi.active(),
         pomodoroApi.list(20),
       ]);
+      if (!mountedRef.current) return;
+
       setSummary(sum);
       setTasks(asArray<Task>(allTasks));
       pomodoroSyncRef.current(pomo ?? null);

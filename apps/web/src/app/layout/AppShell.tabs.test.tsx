@@ -114,6 +114,12 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
       })),
     },
     projectsApi: { list: vi.fn(async () => empty), create: vi.fn(async () => undefined) },
+    routinesApi: { list: vi.fn(async () => empty), setEnabled: vi.fn(async () => undefined) },
+    proposalsApi: {
+      listPending: vi.fn(async () => empty),
+      approve: vi.fn(async () => undefined),
+      reject: vi.fn(async () => undefined),
+    },
   };
 });
 
@@ -149,8 +155,11 @@ describe("AppShell tabs", () => {
     mockedPomodoro.list.mockResolvedValue([]);
   });
 
-  it("shows the dashboard by default", () => {
+  it("shows the dashboard by default", async () => {
     render(<AppShell />);
+    await waitFor(() => {
+      expect(mockedTasks.list).toHaveBeenCalled();
+    });
     expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
     expect(screen.getByText("Rotinas Automáticas")).toBeInTheDocument();
     expect(screen.getByText(/Água a cada/)).toBeInTheDocument();

@@ -1176,7 +1176,7 @@ pub fn report_summary(state: State<'_, AppState>) -> Result<ReportSummary, Strin
 
     // Hydrate water & routine break counts recorded in `metrics_daily`.
     {
-        let conn = db.writer();
+        let conn = db.reader();
         if let Ok(mut stmt) =
             conn.prepare("SELECT date, break_minutes, water_count FROM metrics_daily")
         {
