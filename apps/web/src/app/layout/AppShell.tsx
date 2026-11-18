@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bell,
+  Bot,
   Kanban,
   LayoutDashboard,
   Moon,
@@ -18,6 +19,7 @@ import {
 import { AuraDeskLogo } from "../../components/AuraDeskLogo";
 import { ReminderModal } from "../../components/ReminderModal";
 import { Badge, Toast } from "../../components/ui";
+import { HermesChatPanel } from "../../features/hermes-chat/HermesChatPanel";
 import {
   alertsApi,
   dashboardApi,
@@ -66,7 +68,14 @@ import { RemindersPage } from "../../pages/RemindersPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { SettingsPage } from "../../pages/SettingsPage";
 
-type TabKey = "dashboard" | "kanban" | "pomodoro" | "reminders" | "reports" | "settings";
+type TabKey =
+  | "dashboard"
+  | "kanban"
+  | "pomodoro"
+  | "reminders"
+  | "reports"
+  | "hermes"
+  | "settings";
 
 const LAYOUT_STORAGE_KEY = "auradesk_dashboard_layout_v1";
 
@@ -94,6 +103,7 @@ function initialTabFromLocation(): TabKey {
   if (path === "alerts" || path === "reminders") return "reminders";
   if (path === "pomodoro") return "pomodoro";
   if (path === "reports") return "reports";
+  if (path === "hermes") return "hermes";
   if (path === "settings") return "settings";
   return "dashboard";
 }
@@ -108,6 +118,8 @@ function tabToPath(tab: TabKey): string {
       return "/pomodoro";
     case "reports":
       return "/reports";
+    case "hermes":
+      return "/hermes";
     case "settings":
       return "/settings";
     default:
@@ -414,6 +426,7 @@ export function AppShell() {
     let unlistenSettings: (() => void) | undefined;
     let unlistenResume: (() => void) | undefined;
     let unlistenNavigate: (() => void) | undefined;
+    let unlistenProposals: (() => void) | undefined;
     if (isTauriRuntime()) {
       void import("@tauri-apps/api/event")
         .then(async ({ listen }) => {
@@ -433,6 +446,9 @@ export function AppShell() {
           unlistenResume = await listen("auradesk://system-resumed", () => {
             void refreshAll();
           });
+          unlistenProposals = await listen("auradesk://proposals-updated", () => {
+            void refreshAlertsDomain();
+          });
           unlistenNavigate = await listen<string>("auradesk://navigate", (event) => {
             const target = event.payload;
             if (
@@ -441,11 +457,10 @@ export function AppShell() {
               target === "pomodoro" ||
               target === "reminders" ||
               target === "reports" ||
+              target === "hermes" ||
               target === "settings"
             ) {
               selectTab(target);
-            } else if (target === "hermes") {
-              selectTab("dashboard");
             }
           });
         })
@@ -461,6 +476,7 @@ export function AppShell() {
       if (unlistenTasks) unlistenTasks();
       if (unlistenSettings) unlistenSettings();
       if (unlistenResume) unlistenResume();
+      if (unlistenProposals) unlistenProposals();
       if (unlistenNavigate) unlistenNavigate();
     };
   }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain, selectTab]);
@@ -595,6 +611,12 @@ export function AppShell() {
       badge: undefined,
     },
     {
+      key: "hermes" as const,
+      label: t("nav.hermes"),
+      icon: Bot,
+      badge: proposals.length > 0 ? proposals.length : undefined,
+    },
+    {
       key: "settings" as const,
       label: t("nav.settings"),
       icon: Settings,
@@ -607,15 +629,15 @@ export function AppShell() {
       aria-label={t("app.title")}
       className={
         isSidebar
-          ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-2 max-md:py-1.5"
-          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-2 max-md:py-1.5"
+          ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
+          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
       }
     >
       <div
         className={
           isSidebar
-            ? "flex md:flex-col gap-1 max-md:grid max-md:grid-cols-6 max-md:w-full"
-            : "flex items-center gap-1 max-md:grid max-md:grid-cols-6 max-md:w-full"
+            ? "flex md:flex-col gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
+            : "flex items-center gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
         }
       >
         {navItems.map(({ key, label, icon: Icon, badge }) => {
@@ -626,7 +648,7 @@ export function AppShell() {
               type="button"
               onClick={() => selectTab(key)}
               aria-current={active ? "page" : undefined}
-              className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-1 max-md:py-2 max-md:text-[11px] ${
+              className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:min-w-0 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-0.5 max-md:py-2 max-md:text-[10px] ${
                 isSidebar
                   ? `rounded-xl px-3.5 py-2.5 w-full ${
                       active
@@ -640,9 +662,9 @@ export function AppShell() {
                     }`
               }`}
             >
-              <span className="flex items-center gap-2 max-md:flex-col max-md:gap-0.5">
+              <span className="flex items-center gap-2 max-md:min-w-0 max-md:flex-col max-md:gap-0.5">
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="truncate max-md:max-w-[64px]">{label}</span>
+                <span className="truncate max-md:max-w-[46px]">{label}</span>
               </span>
               {badge !== undefined && (
                 <Badge
@@ -818,6 +840,10 @@ export function AppShell() {
       )}
 
       {activeTab === "reports" && <ReportsPage />}
+
+      {activeTab === "hermes" && (
+        <HermesChatPanel onProposalApplied={() => void refreshAll()} />
+      )}
 
       {activeTab === "settings" && (
         <SettingsPage

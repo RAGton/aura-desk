@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "./i18n";
 import { ERROR_KEYS, errorMessage } from "./errors";
 import { decodeZipTextEntries, encodeZipBase64 } from "./zip";
 
@@ -166,6 +167,46 @@ export interface ProposalItem {
   status: string;
   created_at: string;
   expires_at: string;
+  decided_at?: string | null;
+  decision_note?: string | null;
+  result_ref_id?: string | null;
+  decided_by?: string | null;
+}
+
+export interface IaCommandEntry {
+  id: string;
+  source: string;
+  toolName: string;
+  argsJson: string;
+  resultStatus: string;
+  resultMessage?: string | null;
+  proposalId?: string | null;
+  invokedAt: string;
+}
+
+export interface HermesStatus {
+  available: boolean;
+  binaryPath: string | null;
+}
+
+export interface HermesChatReply {
+  requestId: string;
+  mode: string;
+  replyText: string;
+  proposal: ProposalItem | null;
+  streaming: boolean;
+}
+
+export interface HermesStreamEvent {
+  requestId: string;
+  chunk: string;
+  done: boolean;
+  isError: boolean;
+}
+
+export interface VoiceCaptureResult {
+  filePath: string;
+  bytes: number;
 }
 
 export type PlanState = "not_started" | "in_progress" | "completed" | "skipped";
@@ -346,6 +387,8 @@ interface BrowserDbState {
   dailyPlans: DailyPlan[];
   routines?: Routine[];
   proposals?: ProposalItem[];
+  iaCommands?: IaCommandEntry[];
+  voiceCaptures?: Array<{ filePath: string; bytes: number; createdAt: string }>;
   settings: Record<string, unknown>;
   githubLinks?: GithubIssueLink[];
   metricsByDay?: Record<string, { waterCount: number; breakMin: number }>;
@@ -428,6 +471,10 @@ function loadBrowserDb(): BrowserDbState {
         reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
         alerts: Array.isArray(parsed.alerts) ? parsed.alerts : [],
         dailyPlans: Array.isArray(parsed.dailyPlans) ? parsed.dailyPlans : [],
+        routines: Array.isArray(parsed.routines) ? parsed.routines : undefined,
+        proposals: Array.isArray(parsed.proposals) ? parsed.proposals : [],
+        iaCommands: Array.isArray(parsed.iaCommands) ? parsed.iaCommands : [],
+        voiceCaptures: Array.isArray(parsed.voiceCaptures) ? parsed.voiceCaptures : [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
         githubLinks: Array.isArray(parsed.githubLinks) ? parsed.githubLinks : [],
         metricsByDay:
@@ -446,6 +493,9 @@ function loadBrowserDb(): BrowserDbState {
     reminders: [],
     alerts: [],
     dailyPlans: [],
+    proposals: [],
+    iaCommands: [],
+    voiceCaptures: [],
     settings: { ...DEFAULT_SETTINGS },
     githubLinks: [],
     metricsByDay: {},
@@ -556,6 +606,264 @@ export function advanceCalendarMonthIso(baseIso: string, months = 1): string {
     )
   );
   return next.toISOString();
+}
+
+function recordBrowserIaCommand(
+  db: BrowserDbState,
+  entry: Omit<IaCommandEntry, "id" | "invokedAt">
+): void {
+  if (!Array.isArray(db.iaCommands)) db.iaCommands = [];
+  db.iaCommands.unshift({
+    id: genId(),
+    ...entry,
+    invokedAt: new Date().toISOString(),
+  });
+  if (db.iaCommands.length > 200) {
+    db.iaCommands.length = 200;
+  }
+}
+
+function stripAnyPrefix(trimmed: string, lower: string, prefixes: string[]): string | null {
+  for (const p of prefixes) {
+    if (lower.startsWith(p)) {
+      const rest = trimmed.slice(p.length).trim();
+      if (rest) return rest;
+    }
+  }
+  return null;
+}
+
+function applyBrowserProposal(
+  db: BrowserDbState,
+  prop: ProposalItem,
+  note: string | null,
+  modifications: Record<string, unknown> | null,
+  nowIso: string
+): { proposal: ProposalItem; result_ref_id: string | null; result_kind: string } {
+  if (prop.status !== "pending") {
+    throw new Error("proposal is not pending");
+  }
+  const effectivePayload =
+    modifications && typeof modifications === "object" && !Array.isArray(modifications)
+      ? { ...prop.payload, ...modifications }
+      : { ...prop.payload };
+
+  let resultRefId: string | null = null;
+  let resultKind = "none";
+
+  if (prop.kind === "create_task") {
+    const title = String(effectivePayload.title ?? "").trim();
+    if (!title) throw new Error(ERROR_KEYS.taskTitleEmpty);
+    const task: Task = {
+      id: genId(),
+      project_id: (effectivePayload.project_id as string | null) ?? null,
+      parent_task_id: null,
+      recurrence_id: null,
+      title,
+      description: (effectivePayload.description as string | null) ?? null,
+      priority: (effectivePayload.priority as TaskPriority) ?? "normal",
+      status: "todo",
+      kanban_order: db.tasks.length,
+      due_at: (effectivePayload.due_at as string | null) ?? null,
+      started_at: null,
+      completed_at: null,
+      estimate_min: (effectivePayload.estimate_min as number | null) ?? null,
+      actual_min: 0,
+      tags: Array.isArray(effectivePayload.tags) ? (effectivePayload.tags as string[]) : null,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    db.tasks.unshift(task);
+    resultRefId = task.id;
+    resultKind = "task";
+  } else if (prop.kind === "create_reminder") {
+    const title = String(effectivePayload.title ?? "").trim();
+    if (!title) throw new Error(ERROR_KEYS.reminderTitleRequired);
+    const fireAt =
+      typeof effectivePayload.fire_at === "string" && effectivePayload.fire_at
+        ? effectivePayload.fire_at
+        : new Date(Date.now() + 15 * 60_000).toISOString();
+    const reminder: Reminder = {
+      id: genId(),
+      task_id: (effectivePayload.task_id as string | null) ?? null,
+      title,
+      body: (effectivePayload.body as string | null) ?? null,
+      fire_at: fireAt,
+      repeat_kind: "none",
+      status: "pending",
+      sound: (effectivePayload.sound as ReminderSound) ?? "normal",
+      snooze_count: 0,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    db.reminders.unshift(reminder);
+    resultRefId = reminder.id;
+    resultKind = "reminder";
+  }
+
+  prop.status = "approved";
+  prop.payload = effectivePayload;
+  prop.decided_at = nowIso;
+  prop.decision_note = note;
+  prop.result_ref_id = resultRefId;
+  prop.decided_by = "user";
+
+  recordBrowserIaCommand(db, {
+    source: "mcp",
+    toolName: "approve_proposal",
+    argsJson: JSON.stringify({ id: prop.id, note, modifications }),
+    resultStatus: "ok",
+    resultMessage: null,
+    proposalId: prop.id,
+  });
+
+  return { proposal: prop, result_ref_id: resultRefId, result_kind: resultKind };
+}
+
+function runBrowserHermesPrompt(
+  db: BrowserDbState,
+  prompt: string,
+  nowIso: string
+): HermesChatReply {
+  const trimmed = prompt.trim();
+  const lower = trimmed.toLowerCase();
+  const requestId = genId();
+  if (!Array.isArray(db.proposals)) db.proposals = [];
+
+  const expiresAt = new Date(Date.now() + 24 * 3_600_000).toISOString();
+
+  const taskTitle = stripAnyPrefix(trimmed, lower, [
+    "criar tarefa:",
+    "criar tarefa ",
+    "cria tarefa:",
+    "cria tarefa ",
+    "nova tarefa:",
+    "nova tarefa ",
+    "create task:",
+    "create task ",
+    "add task:",
+    "add task ",
+    "task:",
+  ]);
+  if (taskTitle) {
+    const priority: TaskPriority =
+      lower.includes("urgente") || lower.includes("urgent")
+        ? "urgent"
+        : lower.includes("alta") || lower.includes("high")
+          ? "high"
+          : "normal";
+    const summary = i18n.t("hermes.proposalTaskSummary", { title: taskTitle });
+    const prop: ProposalItem = {
+      id: genId(),
+      source: "hermes",
+      kind: "create_task",
+      payload: { title: taskTitle, priority },
+      summary,
+      status: "pending",
+      created_at: nowIso,
+      expires_at: expiresAt,
+    };
+    db.proposals.unshift(prop);
+    recordBrowserIaCommand(db, {
+      source: "hermes",
+      toolName: "propose_create_task",
+      argsJson: JSON.stringify(prop.payload),
+      resultStatus: "ok",
+      resultMessage: null,
+      proposalId: prop.id,
+    });
+    return {
+      requestId,
+      mode: "local",
+      replyText: i18n.t("hermes.proposalCreatedReply", { summary }),
+      proposal: prop,
+      streaming: false,
+    };
+  }
+
+  const reminderTitle = stripAnyPrefix(trimmed, lower, [
+    "criar lembrete:",
+    "criar lembrete ",
+    "lembrete:",
+    "lembrete ",
+    "me lembre de ",
+    "me lembre ",
+    "remind me to ",
+    "remind me:",
+    "remind me ",
+    "create reminder:",
+    "create reminder ",
+  ]);
+  if (reminderTitle) {
+    const fireAt = new Date(Date.now() + 15 * 60_000).toISOString();
+    const summary = i18n.t("hermes.proposalReminderSummary", { title: reminderTitle });
+    const prop: ProposalItem = {
+      id: genId(),
+      source: "hermes",
+      kind: "create_reminder",
+      payload: { title: reminderTitle, fire_at: fireAt, sound: "normal" },
+      summary,
+      status: "pending",
+      created_at: nowIso,
+      expires_at: expiresAt,
+    };
+    db.proposals.unshift(prop);
+    recordBrowserIaCommand(db, {
+      source: "hermes",
+      toolName: "propose_create_reminder",
+      argsJson: JSON.stringify(prop.payload),
+      resultStatus: "ok",
+      resultMessage: null,
+      proposalId: prop.id,
+    });
+    return {
+      requestId,
+      mode: "local",
+      replyText: i18n.t("hermes.proposalCreatedReply", { summary }),
+      proposal: prop,
+      streaming: false,
+    };
+  }
+
+  if (lower.includes("resumo") || lower.includes("summary") || lower === "status") {
+    const today = todayStr();
+    const now = Date.now();
+    const open = db.tasks.filter((t) => t.status !== "done" && t.status !== "cancelled");
+    const overdue = open.filter((t) => t.due_at && new Date(t.due_at).getTime() < now).length;
+    const dueToday = open.filter((t) => t.due_at?.startsWith(today)).length;
+    const inProgress = open.filter((t) => t.status === "doing").length;
+    const focusMin = db.pomodoros
+      .filter((s) => s.kind === "focus" && s.status === "completed" && s.started_at.startsWith(today))
+      .reduce((acc, s) => acc + (s.actual_min ?? s.planned_min), 0);
+    recordBrowserIaCommand(db, {
+      source: "hermes",
+      toolName: "get_today_overview",
+      argsJson: "{}",
+      resultStatus: "ok",
+      resultMessage: null,
+      proposalId: null,
+    });
+    return {
+      requestId,
+      mode: "local",
+      replyText: i18n.t("hermes.overviewReply", {
+        overdue,
+        due_today: dueToday,
+        in_progress: inProgress,
+        focus_min: focusMin,
+      }),
+      proposal: null,
+      streaming: false,
+    };
+  }
+
+  return {
+    requestId,
+    mode: "local",
+    replyText: i18n.t("hermes.helpReply"),
+    proposal: null,
+    streaming: false,
+  };
 }
 
 function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}): unknown {
@@ -1473,20 +1781,73 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     case "proposals_list_pending":
       return (db.proposals ?? []).filter((p) => p.status === "pending");
 
+    case "proposals_list_recent": {
+      const limit = Number(args.limit ?? 50);
+      return (db.proposals ?? []).slice(0, Math.max(1, limit));
+    }
+
     case "proposals_approve": {
       const id = String(args.id ?? "");
+      const note = (args.note as string | null | undefined) ?? null;
+      const modifications = (args.modifications as Record<string, unknown> | null | undefined) ?? null;
       const prop = (db.proposals ?? []).find((p) => p.id === id);
-      if (prop) prop.status = "approved";
+      if (!prop) throw new Error("proposal not found");
+      const res = applyBrowserProposal(db, prop, note, modifications, nowIso);
       saveBrowserDb(db);
-      return prop ?? null;
+      return res;
     }
 
     case "proposals_reject": {
       const id = String(args.id ?? "");
+      const note = (args.note as string | null | undefined) ?? null;
       const prop = (db.proposals ?? []).find((p) => p.id === id);
-      if (prop) prop.status = "rejected";
+      if (prop) {
+        prop.status = "rejected";
+        prop.decided_at = nowIso;
+        prop.decision_note = note;
+        prop.decided_by = "user";
+        recordBrowserIaCommand(db, {
+          source: "mcp",
+          toolName: "reject_proposal",
+          argsJson: JSON.stringify({ id, note }),
+          resultStatus: "ok",
+          resultMessage: null,
+          proposalId: id,
+        });
+      }
       saveBrowserDb(db);
       return prop ?? null;
+    }
+
+    case "ia_commands_list": {
+      const limit = Number(args.limit ?? 50);
+      return (db.iaCommands ?? []).slice(0, Math.max(1, limit));
+    }
+
+    case "hermes_status":
+      return { available: false, binaryPath: null } satisfies HermesStatus;
+
+    case "hermes_chat_send": {
+      const prompt = String(args.prompt ?? "");
+      if (!prompt.trim()) throw new Error("prompt is required");
+      const reply = runBrowserHermesPrompt(db, prompt, nowIso);
+      saveBrowserDb(db);
+      return reply;
+    }
+
+    case "audio_capture_save": {
+      const b64 = String(args.wavBase64 ?? args.wav_base64 ?? "").trim();
+      if (!b64) throw new Error("empty audio payload");
+      const rawHint = String(args.filename ?? "voice-note")
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const stem = rawHint || "voice-note";
+      const bytes = Math.max(1, Math.floor((b64.replace(/=+$/, "").length * 3) / 4));
+      const filePath = `browser-local://voice-captures/${stem}-${Date.now()}.wav`;
+      if (!Array.isArray(db.voiceCaptures)) db.voiceCaptures = [];
+      db.voiceCaptures.unshift({ filePath, bytes, createdAt: nowIso });
+      saveBrowserDb(db);
+      return { filePath, bytes } satisfies VoiceCaptureResult;
     }
 
     case "desktop_list_monitors":
@@ -1781,10 +2142,40 @@ export const routinesApi = {
 export const proposalsApi = {
   listPending: (): Promise<ProposalItem[]> =>
     wrapInvoke<ProposalItem[]>("proposals_list_pending"),
-  approve: (id: string, note?: string | null): Promise<unknown> =>
-    wrapInvoke<unknown>("proposals_approve", { id, note: note ?? null }),
+  listRecent: (limit = 50): Promise<ProposalItem[]> =>
+    wrapInvoke<ProposalItem[]>("proposals_list_recent", { limit }),
+  approve: (
+    id: string,
+    note?: string | null,
+    modifications?: Record<string, unknown> | null
+  ): Promise<unknown> =>
+    wrapInvoke<unknown>("proposals_approve", {
+      id,
+      note: note ?? null,
+      ...(modifications !== undefined ? { modifications } : {}),
+    }),
   reject: (id: string, note?: string | null): Promise<unknown> =>
     wrapInvoke<unknown>("proposals_reject", { id, note: note ?? null }),
+  listCommands: (limit = 50): Promise<IaCommandEntry[]> =>
+    wrapInvoke<IaCommandEntry[]>("ia_commands_list", { limit }),
+};
+
+export const hermesApi = {
+  status: (): Promise<HermesStatus> =>
+    wrapInvoke<HermesStatus>("hermes_status"),
+  sendMessage: (prompt: string, useCli = false): Promise<HermesChatReply> =>
+    wrapInvoke<HermesChatReply>("hermes_chat_send", { prompt, useCli }),
+};
+
+export const audioApi = {
+  saveVoiceCapture: (
+    wavBase64: string,
+    filename?: string | null
+  ): Promise<VoiceCaptureResult> =>
+    wrapInvoke<VoiceCaptureResult>("audio_capture_save", {
+      wavBase64,
+      filename: filename ?? null,
+    }),
 };
 
 export const desktopApi = {
@@ -1816,5 +2207,7 @@ export const ipc = {
   dataIo: dataIoApi,
   routines: routinesApi,
   proposals: proposalsApi,
+  hermes: hermesApi,
+  audio: audioApi,
   desktop: desktopApi,
 } as const;

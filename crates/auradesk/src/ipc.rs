@@ -1422,16 +1422,34 @@ pub fn proposals_list_pending(
 }
 
 #[tauri::command]
+pub fn proposals_list_recent(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = db_from(&state);
+    let list = ProposalsService::new(&db)
+        .list_recent(limit.unwrap_or(50))
+        .map_err(|e| format!("proposals_list_recent: {e}"))?;
+    Ok(list.into_iter().map(|p| p.to_schema_json()).collect())
+}
+
+#[tauri::command]
 pub fn proposals_approve(
     state: State<'_, AppState>,
     id: String,
     note: Option<String>,
+    modifications: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let db = db_from(&state);
     let mut payload = serde_json::json!({ "id": id });
-    if let Some(n) = note {
-        if let Some(obj) = payload.as_object_mut() {
+    if let Some(obj) = payload.as_object_mut() {
+        if let Some(n) = note {
             obj.insert("note".to_string(), serde_json::Value::String(n));
+        }
+        if let Some(mods) = modifications {
+            if mods.is_object() {
+                obj.insert("modifications".to_string(), mods);
+            }
         }
     }
     auradesk_core::capabilities::dispatch_capability(&db, "approve_proposal", payload)
@@ -1449,6 +1467,49 @@ pub fn proposals_reject(
         .reject(&id, note.as_deref())
         .map(|p| p.to_schema_json())
         .map_err(|e| format!("proposals_reject: {e}"))
+}
+
+#[tauri::command]
+pub fn ia_commands_list(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<auradesk_core::application::proposals::IaCommandEntry>, String> {
+    let db = db_from(&state);
+    ProposalsService::new(&db)
+        .list_commands(limit.unwrap_or(50))
+        .map_err(|e| format!("ia_commands_list: {e}"))
+}
+
+#[tauri::command]
+pub fn hermes_status() -> crate::hermes::HermesStatus {
+    crate::hermes::check_hermes_status()
+}
+
+#[tauri::command]
+pub fn hermes_chat_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    prompt: String,
+    use_cli: Option<bool>,
+) -> Result<crate::hermes::HermesChatReply, String> {
+    let db = db_from(&state);
+    crate::hermes::handle_chat_prompt(&app, &db, &prompt, use_cli.unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn audio_capture_save(
+    state: State<'_, AppState>,
+    wav_base64: String,
+    filename: Option<String>,
+) -> Result<crate::hermes::VoiceCaptureResult, String> {
+    let dir = state.data_dir.join("voice-captures");
+    let (file_path, bytes) = auradesk_core::application::data_io::save_voice_capture_base64(
+        &dir,
+        &wav_base64,
+        filename.as_deref(),
+    )
+    .map_err(|e| format!("audio_capture_save: {e}"))?;
+    Ok(crate::hermes::VoiceCaptureResult { file_path, bytes })
 }
 
 // ── Desktop Integration (Phase 3) ─────────────────────────────────────

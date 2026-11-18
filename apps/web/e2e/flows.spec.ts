@@ -33,6 +33,8 @@ test.beforeEach(async ({ page }) => {
       "pomodoro.focus_min": 25,
       "reminders.sound": true,
     };
+    const proposals: Array<Record<string, unknown>> = [];
+    const iaCommands: Array<Record<string, unknown>> = [];
 
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
       invoke: async (cmd: string, args?: Record<string, unknown>) => {
@@ -174,6 +176,99 @@ test.beforeEach(async ({ page }) => {
         if (cmd === "integration_state") {
           return { inFocusSession: false };
         }
+        if (cmd === "proposals_list_pending") {
+          return proposals.filter((p) => p.status === "pending").map((p) => ({ ...p }));
+        }
+        if (cmd === "proposals_list_recent") {
+          return proposals.map((p) => ({ ...p }));
+        }
+        if (cmd === "ia_commands_list") {
+          return iaCommands.map((c) => ({ ...c }));
+        }
+        if (cmd === "hermes_status") {
+          return { available: false, binaryPath: null };
+        }
+        if (cmd === "hermes_chat_send") {
+          const prompt = String(args?.prompt ?? "");
+          const title = prompt.replace(/^(criar tarefa|create task):?\s*/i, "").trim() || "Tarefa IA";
+          const propId = `prop-${proposals.length + 1}`;
+          const now = new Date().toISOString();
+          const prop = {
+            id: propId,
+            source: "hermes",
+            kind: "create_task",
+            payload: { title, priority: "normal" },
+            summary: `Criar tarefa: ${title}`,
+            status: "pending",
+            created_at: now,
+            expires_at: now,
+          };
+          proposals.unshift(prop);
+          iaCommands.unshift({
+            id: `cmd-${iaCommands.length + 1}`,
+            source: "hermes",
+            toolName: "propose_create_task",
+            argsJson: JSON.stringify(prop.payload),
+            resultStatus: "ok",
+            proposalId: propId,
+            invokedAt: now,
+          });
+          return {
+            requestId: `req-${iaCommands.length}`,
+            mode: "local",
+            replyText: `Proposta pendente criada: "${prop.summary}".`,
+            proposal: prop,
+            streaming: false,
+          };
+        }
+        if (cmd === "proposals_approve") {
+          const id = String(args?.id ?? "");
+          const mods = (args?.modifications ?? null) as Record<string, unknown> | null;
+          const prop = proposals.find((p) => p.id === id);
+          if (prop) {
+            prop.status = "approved";
+            const payload = { ...(prop.payload as Record<string, unknown>), ...(mods ?? {}) };
+            tasks.unshift({
+              id: `task-prop-${tasks.length + 1}`,
+              title: String(payload.title ?? prop.summary),
+              priority: String(payload.priority ?? "normal"),
+              status: "todo",
+              kanbanOrder: tasks.length,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            iaCommands.unshift({
+              id: `cmd-${iaCommands.length + 1}`,
+              source: "mcp",
+              toolName: "approve_proposal",
+              argsJson: JSON.stringify({ id, modifications: mods }),
+              resultStatus: "ok",
+              proposalId: id,
+              invokedAt: new Date().toISOString(),
+            });
+          }
+          return { proposal: prop, result_ref_id: tasks[0]?.id ?? null, result_kind: "task" };
+        }
+        if (cmd === "proposals_reject") {
+          const id = String(args?.id ?? "");
+          const prop = proposals.find((p) => p.id === id);
+          if (prop) prop.status = "rejected";
+          return prop ?? null;
+        }
+        if (cmd === "desktop_list_monitors" || cmd === "desktop_get_state") {
+          const monitors = [
+            { name: "display-primary", width: 1920, height: 1080, x: 0, y: 0, scaleFactor: 1, isPrimary: true },
+          ];
+          return cmd === "desktop_list_monitors"
+            ? monitors
+            : {
+                monitors,
+                compactOpen: false,
+                autostartEnabled: false,
+                preferredMonitor: "primary",
+                fallbackStrategy: "primary_then_hide",
+              };
+        }
         return null;
       },
     };
@@ -262,5 +357,33 @@ test("Flow 5: mobile bottom navigation, theme switching, and zero horizontal ove
   await page.screenshot({
     path: path.join(screenshotDir, "05-mobile-light-theme.png"),
     fullPage: false,
+  });
+});
+
+test("Flow 6: Hermes AI chat proposal, Edit & Approve, and audit log", async ({ page }) => {
+  await page.goto("/hermes");
+  await expect(page.getByText(/Hermes Agente & Auditoria|Hermes Agent & Audit/i)).toBeVisible();
+
+  const chatInput = page.getByPlaceholder(/create task:|criar tarefa:/i);
+  await chatInput.fill("criar tarefa: Revisar release v0.2");
+  await page.getByRole("button", { name: /^Enviar$|^Send$/i }).click();
+
+  await expect(
+    page.getByText("Criar tarefa: Revisar release v0.2", { exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Editar & Aprovar|Edit & Approve/i }).click();
+
+  const titleInput = page.getByLabel(/^Título$|^Title$/i);
+  await titleInput.fill("Publicar release v0.2.0");
+  await page.getByRole("button", { name: /Aplicar & Aprovar|Apply & Approve/i }).click();
+
+  await expect(
+    page.getByText(/Proposta aprovada e aplicada|Proposal approved and applied/i)
+  ).toBeVisible();
+  await expect(page.getByText("approve_proposal")).toBeVisible();
+
+  await page.screenshot({
+    path: path.join(screenshotDir, "06-hermes-chat-audit.png"),
+    fullPage: true,
   });
 });

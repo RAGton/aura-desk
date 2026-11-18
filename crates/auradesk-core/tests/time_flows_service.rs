@@ -1269,3 +1269,67 @@ fn wal_reader_pool_concurrent_reads_and_writes() {
 
     let _ = std::fs::remove_dir_all(&db_dir);
 }
+
+#[test]
+fn test_proposals_history_commands_modifications_and_voice_capture() {
+    use auradesk_core::application::data_io::save_voice_capture_base64;
+    use auradesk_core::application::proposals::ProposalsService;
+    use auradesk_core::capabilities::dispatch_capability;
+    use base64::Engine;
+
+    let db = Db::open_in_memory().unwrap();
+    let created = dispatch_capability(
+        &db,
+        "propose_create_task",
+        serde_json::json!({
+            "title": "Draft title",
+            "priority": "normal"
+        }),
+    )
+    .unwrap();
+    let prop_id = created["proposal_id"].as_str().unwrap().to_string();
+
+    let approved = dispatch_capability(
+        &db,
+        "approve_proposal",
+        serde_json::json!({
+            "id": prop_id,
+            "note": "Adjusted priority and title",
+            "modifications": {
+                "title": "Finalized Sprint Title",
+                "priority": "urgent"
+            }
+        }),
+    )
+    .unwrap();
+    assert_eq!(approved["result_kind"], "task");
+    let task_id = approved["result_ref_id"].as_str().unwrap();
+    let task = TasksService::new(&db).get(task_id).unwrap();
+    assert_eq!(task.title, "Finalized Sprint Title");
+    assert_eq!(task.priority, TaskPriority::Urgent);
+
+    let svc = ProposalsService::new(&db);
+    let recent = svc.list_recent(20).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(
+        recent[0].decision_note.as_deref(),
+        Some("Adjusted priority and title")
+    );
+
+    let commands = svc.list_commands(20).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| c.tool_name == "propose_create_task"));
+    assert!(commands.iter().any(|c| c.tool_name == "approve_proposal"));
+
+    let captures_dir = std::env::temp_dir().join(format!("auradesk-wav-{}", uuid::Uuid::new_v4()));
+    let wav_b64 = base64::engine::general_purpose::STANDARD.encode(b"RIFF\x00\x00\x00\x00WAVEfmt ");
+    let (saved_path, bytes) =
+        save_voice_capture_base64(&captures_dir, &wav_b64, Some("../bad/name!")).unwrap();
+    assert!(bytes > 0);
+    assert!(std::path::Path::new(&saved_path).exists());
+    assert!(saved_path.ends_with(".wav"));
+    assert!(save_voice_capture_base64(&captures_dir, "", None).is_err());
+
+    let _ = std::fs::remove_dir_all(&captures_dir);
+}

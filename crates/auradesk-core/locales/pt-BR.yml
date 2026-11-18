@@ -15,3 +15,11 @@ pt-BR:
     compact_title: AuraDesk Compacto
   github:
     issue_label: Issue
+  hermes:
+    proposal_task_summary: "Criar tarefa: %{title}"
+    proposal_reminder_summary: "Criar lembrete: %{title}"
+    proposal_created_reply: "Proposta pendente criada: \"%{summary}\". Revise e aprove na fila de propostas abaixo."
+    overview_reply: "Hoje: %{overdue} atrasada(s), %{due_today} vence(m) hoje, %{in_progress} em andamento, %{focus_min}m de foco."
+    help_reply: "Assistente local pronto. Experimente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\"."
+    cli_unavailable: "Binário Hermes CLI não encontrado neste host; executando em modo offline de propostas locais."
+    cli_failed: "Hermes CLI encerrou com código %{code}."

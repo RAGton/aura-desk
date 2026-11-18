@@ -117,8 +117,37 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
     routinesApi: { list: vi.fn(async () => empty), setEnabled: vi.fn(async () => undefined) },
     proposalsApi: {
       listPending: vi.fn(async () => empty),
+      listRecent: vi.fn(async () => empty),
       approve: vi.fn(async () => undefined),
       reject: vi.fn(async () => undefined),
+      listCommands: vi.fn(async () => empty),
+    },
+    hermesApi: {
+      status: vi.fn(async () => ({ available: false, binaryPath: null })),
+      sendMessage: vi.fn(async () => ({
+        requestId: "req-1",
+        mode: "local",
+        replyText: "ok",
+        proposal: null,
+        streaming: false,
+      })),
+    },
+    audioApi: {
+      saveVoiceCapture: vi.fn(async () => ({ filePath: "note.wav", bytes: 44 })),
+    },
+    desktopApi: {
+      listMonitors: vi.fn(async () => empty),
+      applyMonitorPreference: vi.fn(async () => "placed:primary"),
+      toggleCompact: vi.fn(async () => false),
+      showMain: vi.fn(async () => undefined),
+      getState: vi.fn(async () => ({
+        monitors: empty,
+        compactOpen: false,
+        autostartEnabled: false,
+        preferredMonitor: "primary",
+        fallbackStrategy: "primary_then_hide",
+      })),
+      setAutostart: vi.fn(async () => false),
     },
   };
 });
@@ -397,5 +426,16 @@ describe("AppShell tabs", () => {
     await waitFor(() => {
       expect(mockedPomodoro.complete).toHaveBeenCalledWith(expect.any(Number));
     });
+  });
+
+  it("switches to the Hermes AI tab and renders chat, proposal queue, and audit log", async () => {
+    render(<AppShell />);
+    await openTab(/Hermes/i);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Hermes Agente & Auditoria/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Fila de Aprovação de Propostas/i)).toBeInTheDocument();
+    expect(screen.getByText(/Registro de Auditoria da IA/i)).toBeInTheDocument();
   });
 });

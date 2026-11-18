@@ -26,6 +26,7 @@
     "pomodoro": "Pomodoro & Focus",
     "reminders": "Reminders & Alerts",
     "reports": "Reports",
+    "hermes": "Hermes AI",
     "settings": "Settings"
   },
   "dashboard": {
@@ -483,5 +484,66 @@
     "exceptionNoteRequired": "A justification is required",
     "invalidEstimate": "Estimate must be a positive number of minutes.",
     "invalidDueDate": "Invalid due date."
+  },
+  "hermes": {
+    "title": "Hermes Agent & Audit",
+    "subtitle": "Talk to the local assistant, capture voice notes, review IA proposals before applying them, and inspect the command audit log.",
+    "cliOnline": "Hermes CLI detected ({{path}})",
+    "cliOffline": "Hermes CLI offline — local proposal parser active",
+    "useCliLabel": "Stream via Hermes CLI",
+    "chatTitle": "Conversation & Proposals",
+    "chatEmpty": "Ask Hermes to propose a task, schedule a reminder, or summarize your day.",
+    "chatPlaceholder": "e.g. \"create task: Review sprint backlog\" or \"summary\"",
+    "sendButton": "Send",
+    "sending": "Sending...",
+    "userRole": "You",
+    "assistantRole": "Hermes",
+    "quickActions": {
+      "createTask": "Propose task",
+      "createReminder": "Propose reminder",
+      "summary": "Today's summary"
+    },
+    "voice": {
+      "record": "Record WAV Note",
+      "stopAndSave": "Stop & Save WAV",
+      "saving": "Saving audio...",
+      "saved": "Saved voice note ({{bytes}} bytes) -> {{path}}",
+      "unsupported": "Audio recording is not supported in this browser.",
+      "failed": "Could not capture audio."
+    },
+    "proposals": {
+      "title": "Proposal Approval Queue",
+      "filterPending": "Pending ({{count}})",
+      "filterRecent": "History ({{count}})",
+      "empty": "No proposals in this view.",
+      "approve": "Approve",
+      "editApprove": "Edit & Approve",
+      "reject": "Reject",
+      "saveApprove": "Apply & Approve",
+      "cancelEdit": "Cancel",
+      "titleLabel": "Title",
+      "priorityLabel": "Priority",
+      "noteLabel": "Decision note (optional)",
+      "notePlaceholder": "Add optional context for the audit log...",
+      "approvedSuccess": "Proposal approved and applied.",
+      "rejectedSuccess": "Proposal rejected."
+    },
+    "audit": {
+      "title": "IA Command Audit Log",
+      "subtitle": "Every tool call proposed or approved is recorded here.",
+      "empty": "No IA commands logged yet.",
+      "columns": {
+        "time": "When",
+        "source": "Source",
+        "tool": "Tool",
+        "status": "Status",
+        "args": "Arguments"
+      }
+    },
+    "proposalTaskSummary": "Create task: {{title}}",
+    "proposalReminderSummary": "Create reminder: {{title}}",
+    "proposalCreatedReply": "Created pending proposal \"{{summary}}\". Review and approve it in the proposals queue below.",
+    "overviewReply": "Today: {{overdue}} overdue, {{due_today}} due today, {{in_progress}} in progress, {{focus_min}}m focus logged.",
+    "helpReply": "Offline Aura assistant ready. Try: \"create task <title>\", \"remind me <title>\", or \"summary\"."
   }
 }

@@ -40,6 +40,7 @@ pub use crate::ipc;
 /// window was built in PC-lock owned mode.
 pub struct AppState {
     pub db: Arc<Db>,
+    pub data_dir: std::path::PathBuf,
     pub in_focus_session: Arc<AtomicBool>,
     pub screen_lock_active: Arc<AtomicBool>,
     pub alert_popup_active: Arc<AtomicBool>,
@@ -131,6 +132,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             let github_fetcher = Arc::new(GhCliIssueFetcher::new());
             app.manage(AppState {
                 db: Arc::clone(&db),
+                data_dir: data_dir.clone(),
                 in_focus_session: Arc::clone(&in_focus),
                 screen_lock_active,
                 alert_popup_active,
@@ -428,8 +430,13 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::routines_list,
             crate::ipc::routines_set_enabled,
             crate::ipc::proposals_list_pending,
+            crate::ipc::proposals_list_recent,
             crate::ipc::proposals_approve,
             crate::ipc::proposals_reject,
+            crate::ipc::ia_commands_list,
+            crate::ipc::hermes_status,
+            crate::ipc::hermes_chat_send,
+            crate::ipc::audio_capture_save,
             crate::ipc::desktop_list_monitors,
             crate::ipc::desktop_apply_monitor_preference,
             crate::ipc::desktop_toggle_compact,
