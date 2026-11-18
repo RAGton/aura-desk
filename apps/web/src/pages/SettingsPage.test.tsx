@@ -28,6 +28,10 @@ describe("SettingsPage", () => {
   it("renders all settings groups and updated defaults", async () => {
     render(<SettingsPage />);
 
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("settings_get_all", undefined);
+    });
+
     expect(screen.getByText("Aplicativo")).toBeInTheDocument();
     expect(screen.getByText("Pomodoro")).toBeInTheDocument();
     expect(screen.getByText("Lembretes")).toBeInTheDocument();
@@ -125,6 +129,9 @@ describe("SettingsPage", () => {
   it("triggers blocking modal test and zip export/import", async () => {
     const origCreate = URL.createObjectURL;
     const origRevoke = URL.revokeObjectURL;
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
     Object.defineProperty(URL, "createObjectURL", {
       value: vi.fn(() => "blob:test"),
       configurable: true,
@@ -168,6 +175,7 @@ describe("SettingsPage", () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("data_export_zip", undefined);
       });
+      expect(anchorClickSpy).toHaveBeenCalled();
 
       const fileInput = screen.getByTestId("backup-zip-input") as HTMLInputElement;
       const fakeFile = new File([new Uint8Array([80, 75, 3, 4])], "backup.zip", {
@@ -190,6 +198,7 @@ describe("SettingsPage", () => {
         });
       });
     } finally {
+      anchorClickSpy.mockRestore();
       Object.defineProperty(URL, "createObjectURL", {
         value: origCreate,
         configurable: true,
@@ -204,6 +213,10 @@ describe("SettingsPage", () => {
   it("supports keyboard navigation (tabbing across controls)", async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("settings_get_all", undefined);
+    });
 
     const localeSelect = screen.getByLabelText("Idioma / Language");
     await user.tab();

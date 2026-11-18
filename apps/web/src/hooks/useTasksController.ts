@@ -89,17 +89,34 @@ export function useTasksController({
       notify(t("errors.taskTitleEmpty"), true);
       return;
     }
+    let parsedEstimate: number | undefined;
+    if (newTaskEstimate.trim()) {
+      const n = Number(newTaskEstimate.trim());
+      if (!Number.isInteger(n) || n <= 0) {
+        notify(t("errors.invalidEstimate"), true);
+        return;
+      }
+      parsedEstimate = n;
+    }
+    let dueAt: string | undefined;
+    if (newTaskDueAt.trim()) {
+      const parsedDate = new Date(`${newTaskDueAt.trim()}T12:00:00`);
+      if (Number.isNaN(parsedDate.getTime())) {
+        notify(t("errors.invalidDueDate"), true);
+        return;
+      }
+      dueAt = parsedDate.toISOString();
+    }
     try {
       const parsedTags = newTaskTags
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      const dueAt = newTaskDueAt ? new Date(`${newTaskDueAt}T12:00:00`).toISOString() : undefined;
       await tasksApi.create({
         title: newTaskTitle.trim(),
         priority: newTaskPriority,
         status: "todo",
-        estimate_min: newTaskEstimate ? Number(newTaskEstimate) : undefined,
+        estimate_min: parsedEstimate,
         project_id: newTaskProjectId || undefined,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
         due_at: dueAt,

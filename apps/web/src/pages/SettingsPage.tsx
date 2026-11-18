@@ -310,10 +310,19 @@ export function SettingsPage({
   const [error, setError] = useState<string | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadAll = async (applyLoaded = false) => {
     try {
       const entries = asArray<[string, unknown]>(await settingsApi.getAll());
+      if (!mountedRef.current) return;
       const map: Record<string, unknown> = {};
       for (const [k, v] of entries) {
         map[k] = v;

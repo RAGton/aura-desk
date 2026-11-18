@@ -446,6 +446,8 @@
     "pomodoroNoneActive": "No active Pomodoro session.",
     "focusCompletedBody": "Time to stretch and drink water! Start a short break.",
     "reminderTitleRequired": "Reminder title is required",
-    "exceptionNoteRequired": "A justification is required"
+    "exceptionNoteRequired": "A justification is required",
+    "invalidEstimate": "Estimate must be a positive number of minutes.",
+    "invalidDueDate": "Invalid due date."
   }
 }

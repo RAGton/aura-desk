@@ -125,6 +125,7 @@ describe("Aura Design System primitives", () => {
   it("renders Skeleton and EmptyState primitives", () => {
     const { container } = render(
       <div>
+        <Skeleton />
         <Skeleton lines={3} />
         <EmptyState
           icon={<Inbox className="h-5 w-5" />}
@@ -135,7 +136,7 @@ describe("Aura Design System primitives", () => {
       </div>,
     );
 
-    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(4);
     expect(screen.getByText("No tasks yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New task" })).toBeInTheDocument();
   });

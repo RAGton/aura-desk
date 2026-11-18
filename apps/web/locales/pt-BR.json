@@ -446,6 +446,8 @@
     "pomodoroNoneActive": "Nenhuma sessão Pomodoro ativa.",
     "focusCompletedBody": "Hora de alongar e beber água! Inicie uma pausa curta.",
     "reminderTitleRequired": "Título do lembrete obrigatório",
-    "exceptionNoteRequired": "Justificativa obrigatória"
+    "exceptionNoteRequired": "Justificativa obrigatória",
+    "invalidEstimate": "Estimativa deve ser um número positivo de minutos.",
+    "invalidDueDate": "Data de vencimento inválida."
   }
 }
