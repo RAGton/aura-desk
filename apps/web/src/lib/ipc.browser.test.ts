@@ -28,6 +28,7 @@ import {
   remindersApi,
   reportsApi,
   settingsApi,
+  updaterApi,
   tasksApi,
 } from "./ipc";
 import { base64ToBytes, decodeZipTextEntries, encodeZipBase64 } from "./zip";
@@ -660,6 +661,23 @@ describe("browser fallback (localStorage engine)", () => {
       const wavResult = await audioApi.saveVoiceCapture("UklGRg==", "../bad path/note");
       expect(wavResult.bytes).toBeGreaterThan(0);
       expect(wavResult.filePath).toContain(".wav");
+    });
+
+    it("supports updaterApi state checks and logs fallback plus updates.auto_update setting", async () => {
+      const all = await settingsApi.getAll();
+      expect(all.find(([k]) => k === "updates.auto_update")?.[1]).toBe(true);
+
+      const initial = await updaterApi.getState();
+      expect(initial.status).toBe("idle");
+      expect(initial.autoUpdateEnabled).toBe(true);
+
+      const checked = await updaterApi.checkNow(false);
+      expect(checked.status).toBe("up_to_date");
+      expect(checked.lastCheckedAt).toBeTruthy();
+      expect(ipc.updater).toBe(updaterApi);
+
+      expect(await updaterApi.openLogsDir()).toBe("browser://logs");
+      expect(await updaterApi.getLogsTail(10)).toEqual([]);
     });
   });
 });

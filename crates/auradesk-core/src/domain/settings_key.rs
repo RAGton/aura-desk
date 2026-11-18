@@ -59,6 +59,8 @@ pub enum SettingsKey {
     GithubFilterLabels,
     /// Whether background auto-sync is enabled.
     GithubAutoSync,
+    /// Whether AuraDesk automatically checks, downloads, and installs GitHub updates.
+    UpdatesAutoUpdate,
 }
 
 impl SettingsKey {
@@ -90,6 +92,7 @@ impl SettingsKey {
             Self::GithubProjectId => "github.project_id",
             Self::GithubFilterLabels => "github.filter_labels",
             Self::GithubAutoSync => "github.auto_sync",
+            Self::UpdatesAutoUpdate => "updates.auto_update",
         }
     }
 
@@ -126,6 +129,7 @@ impl SettingsKey {
             "github.project_id" => Self::GithubProjectId,
             "github.filter_labels" => Self::GithubFilterLabels,
             "github.auto_sync" => Self::GithubAutoSync,
+            "updates.auto_update" => Self::UpdatesAutoUpdate,
             _ => return None,
         })
     }
@@ -157,5 +161,6 @@ impl SettingsKey {
         Self::GithubProjectId,
         Self::GithubFilterLabels,
         Self::GithubAutoSync,
+        Self::UpdatesAutoUpdate,
     ];
 }

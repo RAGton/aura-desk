@@ -30,6 +30,7 @@ test.beforeEach(async ({ page }) => {
     const settings: Record<string, unknown> = {
       "app.locale": "pt-BR",
       "app.theme": "dark",
+      "updates.auto_update": true,
       "pomodoro.focus_min": 25,
       "reminders.sound": true,
     };
@@ -266,8 +267,44 @@ test.beforeEach(async ({ page }) => {
                 compactOpen: false,
                 autostartEnabled: false,
                 preferredMonitor: "primary",
-                fallbackStrategy: "primary_then_hide",
-              };
+              fallbackStrategy: "primary_then_hide",
+            };
+        }
+        if (cmd === "updater_get_state") {
+          return {
+            status: "idle",
+            currentVersion: "0.2.2",
+            latestVersion: null,
+            releaseNotes: null,
+            releaseUrl: null,
+            assetName: null,
+            progressPct: 0,
+            autoUpdateEnabled: settings["updates.auto_update"] !== false,
+            lastCheckedAt: null,
+            downloadedPath: null,
+            errorMessage: null,
+          };
+        }
+        if (cmd === "updater_check_now" || cmd === "updater_install_now") {
+          return {
+            status: "up_to_date",
+            currentVersion: "0.2.2",
+            latestVersion: "0.2.2",
+            releaseNotes: null,
+            releaseUrl: null,
+            assetName: null,
+            progressPct: 100,
+            autoUpdateEnabled: settings["updates.auto_update"] !== false,
+            lastCheckedAt: new Date().toISOString(),
+            downloadedPath: null,
+            errorMessage: null,
+          };
+        }
+        if (cmd === "app_get_logs_tail") {
+          return ["[2026-11-18T10:00:00Z] auradesk initialized"];
+        }
+        if (cmd === "app_open_logs_dir") {
+          return "C:\\Users\\e2e\\AppData\\Roaming\\com.ragton.auradesk\\logs";
         }
         return null;
       },

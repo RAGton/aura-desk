@@ -12,7 +12,12 @@ fn main() {
         return;
     }
 
-    auradesk::runtime::build()
-        .run(tauri::generate_context!())
-        .expect("error while running AuraDesk");
+    if let Some(early_dir) = auradesk::logging::resolve_early_data_dir() {
+        auradesk::logging::init(&early_dir);
+    }
+
+    if let Err(err) = auradesk::runtime::build().run(tauri::generate_context!()) {
+        auradesk::logging::report_fatal_startup(&err.to_string());
+        std::process::exit(1);
+    }
 }

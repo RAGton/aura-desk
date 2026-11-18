@@ -370,6 +370,10 @@
         "label": "Atualização do painel (seg)",
         "description": "Intervalo de sincronização automática da tela."
       },
+      "autoUpdate": {
+        "label": "Atualizações automáticas",
+        "description": "Verificar o GitHub Releases periodicamente e instalar atualizações sozinho."
+      },
       "focusMin": {
         "label": "Foco (min)",
         "description": "Duração do bloco de foco em minutos."
@@ -461,6 +465,30 @@
     "githubAutoSyncNeedsRepo": "Defina o repositório (owner/repo) antes de ativar a sincronização automática.",
     "testBlockLabel": "Validação de Bloqueio",
     "testBlockDescription": "Dispare um alerta de teste para experimentar o modal bloqueante no desktop.",
+    "updates": {
+      "title": "Atualizações & Logs de Crash",
+      "description": "Mantenha o AuraDesk atualizado via GitHub Releases e inspecione os logs persistentes de diagnóstico.",
+      "currentVersion": "Versão atual",
+      "autoUpdateEnabled": "Atualização automática ativa",
+      "autoUpdateDisabled": "Somente verificação manual",
+      "checkButton": "Verificar atualizações",
+      "checking": "Verificando...",
+      "installButton": "Atualizar e Reiniciar",
+      "retryButton": "Tentar novamente",
+      "upToDate": "Você já está na versão mais recente (v{{version}}).",
+      "available": "Atualização v{{version}} disponível.",
+      "downloading": "Baixando v{{version}} ({{pct}}%)...",
+      "verifying": "Verificando assinatura SHA-256 da v{{version}}...",
+      "installing": "Instalando v{{version}} e reiniciando...",
+      "error": "Falha na atualização: {{message}}",
+      "lastChecked": "Última verificação: {{time}}",
+      "neverChecked": "Ainda não verificado",
+      "openLogs": "Abrir pasta de logs",
+      "openedLogs": "Pasta de logs aberta: {{path}}",
+      "refreshLogs": "Atualizar logs",
+      "logsTitle": "Logs recentes de diagnóstico",
+      "logsEmpty": "Nenhum registro capturado ainda (o runtime nativo grava logs em disco automaticamente)."
+    },
     "backup": {
       "exportButton": "Exportar Backup (.zip)",
       "importButton": "Restaurar Backup (.zip)",
@@ -545,5 +573,18 @@
     "proposalCreatedReply": "Proposta pendente criada: \"{{summary}}\". Revise e aprove na fila abaixo.",
     "overviewReply": "Hoje: {{overdue}} atrasadas, {{due_today}} para hoje, {{in_progress}} em andamento, {{focus_min}}min focados.",
     "helpReply": "Assistente offline Aura pronto. Tente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\"."
+  },
+  "updater": {
+    "banner": {
+      "available": "AuraDesk v{{version}} disponível no GitHub.",
+      "downloading": "Baixando AuraDesk v{{version}} ({{pct}}%)...",
+      "verifying": "Verificando integridade do AuraDesk v{{version}}...",
+      "installing": "Aplicando AuraDesk v{{version}} e reiniciando...",
+      "error": "Erro na atualização automática: {{message}}",
+      "installNow": "Atualizar e Reiniciar",
+      "retry": "Tentar novamente",
+      "dismiss": "Dispensar",
+      "releaseNotes": "Notas da versão"
+    }
   }
 }

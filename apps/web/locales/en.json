@@ -370,6 +370,10 @@
         "label": "Dashboard refresh (sec)",
         "description": "Background auto-refresh interval in seconds."
       },
+      "autoUpdate": {
+        "label": "Automatic updates",
+        "description": "Check GitHub Releases periodically and install updates automatically."
+      },
       "focusMin": {
         "label": "Focus (min)",
         "description": "Duration of the focus block in minutes."
@@ -461,6 +465,30 @@
     "githubAutoSyncNeedsRepo": "Configure the repository (owner/repo) before enabling auto-sync.",
     "testBlockLabel": "Lock Validation",
     "testBlockDescription": "Trigger a test alert to verify the desktop blocking modal.",
+    "updates": {
+      "title": "Updates & Crash Logs",
+      "description": "Keep AuraDesk up to date from GitHub Releases and inspect persistent diagnostic logs.",
+      "currentVersion": "Current version",
+      "autoUpdateEnabled": "Auto-update on",
+      "autoUpdateDisabled": "Manual updates only",
+      "checkButton": "Check for updates",
+      "checking": "Checking...",
+      "installButton": "Update & Restart",
+      "retryButton": "Retry update",
+      "upToDate": "You are on the latest version (v{{version}}).",
+      "available": "Update v{{version}} available.",
+      "downloading": "Downloading v{{version}} ({{pct}}%)...",
+      "verifying": "Verifying SHA-256 checksum for v{{version}}...",
+      "installing": "Installing v{{version}} and restarting...",
+      "error": "Update failed: {{message}}",
+      "lastChecked": "Last checked: {{time}}",
+      "neverChecked": "Not checked yet",
+      "openLogs": "Open logs folder",
+      "openedLogs": "Opened logs folder: {{path}}",
+      "refreshLogs": "Refresh logs",
+      "logsTitle": "Recent diagnostic logs",
+      "logsEmpty": "No log entries captured yet (native runtime writes to disk automatically)."
+    },
     "backup": {
       "exportButton": "Export Backup (.zip)",
       "importButton": "Restore Backup (.zip)",
@@ -545,5 +573,18 @@
     "proposalCreatedReply": "Created pending proposal \"{{summary}}\". Review and approve it in the proposals queue below.",
     "overviewReply": "Today: {{overdue}} overdue, {{due_today}} due today, {{in_progress}} in progress, {{focus_min}}m focus logged.",
     "helpReply": "Offline Aura assistant ready. Try: \"create task <title>\", \"remind me <title>\", or \"summary\"."
+  },
+  "updater": {
+    "banner": {
+      "available": "AuraDesk v{{version}} is available on GitHub.",
+      "downloading": "Downloading AuraDesk v{{version}} ({{pct}}%)...",
+      "verifying": "Verifying integrity of AuraDesk v{{version}}...",
+      "installing": "Applying AuraDesk v{{version}} and restarting...",
+      "error": "Auto-update error: {{message}}",
+      "installNow": "Update & Restart",
+      "retry": "Retry",
+      "dismiss": "Dismiss",
+      "releaseNotes": "Release notes"
+    }
   }
 }

@@ -2,6 +2,19 @@
 
 All notable changes to AuraDesk are documented in this file.
 
+## [0.2.2] - 2026-11-18
+
+### Added
+- **Persistent Crash & Diagnostic Logs (`crates/auradesk/src/logging.rs`)**:
+  - Added early log file initialization at `<data_dir>/logs/auradesk.log`, persistent panic hook writing `<data_dir>/logs/auradesk-crash.log`, Win32 native `MessageBoxW` error dialog on fatal startup errors (instead of silent exits under `windows_subsystem = "windows"`), plus **Settings → Updates & Crash Logs** live log tail viewer and **"Open logs folder"** action (`app_get_logs_tail`, `app_open_logs_dir`).
+- **GitHub Releases Auto-Updater (`crates/auradesk-core/src/domain/updater.rs`, `crates/auradesk/src/updater.rs`)**:
+  - Added automatic GitHub Releases update checking (`12s` after boot and every `6h`, toggleable via `updates.auto_update` / `V007__auto_update_settings.sql`), semver comparison blocking pre-releases/downgrades, strict trusted download URL validation, mandatory `SHA256SUMS.txt` digest verification, and detached silent NSIS `/S` (or MSI `/passive`) self-update + automatic app relaunch on Windows.
+  - Added live updater status banner (`auradesk://update-status`) in `AppShell.tsx`, manual check/install controls in `SettingsPage.tsx`, and `"Check for updates..."` system tray menu entry.
+
+### Fixed
+- **Windows Per-User Installer Mode (`crates/auradesk/tauri.conf.json`)**: Switched NSIS `installMode` to `currentUser` (`%LOCALAPPDATA%\AuraDesk`) so users no longer hit Admin UAC shortcut locks (`Acesso Negado ao Arquivo`) on OneDrive Desktop shortcuts or silent self-update restarts.
+- **Single Published GitHub Release (`/.github/workflows/release.yml`)**: Restructured the release pipeline into `create-release` → `release-auradesk` → `publish-release` so multi-OS builds attach to one release, generate and upload `SHA256SUMS.txt`, and publish automatically (`draft: false`) so `/releases/latest` works out of the box.
+
 ## [0.2.1] - 2026-11-18
 
 ### Fixed

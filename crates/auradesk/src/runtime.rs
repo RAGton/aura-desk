@@ -47,6 +47,7 @@ pub struct AppState {
     pub popup_locked_mode: Arc<AtomicBool>,
     pub compact_open: Arc<AtomicBool>,
     pub github_fetcher: Arc<GhCliIssueFetcher>,
+    pub updater: Arc<crate::updater::UpdaterManager>,
     #[allow(dead_code)]
     pub instance_lock: Option<std::fs::File>,
 }
@@ -102,18 +103,24 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             };
             std::fs::create_dir_all(&data_dir)
                 .map_err(|e| format!("create app data dir {data_dir:?}: {e}"))?;
+            crate::logging::init(&data_dir);
 
             let show_flag = data_dir.join("auradesk.show");
             let instance_lock = try_acquire_instance_lock(&data_dir);
             if instance_lock.is_none() {
+                crate::logging::log_info(
+                    "secondary instance detected; signaling existing instance to show",
+                );
                 let _ = std::fs::write(&show_flag, b"show");
                 std::process::exit(0);
             }
             let _ = std::fs::remove_file(&show_flag);
 
             // `Db::open` joins `auradesk.db` itself; pass the data dir, not a file path.
-            let db =
-                Arc::new(Db::open(&data_dir).map_err(|e| format!("open db {data_dir:?}: {e}"))?);
+            let db = Arc::new(Db::open(&data_dir).map_err(|e| {
+                crate::logging::log_error(format!("open db {data_dir:?}: {e}"));
+                format!("open db {data_dir:?}: {e}")
+            })?);
 
             if let Ok(Some(locale_val)) = SettingsService::new(&db).get(SettingsKey::AppLocale) {
                 if let Some(locale_str) = locale_val.as_str() {
@@ -138,6 +145,9 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 .unwrap_or(false);
             let compact_open = Arc::new(AtomicBool::new(initial_compact));
             let github_fetcher = Arc::new(GhCliIssueFetcher::new());
+            let updater_mgr = Arc::new(crate::updater::UpdaterManager::new(
+                crate::updater::read_auto_update_setting(&db),
+            ));
             app.manage(AppState {
                 db: Arc::clone(&db),
                 data_dir: data_dir.clone(),
@@ -147,6 +157,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 popup_locked_mode,
                 compact_open,
                 github_fetcher: Arc::clone(&github_fetcher),
+                updater: Arc::clone(&updater_mgr),
                 instance_lock,
             });
 
@@ -217,6 +228,14 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 }
             });
 
+            // Background GitHub Releases auto-update checker & installer.
+            crate::updater::spawn_auto_update_loop(
+                app.handle().clone(),
+                Arc::clone(&db),
+                data_dir.clone(),
+                Arc::clone(&updater_mgr),
+            );
+
             // Tray menu items (spec §10 Phase 3)
             let show = MenuItem::with_id(
                 app,
@@ -239,6 +258,13 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 true,
                 None::<&str>,
             )?;
+            let check_updates = MenuItem::with_id(
+                app,
+                "check_updates",
+                auradesk_core::i18n::t("tray.check_updates"),
+                true,
+                None::<&str>,
+            )?;
             let pause_all = MenuItem::with_id(
                 app,
                 "pause_all",
@@ -253,7 +279,17 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 true,
                 None::<&str>,
             )?;
-            let menu = Menu::with_items(app, &[&show, &compact, &proposals, &pause_all, &quit])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &show,
+                    &compact,
+                    &proposals,
+                    &check_updates,
+                    &pause_all,
+                    &quit,
+                ],
+            )?;
 
             // System tray
             let mut tray_builder = TrayIconBuilder::with_id("main")
@@ -274,6 +310,22 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                     "proposals" => {
                         crate::desktop::show_main_window(app);
                         let _ = app.emit("auradesk://navigate", "hermes");
+                    }
+                    "check_updates" => {
+                        let handle = app.clone();
+                        std::thread::spawn(move || {
+                            if let Some(state) = handle.try_state::<AppState>() {
+                                let auto = crate::updater::read_auto_update_setting(&state.db);
+                                let _ = crate::updater::check_and_maybe_install(
+                                    &handle,
+                                    &state.db,
+                                    &state.data_dir,
+                                    &state.updater,
+                                    auto,
+                                );
+                            }
+                        });
+                        crate::desktop::show_main_window(app);
                     }
                     "pause_all" => {
                         if let Some(state) = app.try_state::<AppState>() {
@@ -451,6 +503,11 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::desktop_show_main,
             crate::ipc::desktop_get_state,
             crate::ipc::desktop_set_autostart,
+            crate::ipc::updater_get_state,
+            crate::ipc::updater_check_now,
+            crate::ipc::updater_install_now,
+            crate::ipc::app_open_logs_dir,
+            crate::ipc::app_get_logs_tail,
         ])
 }
 
