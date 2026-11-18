@@ -423,7 +423,7 @@ export function TaskCard({
           </div>
 
           <div
-            className="flex items-center justify-between gap-1.5 pt-2 border-t border-aura-border/25"
+            className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-aura-border/25"
             data-no-drag="true"
           >
             <div className="flex items-center gap-1">

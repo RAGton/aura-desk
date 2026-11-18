@@ -3,7 +3,7 @@
 //! Exposes domain services (tasks, projects, pomodoro, reminders,
 //! settings, daily plans, alerts, metrics, reports) to the frontend.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use auradesk_core::application::{
@@ -36,6 +36,7 @@ use auradesk_core::domain::task::{
 };
 use auradesk_core::infrastructure::audio::SoundDispatcher;
 use auradesk_core::infrastructure::clock::SystemClock;
+use auradesk_core::infrastructure::db::Db;
 use auradesk_core::CoreError;
 use serde::Deserialize;
 use tauri::{AppHandle, State};
@@ -388,39 +389,50 @@ pub fn pomodoro_start(
 }
 
 #[tauri::command]
-pub fn pomodoro_complete(
+pub async fn pomodoro_complete(
     app: AppHandle,
     state: State<'_, AppState>,
     actual_min: i32,
 ) -> Result<PomodoroSession, String> {
     let db = db_from(&state);
-    let svc = PomodorosService::new(&db);
-    let session = svc
-        .complete_running(actual_min)
-        .map_err(|e| format!("pomodoro_complete: {e}"))?;
-    clear_focus_and_celebrate(&app, &state, &session, actual_min, /*aborted=*/ false);
-    Ok(session)
+    let in_focus = Arc::clone(&state.in_focus_session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = PomodorosService::new(&db);
+        let session = svc
+            .complete_running(actual_min)
+            .map_err(|e| format!("pomodoro_complete: {e}"))?;
+        clear_focus_and_celebrate(&app, &db, &in_focus, &session, actual_min, false);
+        Ok(session)
+    })
+    .await
+    .map_err(|e| format!("pomodoro_complete join: {e}"))?
 }
 
 #[tauri::command]
-pub fn pomodoro_abandon(
+pub async fn pomodoro_abandon(
     app: AppHandle,
     state: State<'_, AppState>,
     actual_min: Option<i32>,
 ) -> Result<PomodoroSession, String> {
     let db = db_from(&state);
-    let svc = PomodorosService::new(&db);
-    let session = svc
-        .interrupt_running(actual_min)
-        .map_err(|e| format!("pomodoro_abandon: {e}"))?;
-    clear_focus_and_celebrate(
-        &app,
-        &state,
-        &session,
-        actual_min.unwrap_or(0),
-        /*aborted=*/ true,
-    );
-    Ok(session)
+    let in_focus = Arc::clone(&state.in_focus_session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = PomodorosService::new(&db);
+        let session = svc
+            .interrupt_running(actual_min)
+            .map_err(|e| format!("pomodoro_abandon: {e}"))?;
+        clear_focus_and_celebrate(
+            &app,
+            &db,
+            &in_focus,
+            &session,
+            actual_min.unwrap_or(0),
+            true,
+        );
+        Ok(session)
+    })
+    .await
+    .map_err(|e| format!("pomodoro_abandon join: {e}"))?
 }
 
 /// Shared tail of `pomodoro_complete` and `pomodoro_abandon`:
@@ -430,7 +442,8 @@ pub fn pomodoro_abandon(
 /// away.
 fn clear_focus_and_celebrate(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    db: &Arc<Db>,
+    in_focus: &AtomicBool,
     session: &PomodoroSession,
     actual_min: i32,
     aborted: bool,
@@ -439,7 +452,7 @@ fn clear_focus_and_celebrate(
         session.kind,
         auradesk_core::domain::pomodoro::SessionKind::Focus
     ) {
-        state.in_focus_session.store(false, Ordering::Relaxed);
+        in_focus.store(false, Ordering::Relaxed);
         // Re-queue a "focus done" alert so the user explicitly
         // acknowledges the transition into the break.
         let title = if aborted {
@@ -456,8 +469,7 @@ fn clear_focus_and_celebrate(
         } else {
             auradesk_core::i18n::t("alerts.focus_completed_body")
         };
-        let db = db_from(state);
-        let alerts = AlertsService::new(&db);
+        let alerts = AlertsService::new(db);
         let _ = alerts.create(auradesk_core::domain::alert::NewAlert {
             kind: "pomodoro".to_string(),
             title,
@@ -470,7 +482,7 @@ fn clear_focus_and_celebrate(
             ref_id: Some(session.id.clone()),
             options: None,
         });
-        crate::alert_lock::sync_blocking_windows(app, &db);
+        crate::alert_lock::sync_blocking_windows(app, db);
     }
 }
 
@@ -558,35 +570,37 @@ pub fn reminders_list(
 }
 
 #[tauri::command]
-pub fn reminders_create(
+pub async fn reminders_create(
     app: AppHandle,
     state: State<'_, AppState>,
     input: NewReminderInput,
 ) -> Result<Reminder, String> {
     let db = db_from(&state);
-    let svc = RemindersService::new(&db);
-    let new: NewReminder = input
-        .try_into()
-        .map_err(|e: CoreError| format!("invalid input: {e}"))?;
-    let created = svc
-        .create(new)
-        .map_err(|e| format!("reminders_create: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = RemindersService::new(&db);
+        let new: NewReminder = input
+            .try_into()
+            .map_err(|e: CoreError| format!("invalid input: {e}"))?;
+        let created = svc
+            .create(new)
+            .map_err(|e| format!("reminders_create: {e}"))?;
 
-    // If the reminder is due immediately (e.g. "Disparar Agora"), promote it
-    // to a pending alert right away instead of waiting for the 15s loop tick.
-    let now = chrono::Utc::now();
-    if created.fire_at <= now {
-        let fired = RemindersService::with_clock(&db, &SystemClock)
-            .poll_and_fire_overdue(now)
-            .unwrap_or_default();
-        if !fired.is_empty() {
-            let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
-                .dispatch(created.sound);
-            crate::alert_lock::sync_blocking_windows(&app, &db);
+        let now = chrono::Utc::now();
+        if created.fire_at <= now {
+            let fired = RemindersService::with_clock(&db, &SystemClock)
+                .poll_and_fire_overdue(now)
+                .unwrap_or_default();
+            if !fired.is_empty() {
+                let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
+                    .dispatch(created.sound);
+                crate::alert_lock::sync_blocking_windows(&app, &db);
+            }
         }
-    }
 
-    Ok(created)
+        Ok(created)
+    })
+    .await
+    .map_err(|e| format!("reminders_create join: {e}"))?
 }
 
 #[tauri::command]
@@ -613,19 +627,23 @@ pub fn reminders_delete(state: State<'_, AppState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn reminders_dismiss(
+pub async fn reminders_dismiss(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Reminder, String> {
     let db = db_from(&state);
-    let svc = RemindersService::new(&db);
-    let res = svc
-        .dismiss(&id)
-        .map_err(|e| format!("reminders_dismiss: {e}"))?;
-    let _ = AlertsService::new(&db).close_open_for_ref(&id, AlertResolution::Dismissed);
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = RemindersService::new(&db);
+        let res = svc
+            .dismiss(&id)
+            .map_err(|e| format!("reminders_dismiss: {e}"))?;
+        let _ = AlertsService::new(&db).close_open_for_ref(&id, AlertResolution::Dismissed);
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("reminders_dismiss join: {e}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -635,19 +653,23 @@ pub struct SnoozeInput {
 }
 
 #[tauri::command]
-pub fn reminders_snooze(
+pub async fn reminders_snooze(
     app: AppHandle,
     state: State<'_, AppState>,
     input: SnoozeInput,
 ) -> Result<Reminder, String> {
     let db = db_from(&state);
-    let svc = RemindersService::new(&db);
-    let res = svc
-        .snooze(&input.id, input.minutes)
-        .map_err(|e| format!("reminders_snooze: {e}"))?;
-    let _ = AlertsService::new(&db).close_open_for_ref(&input.id, AlertResolution::Snoozed);
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = RemindersService::new(&db);
+        let res = svc
+            .snooze(&input.id, input.minutes)
+            .map_err(|e| format!("reminders_snooze: {e}"))?;
+        let _ = AlertsService::new(&db).close_open_for_ref(&input.id, AlertResolution::Snoozed);
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("reminders_snooze join: {e}"))?
 }
 
 // ── Settings (extended surface) ───────────────────────────────────────
@@ -692,25 +714,29 @@ pub struct SetSettingInput {
 /// rejects unknown keys (so a typo from the UI is reported as
 /// `Validation` rather than silently inserting a row).
 #[tauri::command]
-pub fn settings_set(
+pub async fn settings_set(
     app: AppHandle,
     state: State<'_, AppState>,
     input: SetSettingInput,
 ) -> Result<(), String> {
-    let key = SettingsKey::from_str(&input.key)
-        .ok_or_else(|| format!("settings_set: unknown key {}", input.key))?;
     let db = db_from(&state);
-    let svc = SettingsService::new(&db);
-    svc.set(key, input.value.clone())
-        .map_err(|e| format!("settings_set: {e}"))?;
-    if key == SettingsKey::AppLocale {
-        if let Some(locale_str) = input.value.as_str() {
-            auradesk_core::i18n::set_locale(locale_str);
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = SettingsKey::from_str(&input.key)
+            .ok_or_else(|| format!("settings_set: unknown key {}", input.key))?;
+        let svc = SettingsService::new(&db);
+        svc.set(key, input.value.clone())
+            .map_err(|e| format!("settings_set: {e}"))?;
+        if key == SettingsKey::AppLocale {
+            if let Some(locale_str) = input.value.as_str() {
+                auradesk_core::i18n::set_locale(locale_str);
+            }
+        } else if key == SettingsKey::RemindersBlockScreen {
+            crate::alert_lock::sync_blocking_windows(&app, &db);
         }
-    } else if key == SettingsKey::RemindersBlockScreen {
-        crate::alert_lock::sync_blocking_windows(&app, &db);
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("settings_set join: {e}"))?
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────
@@ -983,129 +1009,162 @@ pub struct NewAlertInput {
 }
 
 #[tauri::command]
-pub fn alerts_create(
+pub async fn alerts_create(
     app: AppHandle,
     state: State<'_, AppState>,
     input: NewAlertInput,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    let svc = AlertsService::new(&db);
-    let created = svc
-        .create(NewAlert {
-            kind: input.kind,
-            title: input.title,
-            body: input.body,
-            severity: input.severity,
-            ref_id: input.ref_id,
-            options: input.options,
-        })
-        .map_err(|e| format!("alerts_create: {e}"))?;
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(created)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = AlertsService::new(&db);
+        let created = svc
+            .create(NewAlert {
+                kind: input.kind,
+                title: input.title,
+                body: input.body,
+                severity: input.severity,
+                ref_id: input.ref_id,
+                options: input.options,
+            })
+            .map_err(|e| format!("alerts_create: {e}"))?;
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(created)
+    })
+    .await
+    .map_err(|e| format!("alerts_create join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_resolve(
+pub async fn alerts_resolve(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    let svc = AlertsService::new(&db);
-    let res = svc
-        .resolve(&id)
-        .map_err(|e| format!("alerts_resolve: {e}"))?;
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = AlertsService::new(&db);
+        let res = svc
+            .resolve(&id)
+            .map_err(|e| format!("alerts_resolve: {e}"))?;
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("alerts_resolve join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_snooze(
+pub async fn alerts_snooze(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    let svc = AlertsService::new(&db);
-    let res = svc.snooze(&id).map_err(|e| format!("alerts_snooze: {e}"))?;
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = AlertsService::new(&db);
+        let res = svc.snooze(&id).map_err(|e| format!("alerts_snooze: {e}"))?;
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("alerts_snooze join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_dismiss(
+pub async fn alerts_dismiss(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    let svc = AlertsService::new(&db);
-    let res = svc
-        .dismiss(&id)
-        .map_err(|e| format!("alerts_dismiss: {e}"))?;
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = AlertsService::new(&db);
+        let res = svc
+            .dismiss(&id)
+            .map_err(|e| format!("alerts_dismiss: {e}"))?;
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("alerts_dismiss join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_except(
+pub async fn alerts_except(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     note: String,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    let svc = AlertsService::new(&db);
-    let res = svc
-        .except(&id, &note)
-        .map_err(|e| format!("alerts_except: {e}"))?;
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(res)
+    tauri::async_runtime::spawn_blocking(move || {
+        let svc = AlertsService::new(&db);
+        let res = svc
+            .except(&id, &note)
+            .map_err(|e| format!("alerts_except: {e}"))?;
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("alerts_except join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_sync_desktop_lock(app: AppHandle, state: State<'_, AppState>) {
+pub async fn alerts_sync_desktop_lock(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let db = db_from(&state);
-    crate::alert_lock::sync_blocking_windows(&app, &db);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+    })
+    .await
+    .map_err(|e| format!("alerts_sync_desktop_lock join: {e}"))
 }
 
 #[tauri::command]
-pub fn alerts_trigger_test_block(
+pub async fn alerts_trigger_test_block(
     app: AppHandle,
     state: State<'_, AppState>,
     title: String,
     body: Option<String>,
 ) -> Result<Alert, String> {
     let db = db_from(&state);
-    SettingsService::new(&db)
-        .set(
-            SettingsKey::RemindersBlockScreen,
-            serde_json::Value::Bool(true),
-        )
-        .map_err(|e| format!("enable block_screen: {e}"))?;
-    let alert = AlertsService::new(&db)
-        .create(NewAlert {
-            kind: "reminder".to_string(),
-            title,
-            body,
-            severity: AlertSeverity::Urgent,
-            ref_id: None,
-            options: None,
-        })
-        .map_err(|e| format!("alerts_trigger_test_block: {e}"))?;
-    let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
-        .dispatch(ReminderSound::Urgent);
-    crate::alert_lock::sync_blocking_windows(&app, &db);
-    Ok(alert)
+    tauri::async_runtime::spawn_blocking(move || {
+        SettingsService::new(&db)
+            .set(
+                SettingsKey::RemindersBlockScreen,
+                serde_json::Value::Bool(true),
+            )
+            .map_err(|e| format!("enable block_screen: {e}"))?;
+        let alert = AlertsService::new(&db)
+            .create(NewAlert {
+                kind: "reminder".to_string(),
+                title,
+                body,
+                severity: AlertSeverity::Urgent,
+                ref_id: None,
+                options: None,
+            })
+            .map_err(|e| format!("alerts_trigger_test_block: {e}"))?;
+        let _ = SoundDispatcher::new(&db, &crate::audio::DesktopAudio::new())
+            .dispatch(ReminderSound::Urgent);
+        crate::alert_lock::sync_blocking_windows(&app, &db);
+        Ok(alert)
+    })
+    .await
+    .map_err(|e| format!("alerts_trigger_test_block join: {e}"))?
 }
 
 #[tauri::command]
-pub fn alerts_emergency_unlock(
+pub async fn alerts_emergency_unlock(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
     let db = db_from(&state);
-    Ok(crate::alert_lock::emergency_unlock_all(&app, &db))
+    tauri::async_runtime::spawn_blocking(move || crate::alert_lock::emergency_unlock_all(&app, &db))
+        .await
+        .map_err(|e| format!("alerts_emergency_unlock join: {e}"))
 }
 
 // ── Report ────────────────────────────────────────────────────────────
@@ -1520,28 +1579,40 @@ pub fn desktop_list_monitors(app: AppHandle) -> Vec<auradesk_core::domain::deskt
 }
 
 #[tauri::command]
-pub fn desktop_apply_monitor_preference(
+pub async fn desktop_apply_monitor_preference(
     app: AppHandle,
     state: State<'_, AppState>,
     reveal: Option<bool>,
-) -> String {
+) -> Result<String, String> {
     let db = db_from(&state);
-    crate::desktop::apply_monitor_preference(&app, &db, reveal.unwrap_or(false))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::apply_monitor_preference(&app, &db, reveal.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("desktop_apply_monitor_preference join: {e}"))
 }
 
 #[tauri::command]
-pub fn desktop_toggle_compact(
+pub async fn desktop_toggle_compact(
     app: AppHandle,
     state: State<'_, AppState>,
     enabled: Option<bool>,
 ) -> Result<bool, String> {
     let db = db_from(&state);
-    crate::desktop::toggle_compact_window(&app, &db, enabled)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::toggle_compact_window(&app, &db, enabled)
+    })
+    .await
+    .map_err(|e| format!("desktop_toggle_compact join: {e}"))?
 }
 
 #[tauri::command]
-pub fn desktop_show_main(app: AppHandle) {
-    crate::desktop::show_main_window(&app);
+pub async fn desktop_show_main(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::show_main_window(&app);
+    })
+    .await
+    .map_err(|e| format!("desktop_show_main join: {e}"))
 }
 
 #[tauri::command]

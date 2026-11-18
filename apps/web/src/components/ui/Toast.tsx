@@ -13,10 +13,10 @@ export interface ToastProps {
 }
 
 const TOAST_STYLES: Record<ToastVariant, string> = {
-  info: "border-aura-info/35 bg-aura-info/15 text-aura-info",
-  success: "border-aura-success/35 bg-aura-success/15 text-aura-success",
-  warning: "border-aura-warning/35 bg-aura-warning/15 text-aura-warning",
-  error: "border-aura-danger/40 bg-aura-danger/15 text-aura-danger",
+  info: "border-aura-info/50 bg-aura-overlay/95 text-aura-info",
+  success: "border-aura-success/50 bg-aura-overlay/95 text-aura-success",
+  warning: "border-aura-warning/50 bg-aura-overlay/95 text-aura-warning",
+  error: "border-aura-danger/55 bg-aura-overlay/95 text-aura-danger",
 };
 
 export function Toast({
@@ -37,7 +37,7 @@ export function Toast({
       role={variant === "error" ? "alert" : "status"}
       aria-live={variant === "error" ? "assertive" : "polite"}
       className={cn(
-        "inline-flex items-center gap-2 rounded-aura-md border px-3 py-1.5 text-xs font-medium shadow-aura-surface",
+        "inline-flex items-center gap-2 rounded-aura-md border px-3 py-1.5 text-xs font-medium backdrop-blur-md shadow-aura-elevated",
         TOAST_STYLES[variant],
         className,
       )}

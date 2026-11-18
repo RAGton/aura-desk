@@ -311,6 +311,8 @@ const GROUP_ICONS: Record<string, typeof Settings> = {
 };
 
 export interface SettingsPageProps {
+  externalTheme?: string;
+  externalLocale?: string;
   onSettingSaved?: (key: string, value: unknown) => void;
   onAlertTriggered?: () => void;
   onVisualPrefsChange?: (prefs: VisualPrefs) => void;
@@ -335,6 +337,8 @@ function base64ToBlob(base64: string): Blob {
 }
 
 export function SettingsPage({
+  externalTheme,
+  externalLocale,
   onSettingSaved,
   onAlertTriggered,
   onVisualPrefsChange,
@@ -370,6 +374,23 @@ export function SettingsPage({
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!externalTheme) return;
+    setValues((prev) => (prev["app.theme"] === externalTheme ? prev : { ...prev, "app.theme": externalTheme }));
+    setSavedValues((prev) =>
+      prev["app.theme"] === externalTheme ? prev : { ...prev, "app.theme": externalTheme }
+    );
+    setVisualPrefs(loadVisualPrefs());
+  }, [externalTheme]);
+
+  useEffect(() => {
+    if (!externalLocale) return;
+    setValues((prev) => (prev["app.locale"] === externalLocale ? prev : { ...prev, "app.locale": externalLocale }));
+    setSavedValues((prev) =>
+      prev["app.locale"] === externalLocale ? prev : { ...prev, "app.locale": externalLocale }
+    );
+  }, [externalLocale]);
 
   const loadAll = async (applyLoaded = false) => {
     try {
