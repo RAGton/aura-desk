@@ -111,7 +111,9 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::ProposalsTtlHours => {
             value.is_number() && value.as_u64().is_some_and(|n| n > 0)
         }
-        SettingsKey::RemindersSound
+        SettingsKey::AppAutostart
+        | SettingsKey::DesktopCompactMode
+        | SettingsKey::RemindersSound
         | SettingsKey::RemindersBlockScreen
         | SettingsKey::GithubAutoSync => value.is_boolean(),
         SettingsKey::RemindersPausedUntil | SettingsKey::GithubProjectId => {

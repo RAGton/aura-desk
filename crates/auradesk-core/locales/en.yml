@@ -7,7 +7,11 @@ en:
     focus_completed_body: Time to stretch. Click ✓ to start the break.
   tray:
     show: Show AuraDesk
+    compact: Toggle Compact Mode
+    proposals: Open Hermes Proposals
+    pause_all: Pause Alerts (60 min)
     quit: Quit
     alert_title: AuraDesk — Reminder
+    compact_title: AuraDesk Compact
   github:
     issue_label: Issue

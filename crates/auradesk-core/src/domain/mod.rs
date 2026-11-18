@@ -2,6 +2,7 @@
 
 pub mod alert;
 pub mod daily_plan;
+pub mod desktop;
 pub mod github;
 pub mod pomodoro;
 pub mod project;

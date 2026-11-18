@@ -16,7 +16,7 @@ use auradesk_core::domain::settings_key::SettingsKey;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Emitter, Manager, State,
 };
 
 use auradesk_core::infrastructure::db::Db;
@@ -44,6 +44,7 @@ pub struct AppState {
     pub screen_lock_active: Arc<AtomicBool>,
     pub alert_popup_active: Arc<AtomicBool>,
     pub popup_locked_mode: Arc<AtomicBool>,
+    pub compact_open: Arc<AtomicBool>,
     pub github_fetcher: Arc<GhCliIssueFetcher>,
     #[allow(dead_code)]
     pub instance_lock: Option<std::fs::File>,
@@ -120,6 +121,13 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             let screen_lock_active = Arc::new(AtomicBool::new(false));
             let alert_popup_active = Arc::new(AtomicBool::new(false));
             let popup_locked_mode = Arc::new(AtomicBool::new(false));
+            let initial_compact = SettingsService::new(&db)
+                .get(SettingsKey::DesktopCompactMode)
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let compact_open = Arc::new(AtomicBool::new(initial_compact));
             let github_fetcher = Arc::new(GhCliIssueFetcher::new());
             app.manage(AppState {
                 db: Arc::clone(&db),
@@ -127,9 +135,22 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 screen_lock_active,
                 alert_popup_active,
                 popup_locked_mode,
+                compact_open,
                 github_fetcher: Arc::clone(&github_fetcher),
                 instance_lock,
             });
+
+            let start_in_tray = std::env::args().any(|a| a == "--tray");
+            if start_in_tray {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+            } else {
+                let _ = crate::desktop::apply_monitor_preference(app.handle(), &db, false);
+            }
+            if initial_compact {
+                let _ = crate::desktop::toggle_compact_window(app.handle(), &db, Some(true));
+            }
 
             // Watch for secondary-instance launch signals to bring the existing window forward.
             std::thread::spawn({
@@ -161,25 +182,32 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             // survived an OS reboot or app restart with `reminders.block_screen` enabled.
             crate::alert_lock::sync_blocking_windows(app.handle(), &db);
 
+            let wake_signal = Arc::new(crate::desktop::WakeSignal::new());
+            crate::desktop::spawn_os_event_watcher(
+                app.handle().clone(),
+                Arc::clone(&db),
+                Arc::clone(&wake_signal),
+            );
+
             // Launch the routine runner as a background task.
             std::thread::spawn({
                 let app_handle = app.handle().clone();
                 let db = Arc::clone(&db);
                 let in_focus = Arc::clone(&in_focus);
                 let github_fetcher = Arc::clone(&github_fetcher);
+                let wake_signal = Arc::clone(&wake_signal);
                 move || {
-                    crate::routines::run_loop(app_handle, db, in_focus, github_fetcher);
+                    crate::routines::run_loop(
+                        app_handle,
+                        db,
+                        in_focus,
+                        github_fetcher,
+                        wake_signal,
+                    );
                 }
             });
 
-            // Quit menu item
-            let quit = MenuItem::with_id(
-                app,
-                "quit",
-                auradesk_core::i18n::t("tray.quit"),
-                true,
-                None::<&str>,
-            )?;
+            // Tray menu items (spec §10 Phase 3)
             let show = MenuItem::with_id(
                 app,
                 "show",
@@ -187,7 +215,35 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 true,
                 None::<&str>,
             )?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let compact = MenuItem::with_id(
+                app,
+                "compact",
+                auradesk_core::i18n::t("tray.compact"),
+                true,
+                None::<&str>,
+            )?;
+            let proposals = MenuItem::with_id(
+                app,
+                "proposals",
+                auradesk_core::i18n::t("tray.proposals"),
+                true,
+                None::<&str>,
+            )?;
+            let pause_all = MenuItem::with_id(
+                app,
+                "pause_all",
+                auradesk_core::i18n::t("tray.pause_all"),
+                true,
+                None::<&str>,
+            )?;
+            let quit = MenuItem::with_id(
+                app,
+                "quit",
+                auradesk_core::i18n::t("tray.quit"),
+                true,
+                None::<&str>,
+            )?;
+            let menu = Menu::with_items(app, &[&show, &compact, &proposals, &pause_all, &quit])?;
 
             // System tray
             let mut tray_builder = TrayIconBuilder::with_id("main")
@@ -198,9 +254,26 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                         app.exit(0);
                     }
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        crate::desktop::show_main_window(app);
+                    }
+                    "compact" => {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            let _ = crate::desktop::toggle_compact_window(app, &state.db, None);
+                        }
+                    }
+                    "proposals" => {
+                        crate::desktop::show_main_window(app);
+                        let _ = app.emit("auradesk://navigate", "hermes");
+                    }
+                    "pause_all" => {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            let until =
+                                (chrono::Utc::now() + chrono::Duration::minutes(60)).to_rfc3339();
+                            let _ = SettingsService::new(&state.db).set(
+                                SettingsKey::RemindersPausedUntil,
+                                serde_json::Value::String(until),
+                            );
+                            let _ = app.emit("auradesk://settings-updated", ());
                         }
                     }
                     _ => {}
@@ -234,6 +307,16 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                         // Close-to-tray: closing the main window does NOT exit the process.
                         let _ = window.hide();
                         api.prevent_close();
+                    } else if label == crate::desktop::COMPACT_WINDOW_LABEL {
+                        let app = window.app_handle();
+                        if let Some(state) = app.try_state::<AppState>() {
+                            state.compact_open.store(false, Ordering::SeqCst);
+                            let _ = SettingsService::new(&state.db).set(
+                                SettingsKey::DesktopCompactMode,
+                                serde_json::Value::Bool(false),
+                            );
+                        }
+                        let _ = app.emit("auradesk://compact-changed", false);
                     } else if label == POPUP_WINDOW_LABEL {
                         if let Some(state) = window.app_handle().try_state::<AppState>() {
                             if state.alert_popup_active.load(Ordering::SeqCst) {
@@ -347,6 +430,12 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::proposals_list_pending,
             crate::ipc::proposals_approve,
             crate::ipc::proposals_reject,
+            crate::ipc::desktop_list_monitors,
+            crate::ipc::desktop_apply_monitor_preference,
+            crate::ipc::desktop_toggle_compact,
+            crate::ipc::desktop_show_main,
+            crate::ipc::desktop_get_state,
+            crate::ipc::desktop_set_autostart,
         ])
 }
 

@@ -17,6 +17,10 @@ pub enum SettingsKey {
     AppTheme,
     /// Active UI locale code (e.g. "pt-BR", "en").
     AppLocale,
+    /// Whether AuraDesk launches automatically at OS login.
+    AppAutostart,
+    /// Whether the floating always-on-top compact widget is enabled.
+    DesktopCompactMode,
     /// Dashboard auto-refresh interval in seconds.
     DashboardRefreshSec,
     /// Preferred external monitor name for full-screen dashboard.
@@ -65,6 +69,8 @@ impl SettingsKey {
             Self::AppVersion => "app.version",
             Self::AppTheme => "app.theme",
             Self::AppLocale => "app.locale",
+            Self::AppAutostart => "app.autostart",
+            Self::DesktopCompactMode => "desktop.compact_mode",
             Self::DashboardRefreshSec => "dashboard.refresh_sec",
             Self::MonitorPreferred => "monitor.preferred",
             Self::MonitorFallbackStrategy => "monitor.fallback_strategy",
@@ -99,6 +105,8 @@ impl SettingsKey {
             "app.version" => Self::AppVersion,
             "app.theme" => Self::AppTheme,
             "app.locale" => Self::AppLocale,
+            "app.autostart" => Self::AppAutostart,
+            "desktop.compact_mode" => Self::DesktopCompactMode,
             "dashboard.refresh_sec" => Self::DashboardRefreshSec,
             "monitor.preferred" => Self::MonitorPreferred,
             "monitor.fallback_strategy" => Self::MonitorFallbackStrategy,
@@ -128,6 +136,8 @@ impl SettingsKey {
         Self::AppVersion,
         Self::AppTheme,
         Self::AppLocale,
+        Self::AppAutostart,
+        Self::DesktopCompactMode,
         Self::DashboardRefreshSec,
         Self::MonitorPreferred,
         Self::MonitorFallbackStrategy,

@@ -74,5 +74,13 @@ describe("AppRouter", () => {
     });
     expect(screen.queryByRole("banner")).toBeNull();
     expect(labelPopupContainer.querySelector(".aura-bg.overflow-hidden")).toBeTruthy();
+
+    win.__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "compact" } } };
+    let unmountCompact!: () => void;
+    await act(async () => {
+      ({ unmount: unmountCompact } = render(<AppRouter />));
+    });
+    expect(screen.getByTestId("compact-widget")).toBeTruthy();
+    unmountCompact();
   });
 });

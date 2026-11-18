@@ -1451,6 +1451,53 @@ pub fn proposals_reject(
         .map_err(|e| format!("proposals_reject: {e}"))
 }
 
+// ── Desktop Integration (Phase 3) ─────────────────────────────────────
+
+#[tauri::command]
+pub fn desktop_list_monitors(app: AppHandle) -> Vec<auradesk_core::domain::desktop::MonitorInfo> {
+    crate::desktop::list_monitors(&app)
+}
+
+#[tauri::command]
+pub fn desktop_apply_monitor_preference(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    reveal: Option<bool>,
+) -> String {
+    let db = db_from(&state);
+    crate::desktop::apply_monitor_preference(&app, &db, reveal.unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn desktop_toggle_compact(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: Option<bool>,
+) -> Result<bool, String> {
+    let db = db_from(&state);
+    crate::desktop::toggle_compact_window(&app, &db, enabled)
+}
+
+#[tauri::command]
+pub fn desktop_show_main(app: AppHandle) {
+    crate::desktop::show_main_window(&app);
+}
+
+#[tauri::command]
+pub fn desktop_get_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> crate::desktop::DesktopStateSnapshot {
+    let db = db_from(&state);
+    crate::desktop::get_desktop_state(&app, &db)
+}
+
+#[tauri::command]
+pub fn desktop_set_autostart(state: State<'_, AppState>, enabled: bool) -> Result<bool, String> {
+    let db = db_from(&state);
+    crate::desktop::set_autostart(&db, enabled)
+}
+
 /// Suppress unused warning for the helper that the macro
 /// `#[tauri::command]` expansion pulls in.
 #[allow(dead_code)]

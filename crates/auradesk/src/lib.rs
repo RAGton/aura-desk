@@ -4,6 +4,7 @@ use auradesk_core::capabilities::{capabilities, Capability};
 
 pub mod alert_lock;
 pub mod audio;
+pub mod desktop;
 pub mod github;
 pub mod ipc;
 pub mod routines;

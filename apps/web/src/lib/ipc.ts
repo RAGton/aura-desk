@@ -267,6 +267,26 @@ export interface IntegrationState {
   inFocusSession: boolean;
 }
 
+export interface MonitorInfo {
+  name: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  scaleFactor: number;
+  isPrimary: boolean;
+}
+
+export type MonitorFallbackStrategy = "primary_then_hide" | "primary" | "hide";
+
+export interface DesktopStateSnapshot {
+  monitors: MonitorInfo[];
+  compactOpen: boolean;
+  autostartEnabled: boolean;
+  preferredMonitor: string;
+  fallbackStrategy: MonitorFallbackStrategy | string;
+}
+
 export type IpcErrorKind = "validation" | "transport" | "application";
 
 export class IpcError extends Error {
@@ -337,6 +357,8 @@ const DEFAULT_SETTINGS: Record<string, unknown> = {
   "app.version": "0.1.0",
   "app.theme": "dark",
   "app.locale": "pt-BR",
+  "app.autostart": false,
+  "desktop.compact_mode": false,
   "dashboard.refresh_sec": 30,
   "monitor.preferred": "primary",
   "monitor.fallback_strategy": "primary_then_hide",
@@ -1467,6 +1489,61 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       return prop ?? null;
     }
 
+    case "desktop_list_monitors":
+      return [
+        {
+          name: "display-primary",
+          width: typeof window !== "undefined" ? window.screen.width || 1920 : 1920,
+          height: typeof window !== "undefined" ? window.screen.height || 1080 : 1080,
+          x: 0,
+          y: 0,
+          scaleFactor: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+          isPrimary: true,
+        } satisfies MonitorInfo,
+      ];
+
+    case "desktop_apply_monitor_preference":
+      return `placed:${String(db.settings["monitor.preferred"] ?? "primary")}`;
+
+    case "desktop_toggle_compact": {
+      const next =
+        typeof args.enabled === "boolean"
+          ? args.enabled
+          : !Boolean(db.settings["desktop.compact_mode"]);
+      db.settings["desktop.compact_mode"] = next;
+      saveBrowserDb(db);
+      return next;
+    }
+
+    case "desktop_show_main":
+      return;
+
+    case "desktop_set_autostart": {
+      const enabled = Boolean(args.enabled);
+      db.settings["app.autostart"] = enabled;
+      saveBrowserDb(db);
+      return enabled;
+    }
+
+    case "desktop_get_state":
+      return {
+        monitors: [
+          {
+            name: "display-primary",
+            width: typeof window !== "undefined" ? window.screen.width || 1920 : 1920,
+            height: typeof window !== "undefined" ? window.screen.height || 1080 : 1080,
+            x: 0,
+            y: 0,
+            scaleFactor: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+            isPrimary: true,
+          },
+        ],
+        compactOpen: Boolean(db.settings["desktop.compact_mode"]),
+        autostartEnabled: Boolean(db.settings["app.autostart"]),
+        preferredMonitor: String(db.settings["monitor.preferred"] ?? "primary"),
+        fallbackStrategy: String(db.settings["monitor.fallback_strategy"] ?? "primary_then_hide"),
+      } satisfies DesktopStateSnapshot;
+
     default:
       return null;
   }
@@ -1710,6 +1787,20 @@ export const proposalsApi = {
     wrapInvoke<unknown>("proposals_reject", { id, note: note ?? null }),
 };
 
+export const desktopApi = {
+  listMonitors: (): Promise<MonitorInfo[]> =>
+    wrapInvoke<MonitorInfo[]>("desktop_list_monitors"),
+  applyMonitorPreference: (reveal = false): Promise<string> =>
+    wrapInvoke<string>("desktop_apply_monitor_preference", { reveal }),
+  toggleCompact: (enabled?: boolean): Promise<boolean> =>
+    wrapInvoke<boolean>("desktop_toggle_compact", { enabled: enabled ?? null }),
+  showMain: (): Promise<void> => wrapInvoke<void>("desktop_show_main"),
+  getState: (): Promise<DesktopStateSnapshot> =>
+    wrapInvoke<DesktopStateSnapshot>("desktop_get_state"),
+  setAutostart: (enabled: boolean): Promise<boolean> =>
+    wrapInvoke<boolean>("desktop_set_autostart", { enabled }),
+};
+
 export const ipc = {
   ping: () => wrapInvoke<string>("ping"),
   tasks: tasksApi,
@@ -1725,4 +1816,5 @@ export const ipc = {
   dataIo: dataIoApi,
   routines: routinesApi,
   proposals: proposalsApi,
+  desktop: desktopApi,
 } as const;

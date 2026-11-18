@@ -8,6 +8,7 @@ import {
   Moon,
   PanelLeft,
   PanelTop,
+  PictureInPicture2,
   Settings,
   SlidersHorizontal,
   Sun,
@@ -20,6 +21,7 @@ import { Badge, Toast } from "../../components/ui";
 import {
   alertsApi,
   dashboardApi,
+  desktopApi,
   githubApi,
   isTauriRuntime,
   pomodoroApi,
@@ -409,6 +411,9 @@ export function AppShell() {
 
     let unlistenAlerts: (() => void) | undefined;
     let unlistenTasks: (() => void) | undefined;
+    let unlistenSettings: (() => void) | undefined;
+    let unlistenResume: (() => void) | undefined;
+    let unlistenNavigate: (() => void) | undefined;
     if (isTauriRuntime()) {
       void import("@tauri-apps/api/event")
         .then(async ({ listen }) => {
@@ -422,6 +427,27 @@ export function AppShell() {
           unlistenTasks = await listen("auradesk://tasks-updated", () => {
             void refreshTasksDomain();
           });
+          unlistenSettings = await listen("auradesk://settings-updated", () => {
+            void refreshAll();
+          });
+          unlistenResume = await listen("auradesk://system-resumed", () => {
+            void refreshAll();
+          });
+          unlistenNavigate = await listen<string>("auradesk://navigate", (event) => {
+            const target = event.payload;
+            if (
+              target === "dashboard" ||
+              target === "kanban" ||
+              target === "pomodoro" ||
+              target === "reminders" ||
+              target === "reports" ||
+              target === "settings"
+            ) {
+              selectTab(target);
+            } else if (target === "hermes") {
+              selectTab("dashboard");
+            }
+          });
         })
         .catch(() => {});
     }
@@ -433,8 +459,11 @@ export function AppShell() {
       }
       if (unlistenAlerts) unlistenAlerts();
       if (unlistenTasks) unlistenTasks();
+      if (unlistenSettings) unlistenSettings();
+      if (unlistenResume) unlistenResume();
+      if (unlistenNavigate) unlistenNavigate();
     };
-  }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain]);
+  }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain, selectTab]);
 
   useEffect(() => {
     const onLang = (lng: string) => setCurrentLang(lng);
@@ -838,6 +867,24 @@ export function AppShell() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void desktopApi
+                .toggleCompact()
+                .then((opened) => {
+                  if (!isTauriRuntime() && opened) {
+                    window.location.assign("/compact");
+                  }
+                })
+                .catch((err) => notify(String(err), true));
+            }}
+            aria-label={t("app.compactMode")}
+            title={t("app.compactMode")}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl aura-glass-pill text-slate-300 hover:text-aura-accent cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
+          >
+            <PictureInPicture2 className="h-4 w-4" aria-hidden="true" />
+          </button>
           <button
             type="button"
             onClick={() => void handleQuickThemeToggle()}
