@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 
+import { Badge, Button, Dialog, Input, Select, Switch, Toast } from "@/components/ui";
 import { alertsApi, dataIoApi, githubApi, settingsApi, type GithubAuthStatus } from "@/lib/ipc";
 import {
   applyTheme,
@@ -295,11 +296,19 @@ export function SettingsPage({
     }
     return initial;
   });
+  const [savedValues, setSavedValues] = useState<Record<string, unknown>>(() => {
+    const initial: Record<string, unknown> = {};
+    for (const s of SETTINGS_DEF) {
+      initial[s.key] = defaultFor(s);
+    }
+    return initial;
+  });
   const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
   const [githubAuth, setGithubAuth] = useState<GithubAuthStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadAll = async (applyLoaded = false) => {
@@ -310,6 +319,7 @@ export function SettingsPage({
         map[k] = v;
       }
       setValues((prev) => ({ ...prev, ...map }));
+      setSavedValues((prev) => ({ ...prev, ...map }));
       if (applyLoaded) {
         if (typeof map["app.locale"] === "string") {
           await i18n.changeLanguage(map["app.locale"]);
@@ -336,16 +346,21 @@ export function SettingsPage({
       onVisualPrefsChange?.(nextPrefs);
       setSavedMsg(t("settings.saved"));
       setTimeout(() => setSavedMsg(null), 2000);
-      if (def.visualField === "preset") {
-        const mappedTheme = rawValue === "frosted" ? "light" : "dark";
-        await saveOne("app.theme", mappedTheme);
+      if (def.visualField === "preset" && rawValue === "frosted") {
+        await saveOne("app.theme", "light");
       }
       return;
     }
 
-    const value = def?.numericValue ? Number(rawValue) : rawValue;
+    const rawTrimmed = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+    const isNumberSetting = def?.type === "number" || def?.numericValue;
+    const value = isNumberSetting
+      ? rawTrimmed === ""
+        ? NaN
+        : Number(rawTrimmed)
+      : rawValue;
 
-    if (def?.type === "number" || def?.numericValue) {
+    if (isNumberSetting) {
       if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
         setError(t("settings.validation.invalidNumber"));
         return;
@@ -365,6 +380,7 @@ export function SettingsPage({
     try {
       await settingsApi.set(key, value);
       setValues((v) => ({ ...v, [key]: value }));
+      setSavedValues((v) => ({ ...v, [key]: value }));
 
       if (key === "app.locale" && typeof value === "string") {
         await i18n.changeLanguage(value);
@@ -375,8 +391,13 @@ export function SettingsPage({
       }
 
       onSettingSaved?.(key, value);
-      setSavedMsg(t("settings.saved"));
-      setTimeout(() => setSavedMsg(null), 2000);
+      if (key === "github.auto_sync" && value === true && !String(values["github.repo"] ?? "").trim()) {
+        setSavedMsg(t("settings.githubAutoSyncNeedsRepo"));
+        setTimeout(() => setSavedMsg(null), 3500);
+      } else {
+        setSavedMsg(t("settings.saved"));
+        setTimeout(() => setSavedMsg(null), 2000);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -441,7 +462,8 @@ export function SettingsPage({
     }
   }
 
-  async function handleImportZip(file: File | undefined) {
+  async function confirmImportZip() {
+    const file = pendingImportFile;
     if (!file) return;
     setLoading(true);
     setError(null);
@@ -449,6 +471,7 @@ export function SettingsPage({
       const buf = await file.arrayBuffer();
       const b64 = bytesToBase64(new Uint8Array(buf));
       const summary = await dataIoApi.importZipBase64(b64);
+      setPendingImportFile(null);
       await loadAll(true);
       onAlertTriggered?.();
       setSavedMsg(
@@ -459,11 +482,18 @@ export function SettingsPage({
       );
       setTimeout(() => setSavedMsg(null), 3500);
     } catch (e) {
+      setPendingImportFile(null);
       setError(String(e) || t("settings.backup.invalidZip"));
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  function cancelPendingImport() {
+    if (loading) return;
+    setPendingImportFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   const groups = groupBy(SETTINGS_DEF, (s) => s.group);
@@ -473,23 +503,26 @@ export function SettingsPage({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
-            <Settings className="h-5 w-5 text-sky-400" />
+            <Settings className="h-5 w-5 text-aura-accent" aria-hidden="true" />
             <h2 className="text-xl font-bold text-slate-50">{t("settings.title")}</h2>
           </div>
           <p className="text-xs text-slate-400">{t("settings.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-2.5 text-xs">
-          {savedMsg && (
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 font-semibold text-emerald-300 ring-1 ring-emerald-500/35">
-              ✓ {savedMsg}
-            </span>
-          )}
-          {error && (
-            <span className="rounded-full bg-red-500/15 px-3 py-1 font-semibold text-red-300 ring-1 ring-red-500/35">
-              {error}
-            </span>
-          )}
-        </div>
+      </div>
+
+      <div className="fixed bottom-20 md:bottom-6 right-4 z-50 flex flex-col items-end gap-2 max-w-[calc(100vw-2rem)]">
+        <Toast
+          open={Boolean(savedMsg)}
+          variant="success"
+          message={savedMsg ? `✓ ${savedMsg}` : ""}
+          onClose={() => setSavedMsg(null)}
+        />
+        <Toast
+          open={Boolean(error)}
+          variant="error"
+          message={error ?? ""}
+          onClose={() => setError(null)}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -512,11 +545,19 @@ export function SettingsPage({
                     const rowVal = s.visualField
                       ? visualPrefs[s.visualField]
                       : (values[s.key] ?? defaultFor(s));
+                    const savedVal = s.visualField
+                      ? visualPrefs[s.visualField]
+                      : (savedValues[s.key] ?? defaultFor(s));
+                    const isDirty =
+                      !s.visualField &&
+                      (s.type === "number" || s.type === "string") &&
+                      String(rowVal ?? "") !== String(savedVal ?? "");
                     return (
                       <SettingRow
                         key={s.key}
                         def={s}
                         value={rowVal}
+                        dirty={isDirty}
                         disabled={loading}
                         onChange={(val) => {
                           if (!s.visualField) {
@@ -538,15 +579,16 @@ export function SettingsPage({
                           {t("settings.testBlockDescription")}
                         </div>
                       </div>
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
+                        variant="danger"
                         disabled={loading}
                         onClick={() => void handleTestBlockingModal()}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 ring-1 ring-rose-500/40 hover:bg-rose-500/30 disabled:opacity-40 cursor-pointer"
+                        className="rounded-xl bg-rose-500/20 text-xs font-semibold text-rose-200 border-rose-500/40 hover:bg-rose-500/30"
                       >
                         <ShieldAlert className="h-3.5 w-3.5" />
                         {t("reminders.testBlockButton")}
-                      </button>
+                      </Button>
                     </div>
                   )}
 
@@ -554,12 +596,9 @@ export function SettingsPage({
                     <div className="flex flex-wrap items-center justify-between gap-4 py-3">
                       <div className="flex flex-wrap items-center gap-2.5 text-xs">
                         {githubAuth && (
-                          <span
-                            className={`rounded-full px-2.5 py-0.5 font-medium ring-1 ${
-                              githubAuth.authenticated
-                                ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
-                                : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
-                            }`}
+                          <Badge
+                            variant={githubAuth.authenticated ? "success" : "warning"}
+                            className="rounded-full px-2.5 py-0.5 font-medium"
                           >
                             {!githubAuth.available
                               ? t("settings.githubCliMissing")
@@ -568,18 +607,19 @@ export function SettingsPage({
                                     account: githubAuth.account ?? "",
                                   })
                                 : t("settings.githubNotConnected")}
-                          </span>
+                          </Badge>
                         )}
                       </div>
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
+                        variant="secondary"
                         disabled={loading}
                         onClick={() => void handleCheckGithubAuth()}
-                        className="inline-flex items-center gap-1.5 rounded-xl aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
+                        className="rounded-xl text-xs font-semibold"
                       >
                         <GitBranch className="h-3.5 w-3.5" />
                         {t("settings.githubCheckButton")}
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -598,36 +638,74 @@ export function SettingsPage({
           </h3>
           <p className="text-xs text-slate-400">{t("settings.backup.description")}</p>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
+            <Button
+              size="md"
+              variant="primary"
               disabled={loading}
               onClick={() => void handleExportZip()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500 px-3.5 py-2 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
+              className="rounded-xl text-xs font-semibold shadow-sm shadow-sky-500/25"
             >
               <Download className="h-3.5 w-3.5" />
               {t("settings.backup.exportButton")}
-            </button>
+            </Button>
 
             <input
               ref={fileInputRef}
               type="file"
               accept=".zip,application/zip"
               data-testid="backup-zip-input"
-              onChange={(e) => void handleImportZip(e.target.files?.[0])}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setPendingImportFile(f);
+              }}
               className="hidden"
             />
-            <button
-              type="button"
+            <Button
+              size="md"
+              variant="secondary"
               disabled={loading}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+              className="rounded-xl text-xs font-semibold"
             >
-              <Upload className="h-3.5 w-3.5" />
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
               {t("settings.backup.importButton")}
-            </button>
+            </Button>
           </div>
         </section>
       </div>
+
+      <Dialog
+        open={Boolean(pendingImportFile)}
+        onClose={cancelPendingImport}
+        title={t("settings.backup.confirmTitle")}
+        description={
+          pendingImportFile
+            ? t("settings.backup.confirmDescription", { file: pendingImportFile.name })
+            : undefined
+        }
+        footer={
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={loading}
+              onClick={cancelPendingImport}
+            >
+              {t("kanban.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              loading={loading}
+              onClick={() => void confirmImportZip()}
+            >
+              {t("settings.backup.confirmAction")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs text-aura-secondary">{t("settings.backup.description")}</p>
+      </Dialog>
     </div>
   );
 }
@@ -635,12 +713,14 @@ export function SettingsPage({
 function SettingRow({
   def,
   value,
+  dirty,
   disabled,
   onChange,
   onSave,
 }: {
   def: SettingDef;
   value: unknown;
+  dirty: boolean;
   disabled: boolean;
   onChange: (v: unknown) => void;
   onSave: (v: unknown) => void;
@@ -648,35 +728,40 @@ function SettingRow({
   const { t } = useTranslation();
 
   return (
-    <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <div>
-        <div className="text-sm font-medium text-slate-100">{t(def.labelKey)}</div>
+    <div className="flex flex-wrap items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-100">
+          <span>{t(def.labelKey)}</span>
+          {dirty && (
+            <Badge variant="warning" className="px-1.5 py-0 text-[11px]">
+              {t("settings.unsavedIndicator")}
+            </Badge>
+          )}
+        </div>
         <div className="text-xs text-slate-400">{t(def.descriptionKey)}</div>
       </div>
-      <div className="flex items-center gap-2">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (def.type === "number" || def.type === "string") {
+            onSave(value);
+          }
+        }}
+        className="flex items-center gap-2 shrink-0"
+      >
         {def.type === "boolean" ? (
-          <button
-            type="button"
+          <Switch
             disabled={disabled}
             aria-label={t(def.labelKey)}
-            aria-pressed={Boolean(value)}
-            onClick={() => {
-              const next = !value;
+            checked={Boolean(value)}
+            onCheckedChange={(next) => {
               onChange(next);
               onSave(next);
             }}
-            className={`h-6 w-11 rounded-full transition-colors cursor-pointer ${
-              value ? "bg-sky-500" : "bg-slate-700"
-            }`}
-          >
-            <span
-              className={`block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                value ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+          />
         ) : def.type === "select" ? (
-          <select
+          <Select
+            containerClassName="w-auto min-w-[140px]"
             aria-label={t(def.labelKey)}
             disabled={disabled}
             value={String(value ?? "")}
@@ -685,44 +770,49 @@ function SettingRow({
               onChange(next);
               onSave(next);
             }}
-            className="rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            className="py-1.5 text-sm"
           >
             {def.options?.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.labelKey ? t(o.labelKey) : o.label}
               </option>
             ))}
-          </select>
+          </Select>
         ) : def.type === "number" ? (
-          <input
+          <Input
+            containerClassName="w-24"
             aria-label={t(def.labelKey)}
             type="number"
-            value={Number(value ?? 0)}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="w-24 rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            inputMode="numeric"
+            min={1}
+            value={value === undefined || value === null ? "" : String(value)}
+            onChange={(e) => onChange(e.target.value)}
+            className="py-1.5 text-sm"
           />
         ) : (
-          <input
+          <Input
+            containerClassName="w-40"
             aria-label={t(def.labelKey)}
             type="text"
             placeholder={def.placeholder ?? ""}
             value={value == null ? "" : String(value)}
             onChange={(e) => onChange(e.target.value)}
-            className="w-40 rounded-lg bg-slate-950/70 px-3 py-1.5 text-sm text-slate-100 ring-1 ring-slate-700"
+            className="py-1.5 text-sm"
           />
         )}
 
         {(def.type === "number" || def.type === "string") && (
-          <button
-            type="button"
+          <Button
+            type="submit"
+            size="sm"
+            variant={dirty ? "primary" : "secondary"}
             disabled={disabled}
-            onClick={() => onSave(value)}
-            className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            className="text-xs font-medium"
           >
             {t("kanban.save")}
-          </button>
+          </Button>
         )}
-      </div>
+      </form>
     </div>
   );
 }
@@ -734,7 +824,7 @@ function defaultFor(s: SettingDef): unknown {
     case "app.theme":
       return "dark";
     case "dashboard.refresh_sec":
-      return 5;
+      return 30;
     case "pomodoro.focus_min":
       return 25;
     case "pomodoro.short_min":

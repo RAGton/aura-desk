@@ -30,9 +30,13 @@ describe("AppShell Component", () => {
     expect(ptBtn).toBeInTheDocument();
   });
 
-  it("supports keyboard navigation (Tab reaches interactive buttons)", async () => {
+  it("supports keyboard navigation (Tab reaches skip link then interactive buttons)", async () => {
     const user = userEvent.setup();
     render(<AppShell />);
+
+    await user.tab();
+    expect(document.activeElement?.tagName).toBe("A");
+    expect(document.activeElement).toHaveAttribute("href", "#main-content");
 
     await user.tab();
     expect(document.activeElement?.tagName).toBe("BUTTON");

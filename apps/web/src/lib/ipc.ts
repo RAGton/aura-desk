@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ERROR_KEYS, errorMessage } from "./errors";
+import { decodeZipTextEntries, encodeZipBase64 } from "./zip";
 
 export type TaskStatus = "todo" | "doing" | "waiting" | "done" | "cancelled";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
@@ -70,6 +71,12 @@ export interface UpdateTaskInput {
 }
 
 export interface SetStatusInput {
+  id: string;
+  status: TaskStatus;
+  kanban_order: number;
+}
+
+export interface TaskReorderItem {
   id: string;
   status: TaskStatus;
   kanban_order: number;
@@ -170,6 +177,8 @@ export interface DailyPlan {
   started_at?: string | null;
   completed_at?: string | null;
   payload?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface DashboardSummary {
@@ -374,28 +383,15 @@ function localDayFromIso(iso: string): string {
 }
 
 function encodeBrowserZipBase64(files: Record<string, string>): string {
-  const payload = JSON.stringify({ format: "auradesk-browser-backup", files });
-  const bytes = new TextEncoder().encode(payload);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+  return encodeZipBase64(files);
 }
 
 function decodeBrowserZipBase64(zipBase64: string): Record<string, string> {
-  const clean = zipBase64.replace(/\s+/g, "");
-  const binary = atob(clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  const text = new TextDecoder().decode(bytes);
-  const parsed = JSON.parse(text) as { files?: Record<string, string> };
-  if (!parsed || typeof parsed !== "object" || !parsed.files) {
+  try {
+    return decodeZipTextEntries(zipBase64);
+  } catch {
     throw new IpcError("errors.invalidBackup", "validation");
   }
-  return parsed.files;
 }
 
 function loadBrowserDb(): BrowserDbState {
@@ -444,6 +440,13 @@ function saveBrowserDb(db: BrowserDbState): void {
 
 function pollOverdueBrowserReminders(db: BrowserDbState): void {
   const nowMs = Date.now();
+  const pausedUntil = db.settings["reminders.paused_until"];
+  if (typeof pausedUntil === "string") {
+    const pausedMs = Date.parse(pausedUntil);
+    if (!Number.isNaN(pausedMs) && pausedMs > nowMs) {
+      return;
+    }
+  }
   const nowIso = new Date(nowMs).toISOString();
   let mutated = false;
   for (const r of db.reminders) {
@@ -474,6 +477,25 @@ function pollOverdueBrowserReminders(db: BrowserDbState): void {
   }
 }
 
+function applyTaskStatusTransition(
+  task: Task,
+  status: TaskStatus,
+  kanbanOrder: number,
+  nowIso: string
+): void {
+  task.status = status;
+  task.kanban_order = kanbanOrder ?? task.kanban_order;
+  if (status === "doing" && !task.started_at) {
+    task.started_at = nowIso;
+  }
+  if (status === "done") {
+    task.completed_at = nowIso;
+  } else {
+    task.completed_at = null;
+  }
+  task.updated_at = nowIso;
+}
+
 function priorityRank(p: TaskPriority): number {
   switch (p) {
     case "urgent":
@@ -485,6 +507,33 @@ function priorityRank(p: TaskPriority): number {
     case "low":
       return 3;
   }
+}
+
+export function advanceCalendarMonthIso(baseIso: string, months = 1): string {
+  const parsed = new Date(baseIso);
+  const base = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const year = base.getUTCFullYear();
+  const month = base.getUTCMonth();
+  const day = base.getUTCDate();
+  const targetMonthIndex = month + months;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const normalizedMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const maxDayInTargetMonth = new Date(
+    Date.UTC(targetYear, normalizedMonth + 1, 0)
+  ).getUTCDate();
+  const clampedDay = Math.min(day, maxDayInTargetMonth);
+  const next = new Date(
+    Date.UTC(
+      targetYear,
+      normalizedMonth,
+      clampedDay,
+      base.getUTCHours(),
+      base.getUTCMinutes(),
+      base.getUTCSeconds(),
+      base.getUTCMilliseconds()
+    )
+  );
+  return next.toISOString();
 }
 
 function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}): unknown {
@@ -607,19 +656,28 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       const input = args.input as SetStatusInput;
       const task = db.tasks.find((t) => t.id === input.id);
       if (!task) throw new IpcError(`Task not found: ${input.id}`, "application");
-      task.status = input.status;
-      task.kanban_order = input.kanban_order ?? task.kanban_order;
-      if (input.status === "doing" && !task.started_at) {
-        task.started_at = nowIso;
-      }
-      if (input.status === "done") {
-        task.completed_at = nowIso;
-      } else {
-        task.completed_at = null;
-      }
-      task.updated_at = nowIso;
+      applyTaskStatusTransition(task, input.status, input.kanban_order, nowIso);
       saveBrowserDb(db);
       return task;
+    }
+
+    case "tasks_reorder": {
+      const items = (args.items ?? []) as TaskReorderItem[];
+      if (!Array.isArray(items) || items.length === 0) {
+        return [];
+      }
+      const matched: Array<{ task: Task; item: TaskReorderItem }> = [];
+      for (const item of items) {
+        const task = db.tasks.find((t) => t.id === item.id);
+        if (!task) throw new IpcError(`Task not found: ${item.id}`, "application");
+        matched.push({ task, item });
+      }
+      const updated = matched.map(({ task, item }) => {
+        applyTaskStatusTransition(task, item.status, item.kanban_order, nowIso);
+        return task;
+      });
+      saveBrowserDb(db);
+      return updated;
     }
 
     case "projects_list":
@@ -877,6 +935,11 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
           } else if (rem.repeat_kind === "weekly") {
             rem.fire_at = new Date(Date.now() + 7 * 86400_000).toISOString();
             rem.status = "pending";
+          } else if (rem.repeat_kind === "monthly") {
+            const parsedFireMs = new Date(rem.fire_at).getTime();
+            const baseIso = Number.isNaN(parsedFireMs) ? nowIso : rem.fire_at;
+            rem.fire_at = advanceCalendarMonthIso(baseIso, 1);
+            rem.status = "pending";
           } else {
             rem.status = "resolved";
             rem.resolved_at = nowIso;
@@ -976,7 +1039,10 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       const input = args.input as { id: string; payload: string | null };
       const plan = db.dailyPlans.find((p) => p.id === input.id);
       if (!plan) throw new IpcError(`Daily plan not found: ${input.id}`, "application");
-      plan.payload = input.payload;
+      plan.payload =
+        input.payload === null || input.payload === undefined
+          ? null
+          : serializeDailyPlanNotes(input.payload);
       saveBrowserDb(db);
       return plan;
     }
@@ -1051,6 +1117,20 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       db.alerts.unshift(alert);
       saveBrowserDb(db);
       return alert;
+    }
+
+    case "alerts_emergency_unlock": {
+      let dismissed = 0;
+      for (const alert of db.alerts) {
+        if (!alert.resolved_at) {
+          alert.resolution = "dismissed";
+          alert.resolved_at = nowIso;
+          dismissed += 1;
+        }
+      }
+      db.settings["reminders.block_screen"] = false;
+      saveBrowserDb(db);
+      return dismissed;
     }
 
     case "integration_state":
@@ -1193,6 +1273,36 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     }
 
     case "data_export_zip": {
+      const desktopBundle = {
+        version: 2,
+        exported_at: nowIso,
+        projects: db.projects,
+        tasks: db.tasks,
+        pomodoros: db.pomodoros.map((p) => ({
+          ...p,
+          status: p.status === "active" ? "running" : p.status,
+        })),
+        reminders: db.reminders.map((r) => ({
+          ...r,
+          created_at: r.created_at ?? nowIso,
+          updated_at: r.updated_at ?? nowIso,
+        })),
+        daily_plans: db.dailyPlans.map((dp) => ({
+          ...dp,
+          payload:
+            dp.payload === null || dp.payload === undefined
+              ? null
+              : serializeDailyPlanNotes(dp.payload),
+          created_at: dp.created_at ?? nowIso,
+          updated_at: dp.updated_at ?? nowIso,
+        })),
+        settings: Object.entries(db.settings).map(([key, value]) => ({
+          key,
+          value: JSON.stringify(value),
+          updated_at: nowIso,
+        })),
+        github_issues: db.githubLinks ?? [],
+      };
       return encodeBrowserZipBase64({
         "settings.json": JSON.stringify(db.settings, null, 2),
         "browser-state.json": JSON.stringify({
@@ -1203,6 +1313,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
           dailyPlans: db.dailyPlans,
           githubLinks: db.githubLinks ?? [],
         }),
+        "bundle.json": JSON.stringify(desktopBundle, null, 2),
         "audit-log.json": JSON.stringify({ notifications: [], mcp_proposals: [] }),
       });
     }
@@ -1216,35 +1327,87 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
       let importedPlans = 0;
       let importedSettings = 0;
       let importedGithub = 0;
+
+      const applySettingValue = (key: string, rawVal: unknown) => {
+        if (!key) return;
+        db.settings[key] = rawVal;
+        importedSettings += 1;
+      };
+
       if (files["settings.json"]) {
-        const s = JSON.parse(files["settings.json"]) as Record<string, unknown>;
-        for (const [k, v] of Object.entries(s)) {
-          db.settings[k] = v;
-          importedSettings += 1;
-        }
-      }
-      if (files["browser-state.json"]) {
-        const st = JSON.parse(files["browser-state.json"]) as Partial<BrowserDbState>;
-        const mergeById = <T extends { id: string }>(target: T[], incoming?: T[]) => {
-          if (!Array.isArray(incoming)) return 0;
-          const existingIds = new Set(target.map((x) => x.id));
-          let added = 0;
-          for (const item of incoming) {
-            if (item && item.id && !existingIds.has(item.id)) {
-              target.push(item);
-              added += 1;
+        const parsedSettings = JSON.parse(files["settings.json"]) as
+          | Record<string, unknown>
+          | Array<{ key: string; value: string }>;
+        if (Array.isArray(parsedSettings)) {
+          for (const item of parsedSettings) {
+            if (item && typeof item.key === "string") {
+              try {
+                applySettingValue(item.key, JSON.parse(item.value));
+              } catch {
+                applySettingValue(item.key, item.value);
+              }
             }
           }
-          return added;
-        };
-        importedProjects = mergeById(db.projects, st.projects);
-        importedTasks = mergeById(db.tasks, st.tasks);
-        importedPomodoros = mergeById(db.pomodoros, st.pomodoros);
-        importedReminders = mergeById(db.reminders, st.reminders);
-        importedPlans = mergeById(db.dailyPlans, st.dailyPlans);
-        if (!db.githubLinks) db.githubLinks = [];
-        importedGithub = mergeById(db.githubLinks, st.githubLinks);
+        } else if (parsedSettings && typeof parsedSettings === "object") {
+          for (const [k, v] of Object.entries(parsedSettings)) {
+            applySettingValue(k, v);
+          }
+        }
       }
+
+      const mergeById = <T extends { id: string }>(target: T[], incoming?: T[]) => {
+        if (!Array.isArray(incoming)) return 0;
+        const existingIds = new Set(target.map((x) => x.id));
+        let added = 0;
+        for (const item of incoming) {
+          if (item && item.id && !existingIds.has(item.id)) {
+            existingIds.add(item.id);
+            target.push(item);
+            added += 1;
+          }
+        }
+        return added;
+      };
+
+      if (files["browser-state.json"]) {
+        const st = JSON.parse(files["browser-state.json"]) as Partial<BrowserDbState>;
+        importedProjects += mergeById(db.projects, st.projects);
+        importedTasks += mergeById(db.tasks, st.tasks);
+        importedPomodoros += mergeById(db.pomodoros, st.pomodoros);
+        importedReminders += mergeById(db.reminders, st.reminders);
+        importedPlans += mergeById(db.dailyPlans, st.dailyPlans);
+        if (!db.githubLinks) db.githubLinks = [];
+        importedGithub += mergeById(db.githubLinks, st.githubLinks);
+      } else if (files["bundle.json"]) {
+        const bundle = JSON.parse(files["bundle.json"]) as {
+          projects?: Project[];
+          tasks?: Task[];
+          pomodoros?: PomodoroSession[];
+          reminders?: Reminder[];
+          daily_plans?: DailyPlan[];
+          settings?: Array<{ key: string; value: string }>;
+          github_issues?: GithubIssueLink[];
+        };
+        importedProjects += mergeById(db.projects, bundle.projects);
+        importedTasks += mergeById(db.tasks, bundle.tasks);
+        importedPomodoros += mergeById(db.pomodoros, bundle.pomodoros);
+        importedReminders += mergeById(db.reminders, bundle.reminders);
+        importedPlans += mergeById(db.dailyPlans, bundle.daily_plans);
+        if (!db.githubLinks) db.githubLinks = [];
+        importedGithub += mergeById(db.githubLinks, bundle.github_issues);
+        if (!files["settings.json"] && Array.isArray(bundle.settings)) {
+          for (const item of bundle.settings) {
+            if (item && typeof item.key === "string") {
+              try {
+                applySettingValue(item.key, JSON.parse(item.value));
+              } catch {
+                applySettingValue(item.key, item.value);
+              }
+            }
+          }
+        }
+      }
+
       saveBrowserDb(db);
       return {
         projects: importedProjects,
@@ -1342,6 +1505,9 @@ export const tasksApi = {
 
   setStatus: (input: SetStatusInput): Promise<Task> =>
     wrapInvoke<Task>("tasks_set_status", { input }),
+
+  reorder: (items: TaskReorderItem[]): Promise<Task[]> =>
+    wrapInvoke<Task[]>("tasks_reorder", { items }),
 };
 
 export const projectsApi = {
@@ -1426,6 +1592,9 @@ export const alertsApi = {
 
   triggerTestBlock: (title: string, body?: string | null): Promise<Alert> =>
     wrapInvoke<Alert>("alerts_trigger_test_block", { title, body: body ?? null }),
+
+  emergencyUnlock: (): Promise<number> =>
+    wrapInvoke<number>("alerts_emergency_unlock"),
 };
 
 export const settingsApi = {
@@ -1438,6 +1607,41 @@ export const settingsApi = {
   set: (key: string, value: unknown): Promise<void> =>
     wrapInvoke<void>("settings_set", { input: { key, value } }),
 };
+
+export function serializeDailyPlanNotes(notes: string): string | null {
+  const trimmed = notes.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed !== null && typeof parsed === "object") {
+        return notes;
+      }
+    } catch {
+      // wrap non-JSON plain text in a JSON object for SQLite json_valid()
+    }
+  }
+  return JSON.stringify({ notes });
+}
+
+export function parseDailyPlanNotes(payload: string | null | undefined): string {
+  if (!payload) return "";
+  try {
+    const parsed: unknown = JSON.parse(payload);
+    if (typeof parsed === "string") return parsed;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { notes?: unknown }).notes === "string"
+    ) {
+      return (parsed as { notes: string }).notes;
+    }
+    return payload;
+  } catch {
+    return payload;
+  }
+}
 
 export const dashboardApi = {
   summary: (): Promise<DashboardSummary> =>

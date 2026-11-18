@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 
 import { AuraDeskLogo } from "../../components/AuraDeskLogo";
-import { type TaskEditExtra } from "../../components/KanbanBoard";
 import { ReminderModal } from "../../components/ReminderModal";
+import { Badge, Toast } from "../../components/ui";
 import {
   alertsApi,
   dashboardApi,
@@ -31,6 +31,8 @@ import {
   tasksApi,
   type Alert,
   type DailyPlan,
+  parseDailyPlanNotes,
+  serializeDailyPlanNotes,
   type DashboardSummary,
   type GithubIssueLink,
   type PlanState,
@@ -38,14 +40,12 @@ import {
   type Project,
   type ProposalItem,
   type Reminder,
-  type ReminderSound,
-  type RepeatKind,
   type Routine,
-  type SessionKind,
   type Task,
-  type TaskPriority,
-  type TaskStatus,
 } from "../../lib/ipc";
+import { useAlertsController } from "../../hooks/useAlertsController";
+import { usePomodoroController } from "../../hooks/usePomodoroController";
+import { useTasksController } from "../../hooks/useTasksController";
 import {
   applyTheme,
   loadVisualPrefs,
@@ -60,14 +60,13 @@ import {
 } from "../../pages/DashboardPage";
 import { KanbanPage } from "../../pages/KanbanPage";
 import { PomodoroPage } from "../../pages/PomodoroPage";
-import { type CreateReminderOptions, RemindersPage } from "../../pages/RemindersPage";
+import { RemindersPage } from "../../pages/RemindersPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { SettingsPage } from "../../pages/SettingsPage";
 
 type TabKey = "dashboard" | "kanban" | "pomodoro" | "reminders" | "reports" | "settings";
 
 const LAYOUT_STORAGE_KEY = "auradesk_dashboard_layout_v1";
-const POMO_PAUSE_STORAGE_KEY = "auradesk_pomo_pause_v1";
 
 function loadDashboardLayout(): DashboardLayoutState {
   try {
@@ -120,46 +119,6 @@ function formatClock(secs: number): string {
   return `${m}:${s}`;
 }
 
-function readPomoPauseCache(sessionId: string): { paused: boolean; accumulatedMs: number } | null {
-  try {
-    const raw = sessionStorage.getItem(POMO_PAUSE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      sessionId?: string;
-      paused?: boolean;
-      accumulatedMs?: number;
-    };
-    if (parsed.sessionId === sessionId) {
-      return {
-        paused: Boolean(parsed.paused),
-        accumulatedMs: Math.max(0, Number(parsed.accumulatedMs) || 0),
-      };
-    }
-  } catch {
-    // ignore sessionStorage failure
-  }
-  return null;
-}
-
-function writePomoPauseCache(
-  sessionId: string | null,
-  paused: boolean,
-  accumulatedMs: number
-) {
-  try {
-    if (!sessionId) {
-      sessionStorage.removeItem(POMO_PAUSE_STORAGE_KEY);
-    } else {
-      sessionStorage.setItem(
-        POMO_PAUSE_STORAGE_KEY,
-        JSON.stringify({ sessionId, paused, accumulatedMs })
-      );
-    }
-  } catch {
-    // ignore sessionStorage failure
-  }
-}
-
 export function AppShell() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTabFromLocation);
@@ -176,8 +135,6 @@ export function AppShell() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [proposals, setProposals] = useState<ProposalItem[]>([]);
   const [githubLinks, setGithubLinks] = useState<GithubIssueLink[]>([]);
-  const [importingGithub, setImportingGithub] = useState(false);
-  const [activePomo, setActivePomo] = useState<PomodoroSession | null>(null);
   const [pomoHistory, setPomoHistory] = useState<PomodoroSession[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -194,33 +151,11 @@ export function AppShell() {
   const [customizingLayout, setCustomizingLayout] = useState(false);
   const [layout, setLayout] = useState<DashboardLayoutState>(loadDashboardLayout);
 
-  // Task Form / Filter State
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("normal");
-  const [newTaskEstimate, setNewTaskEstimate] = useState("");
-  const [newTaskTags, setNewTaskTags] = useState("");
-  const [newTaskDueAt, setNewTaskDueAt] = useState("");
-  const [newTaskProjectId, setNewTaskProjectId] = useState("");
-  const [kanbanSearch, setKanbanSearch] = useState("");
-  const [kanbanPriorityFilter, setKanbanPriorityFilter] = useState<string>("all");
-  const [kanbanProjectFilter, setKanbanProjectFilter] = useState<string>("all");
-
-  // Pomodoro Timer State & Pause Refs
-  const [selectedPomoTaskId, setSelectedPomoTaskId] = useState<string>("");
-  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number>(25 * 60);
-  const [timerPaused, setTimerPaused] = useState<boolean>(false);
-
-  const trackedPomoIdRef = useRef<string | null>(null);
-  const accumulatedElapsedMsRef = useRef<number>(0);
-  const segmentStartMsRef = useRef<number | null>(null);
-  const autoCompletingPomoRef = useRef<string | null>(null);
   const loadedPlanKeyRef = useRef<string | null>(null);
   const loadedPlanPayloadRef = useRef<string>("");
   const appliedSavedLocaleRef = useRef<boolean>(false);
   const toastTimeoutRef = useRef<number | null>(null);
-
-  // Reminders Form State
-  const [newReminderTitle, setNewReminderTitle] = useState("");
+  const pomodoroSyncRef = useRef<(pomo: PomodoroSession | null) => void>(() => {});
 
   // Settings-derived Pomodoro durations & alert behavior
   const focusMin = Math.max(1, Number(settingsMap["pomodoro.focus_min"] ?? 25) || 25);
@@ -230,7 +165,7 @@ export function AppShell() {
     1,
     Number(settingsMap["pomodoro.cycles_to_long"] ?? 4) || 4
   );
-  const refreshSec = Math.max(2, Number(settingsMap["dashboard.refresh_sec"] ?? 5) || 5);
+  const refreshSec = Math.max(5, Number(settingsMap["dashboard.refresh_sec"] ?? 30) || 30);
   const soundEnabled = settingsMap["reminders.sound"] !== false;
   const blockScreenEnabled = settingsMap["reminders.block_screen"] === true;
   const dndUntil =
@@ -256,14 +191,6 @@ export function AppShell() {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-
-  const computeElapsedMs = useCallback(() => {
-    const runningSlice =
-      segmentStartMsRef.current !== null
-        ? Math.max(0, Date.now() - segmentStartMsRef.current)
-        : 0;
-    return accumulatedElapsedMsRef.current + runningSlice;
   }, []);
 
   const notify = useCallback((text: string, isError = false) => {
@@ -328,7 +255,7 @@ export function AppShell() {
       setDailyPlan(plan);
 
       const planKey = plan ? `${plan.id}:${plan.plan_date}` : null;
-      const incomingPayload = plan?.payload ?? "";
+      const incomingPayload = parseDailyPlanNotes(plan?.payload);
       if (plan && planKey && loadedPlanKeyRef.current !== planKey) {
         loadedPlanKeyRef.current = planKey;
         loadedPlanPayloadRef.current = incomingPayload;
@@ -346,7 +273,7 @@ export function AppShell() {
       setRoutines(asArray<Routine>(allRoutines));
       setProposals(asArray<ProposalItem>(pendingProposals));
       setGithubLinks(asArray<GithubIssueLink>(links));
-      setActivePomo(pomo ?? null);
+      pomodoroSyncRef.current(pomo ?? null);
       setPomoHistory(asArray<PomodoroSession>(pList));
       setReminders(asArray<Reminder>(rems));
       setAlerts(asArray<Alert>(pendingAlerts));
@@ -372,114 +299,126 @@ export function AppShell() {
         }
       }
 
-      if (pomo && trackedPomoIdRef.current !== pomo.id) {
-        trackedPomoIdRef.current = pomo.id;
-        const cachedPause = readPomoPauseCache(pomo.id);
-        const totalSec = pomo.planned_min * 60;
-        if (cachedPause && cachedPause.paused) {
-          accumulatedElapsedMsRef.current = cachedPause.accumulatedMs;
-          segmentStartMsRef.current = null;
-          setTimerPaused(true);
-          setTimerSecondsLeft(
-            Math.max(0, totalSec - Math.floor(cachedPause.accumulatedMs / 1000))
-          );
-        } else {
-          const startedMs = Date.parse(pomo.started_at);
-          accumulatedElapsedMsRef.current = Number.isNaN(startedMs)
-            ? 0
-            : Math.max(0, Date.now() - startedMs);
-          segmentStartMsRef.current = Date.now();
-          setTimerPaused(false);
-          setTimerSecondsLeft(
-            Math.max(0, totalSec - Math.floor(accumulatedElapsedMsRef.current / 1000))
-          );
-        }
-      } else if (!pomo && trackedPomoIdRef.current !== null) {
-        trackedPomoIdRef.current = null;
-        accumulatedElapsedMsRef.current = 0;
-        segmentStartMsRef.current = null;
-        autoCompletingPomoRef.current = null;
-        writePomoPauseCache(null, false, 0);
-        setTimerPaused(false);
-      }
     } catch {
       // Preserve UI stability during transient startup IPC states
     }
   }, [i18n]);
 
+  const refreshTasksDomain = useCallback(async () => {
+    try {
+      const [sum, allTasks, links, allProjects] = await Promise.all([
+        dashboardApi.summary(),
+        tasksApi.list(),
+        githubApi.listIssues().catch(() => [] as GithubIssueLink[]),
+        projectsApi.list().catch(() => [] as Project[]),
+      ]);
+      setSummary(sum);
+      setTasks(asArray<Task>(allTasks));
+      setGithubLinks(asArray<GithubIssueLink>(links));
+      setProjects(asArray<Project>(allProjects));
+    } catch {
+      // Preserve UI stability during transient IPC errors
+    }
+  }, []);
+
+  const refreshAlertsDomain = useCallback(async () => {
+    try {
+      const [sum, rems, pendingAlerts] = await Promise.all([
+        dashboardApi.summary(),
+        remindersApi.list(),
+        alertsApi.listPending(),
+      ]);
+      setSummary(sum);
+      setReminders(asArray<Reminder>(rems));
+      setAlerts(asArray<Alert>(pendingAlerts));
+    } catch {
+      // Preserve UI stability during transient IPC errors
+    }
+  }, []);
+
+  const refreshPomodoroDomain = useCallback(async () => {
+    try {
+      const [sum, allTasks, pomo, pList] = await Promise.all([
+        dashboardApi.summary(),
+        tasksApi.list(),
+        pomodoroApi.active(),
+        pomodoroApi.list(20),
+      ]);
+      setSummary(sum);
+      setTasks(asArray<Task>(allTasks));
+      pomodoroSyncRef.current(pomo ?? null);
+      setPomoHistory(asArray<PomodoroSession>(pList));
+    } catch {
+      // Preserve UI stability during transient IPC errors
+    }
+  }, []);
+
+  const {
+    activePomo,
+    selectedPomoTaskId,
+    setSelectedPomoTaskId,
+    timerSecondsLeft,
+    timerPaused,
+    syncFromRemotePomo,
+    handleTogglePause,
+    handleStartPomodoro,
+    handleCompletePomodoro,
+    handleAbandonPomodoro,
+  } = usePomodoroController({
+    focusMin,
+    soundEnabled,
+    refreshAfterMutation: refreshPomodoroDomain,
+    notify,
+    onSessionStarted: () => selectTab("pomodoro"),
+  });
+  pomodoroSyncRef.current = syncFromRemotePomo;
+
   useEffect(() => {
     void refreshAll();
     const poll = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       void refreshAll();
     }, refreshSec * 1000);
 
-    let unlisten: (() => void) | undefined;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshAll();
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+
+    let unlistenAlerts: (() => void) | undefined;
+    let unlistenTasks: (() => void) | undefined;
     if (isTauriRuntime()) {
       void import("@tauri-apps/api/event")
-        .then(({ listen }) =>
-          listen<Alert[]>("auradesk://alerts-updated", (event) => {
+        .then(async ({ listen }) => {
+          unlistenAlerts = await listen<Alert[]>("auradesk://alerts-updated", (event) => {
             if (Array.isArray(event.payload)) {
               setAlerts(event.payload);
             } else {
-              void refreshAll();
+              void refreshAlertsDomain();
             }
-          })
-        )
-        .then((fn) => {
-          unlisten = fn;
+          });
+          unlistenTasks = await listen("auradesk://tasks-updated", () => {
+            void refreshTasksDomain();
+          });
         })
         .catch(() => {});
     }
 
     return () => {
       window.clearInterval(poll);
-      if (unlisten) unlisten();
-    };
-  }, [refreshAll, refreshSec]);
-
-  // Keep idle timer preview synced with configured focus duration.
-  useEffect(() => {
-    if (!activePomo) {
-      setTimerSecondsLeft(focusMin * 60);
-    }
-  }, [activePomo, focusMin]);
-
-  const finishPomodoroSession = useCallback(async () => {
-    if (!activePomo) return;
-    const elapsedMin = Math.max(1, Math.round(computeElapsedMs() / 60_000));
-    try {
-      await pomodoroApi.complete(elapsedMin);
-      trackedPomoIdRef.current = null;
-      accumulatedElapsedMsRef.current = 0;
-      segmentStartMsRef.current = null;
-      autoCompletingPomoRef.current = null;
-      writePomoPauseCache(null, false, 0);
-      setTimerPaused(false);
-      setActivePomo(null);
-      await refreshAll();
-      notify(t("pomodoro.sessionCompleted", { min: elapsedMin }));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  }, [activePomo, computeElapsedMs, notify, refreshAll, t]);
-
-  // Live countdown ticker respecting pause state & auto-completing cleanly at 00:00.
-  useEffect(() => {
-    if (!activePomo || timerPaused) return;
-    const totalSec = activePomo.planned_min * 60;
-    const updateClock = () => {
-      const elapsedSec = Math.floor(computeElapsedMs() / 1000);
-      const left = Math.max(0, totalSec - elapsedSec);
-      setTimerSecondsLeft(left);
-      if (left === 0 && autoCompletingPomoRef.current !== activePomo.id) {
-        autoCompletingPomoRef.current = activePomo.id;
-        void finishPomodoroSession();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
       }
+      if (unlistenAlerts) unlistenAlerts();
+      if (unlistenTasks) unlistenTasks();
     };
-    updateClock();
-    const id = window.setInterval(updateClock, 500);
-    return () => window.clearInterval(id);
-  }, [activePomo, timerPaused, computeElapsedMs, finishPomodoroSession]);
+  }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain]);
 
   useEffect(() => {
     const onLang = (lng: string) => setCurrentLang(lng);
@@ -514,304 +453,65 @@ export function AppShell() {
     setVisualPrefs(updated);
   };
 
-  // --- Tasks & Kanban Handlers ---
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) {
-      notify(t("errors.taskTitleEmpty"), true);
-      return;
-    }
-    try {
-      const parsedTags = newTaskTags
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const dueAt = newTaskDueAt ? new Date(`${newTaskDueAt}T12:00:00`).toISOString() : undefined;
-      await tasksApi.create({
-        title: newTaskTitle.trim(),
-        priority: newTaskPriority,
-        estimate_min: newTaskEstimate ? Number(newTaskEstimate) : undefined,
-        project_id: newTaskProjectId || undefined,
-        tags: parsedTags.length > 0 ? parsedTags : undefined,
-        due_at: dueAt,
-      });
-      setNewTaskTitle("");
-      setNewTaskEstimate("");
-      setNewTaskTags("");
-      setNewTaskDueAt("");
-      await refreshAll();
-      notify(t("kanban.taskCreated"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
+  const {
+    importingGithub,
+    newTaskTitle,
+    setNewTaskTitle,
+    newTaskPriority,
+    setNewTaskPriority,
+    newTaskEstimate,
+    setNewTaskEstimate,
+    newTaskTags,
+    setNewTaskTags,
+    newTaskDueAt,
+    setNewTaskDueAt,
+    newTaskProjectId,
+    setNewTaskProjectId,
+    kanbanSearch,
+    setKanbanSearch,
+    kanbanPriorityFilter,
+    setKanbanPriorityFilter,
+    kanbanProjectFilter,
+    setKanbanProjectFilter,
+    handleCreateTask,
+    handleCreateProject,
+    handleMoveTask,
+    handleMoveTaskToIndex,
+    handleReorderTask,
+    handleSaveTaskEdit,
+    handleDeleteTask,
+    handleImportGithub,
+    handleUnlinkGithub,
+  } = useTasksController({
+    tasks,
+    settingsMap,
+    refreshTasksDomain,
+    refreshAll,
+    notify,
+  });
 
-  const handleCreateProject = async (name: string) => {
-    try {
-      const created = await projectsApi.create({ name });
-      setNewTaskProjectId(created.id);
-      await refreshAll();
-      notify(t("kanban.projectCreated"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleMoveTask = async (task: Task, targetStatus: TaskStatus) => {
-    try {
-      const colCount = tasks.filter((x) => x.status === targetStatus).length;
-      await tasksApi.setStatus({
-        id: task.id,
-        status: targetStatus,
-        kanban_order: colCount,
-      });
-      await refreshAll();
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleReorderTask = async (task: Task, targetIndex: number) => {
-    try {
-      const colTasks = tasks
-        .filter((x) => x.status === task.status && x.id !== task.id)
-        .sort((a, b) => a.kanban_order - b.kanban_order);
-      const boundedIdx = Math.max(0, Math.min(targetIndex, colTasks.length));
-      colTasks.splice(boundedIdx, 0, task);
-      await Promise.all(
-        colTasks.map((tk, idx) =>
-          tk.kanban_order !== idx || tk.id === task.id
-            ? tasksApi.update(tk.id, { kanbanOrder: idx })
-            : Promise.resolve(tk)
-        )
-      );
-      await refreshAll();
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleSaveTaskEdit = async (
-    taskId: string,
-    title: string,
-    priority: TaskPriority,
-    extra?: TaskEditExtra
-  ) => {
-    if (!title.trim()) return;
-    try {
-      await tasksApi.update(taskId, {
-        title: title.trim(),
-        priority,
-        ...(extra
-          ? {
-              description: extra.description,
-              estimateMin: extra.estimateMin,
-              tags: extra.tags,
-            }
-          : {}),
-      });
-      await refreshAll();
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      await tasksApi.delete(id);
-      await refreshAll();
-      notify(t("kanban.taskDeleted"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleImportGithub = async () => {
-    setImportingGithub(true);
-    try {
-      const labelFilter =
-        typeof settingsMap["github.filter_labels"] === "string"
-          ? settingsMap["github.filter_labels"]
-          : null;
-      const res = await githubApi.syncIssues(null, labelFilter);
-      await refreshAll();
-      notify(
-        t("kanban.github.importedSummary", {
-          created: res.created,
-          updated: res.updated,
-        })
-      );
-    } catch (err) {
-      const msg = String(err);
-      if (msg.includes("github.repo")) {
-        notify(t("kanban.github.repoRequired"), true);
-      } else if (msg.includes("authRequired") || msg.includes("cliMissing")) {
-        notify(t("kanban.github.authRequired"), true);
-      } else {
-        notify(msg, true);
-      }
-    } finally {
-      setImportingGithub(false);
-    }
-  };
-
-  const handleUnlinkGithub = async (taskId: string) => {
-    try {
-      await githubApi.unlinkTask(taskId);
-      await refreshAll();
-      notify(t("kanban.github.unlinked"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  // --- Pomodoro Handlers ---
-  const handleTogglePause = () => {
-    if (!activePomo) return;
-    if (!timerPaused) {
-      const acc = computeElapsedMs();
-      accumulatedElapsedMsRef.current = acc;
-      segmentStartMsRef.current = null;
-      writePomoPauseCache(activePomo.id, true, acc);
-      setTimerPaused(true);
-    } else {
-      segmentStartMsRef.current = Date.now();
-      writePomoPauseCache(activePomo.id, false, accumulatedElapsedMsRef.current);
-      setTimerPaused(false);
-    }
-  };
-
-  const handleStartPomodoro = async (
-    kind: SessionKind,
-    plannedMin: number,
-    taskId?: string | null
-  ) => {
-    try {
-      if (activePomo) {
-        const elapsedMin = Math.max(0, Math.round(computeElapsedMs() / 60_000));
-        await pomodoroApi.abandon(elapsedMin);
-      }
-      const started = await pomodoroApi.start({
-        kind,
-        planned_min: plannedMin,
-        task_id: taskId ?? null,
-      });
-      trackedPomoIdRef.current = started.id;
-      accumulatedElapsedMsRef.current = 0;
-      segmentStartMsRef.current = Date.now();
-      autoCompletingPomoRef.current = null;
-      writePomoPauseCache(started.id, false, 0);
-      setTimerPaused(false);
-      setTimerSecondsLeft(plannedMin * 60);
-      setActivePomo(started);
-      await refreshAll();
-      selectTab("pomodoro");
-      notify(t("pomodoro.sessionStarted", { min: plannedMin }));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleCompletePomodoro = async () => {
-    await finishPomodoroSession();
-  };
-
-  const handleAbandonPomodoro = async () => {
-    if (!activePomo) return;
-    const elapsedMin = Math.max(0, Math.round(computeElapsedMs() / 60_000));
-    try {
-      await pomodoroApi.abandon(elapsedMin);
-      trackedPomoIdRef.current = null;
-      accumulatedElapsedMsRef.current = 0;
-      segmentStartMsRef.current = null;
-      autoCompletingPomoRef.current = null;
-      writePomoPauseCache(null, false, 0);
-      setTimerPaused(false);
-      setActivePomo(null);
-      await refreshAll();
-      notify(t("pomodoro.sessionInterrupted"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  // --- Reminders & Alerts Handlers ---
-  const handleCreateReminder = async (
-    delayMinutes: number,
-    opts?: CreateReminderOptions
-  ) => {
-    if (!newReminderTitle.trim()) {
-      notify(t("reminders.titleRequired"), true);
-      return;
-    }
-    const fireAt = opts?.fireAtIso ?? new Date(Date.now() + delayMinutes * 60_000).toISOString();
-    try {
-      await remindersApi.create({
-        title: newReminderTitle.trim(),
-        body: opts?.body,
-        fire_at: fireAt,
-        repeat_kind: opts?.repeatKind ?? ("none" as RepeatKind),
-        sound: opts?.sound ?? ("normal" as ReminderSound),
-      });
-      setNewReminderTitle("");
-      await refreshAll();
-      notify(delayMinutes === 0 && !opts?.fireAtIso ? t("reminders.firedNow") : t("reminders.scheduled"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleToggleDnd = async () => {
-    const active = Boolean(dndUntil && Date.parse(dndUntil) > Date.now());
-    const nextVal = active ? null : new Date(Date.now() + 60 * 60_000).toISOString();
-    await settingsApi.set("reminders.paused_until", nextVal).catch(() => {});
-    setSettingsMap((prev) => ({ ...prev, "reminders.paused_until": nextVal }));
-    await refreshAll();
-  };
-
-  const handleToggleRoutine = async (id: string, enabled: boolean) => {
-    try {
-      await routinesApi.setEnabled(id, enabled);
-      await refreshAll();
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleApproveProposal = async (id: string) => {
-    try {
-      await proposalsApi.approve(id);
-      await refreshAll();
-      notify(t("dashboard.proposalApproved"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handleRejectProposal = async (id: string) => {
-    try {
-      await proposalsApi.reject(id);
-      await refreshAll();
-      notify(t("dashboard.proposalRejected"));
-    } catch (err) {
-      notify(String(err), true);
-    }
-  };
-
-  const handlePopupResolve = async (id: string) => {
-    await alertsApi.resolve(id);
-    await refreshAll();
-  };
-
-  const handlePopupSnooze = async (id: string) => {
-    await alertsApi.snooze(id);
-    await refreshAll();
-  };
-
-  const handlePopupDismiss = async (id: string) => {
-    await alertsApi.dismiss(id);
-    await refreshAll();
-  };
+  const {
+    newReminderTitle,
+    setNewReminderTitle,
+    handleCreateReminder,
+    handleToggleDnd,
+    handleToggleRoutine,
+    handleApproveProposal,
+    handleRejectProposal,
+    handlePopupResolve,
+    handlePopupSnooze,
+    handlePopupDismiss,
+    handleExceptAlert,
+    handleSnoozeReminder,
+    handleDismissReminder,
+    handleDeleteReminder,
+  } = useAlertsController({
+    dndUntil,
+    setSettingsMap,
+    refreshAlertsDomain,
+    refreshAll,
+    notify,
+  });
 
   const isPt = currentLang.startsWith("pt");
   const isSidebar = visualPrefs.navLayout === "sidebar";
@@ -859,13 +559,20 @@ export function AppShell() {
 
   const renderNavSection = () => (
     <nav
+      aria-label={t("app.title")}
       className={
         isSidebar
-          ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 overflow-x-auto"
-          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto"
+          ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-2 max-md:py-1.5"
+          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-2 max-md:py-1.5"
       }
     >
-      <div className={isSidebar ? "flex md:flex-col gap-1" : "flex items-center gap-1"}>
+      <div
+        className={
+          isSidebar
+            ? "flex md:flex-col gap-1 max-md:grid max-md:grid-cols-6 max-md:w-full"
+            : "flex items-center gap-1 max-md:grid max-md:grid-cols-6 max-md:w-full"
+        }
+      >
         {navItems.map(({ key, label, icon: Icon, badge }) => {
           const active = activeTab === key;
           return (
@@ -873,28 +580,32 @@ export function AppShell() {
               key={key}
               type="button"
               onClick={() => selectTab(key)}
-              className={`flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+              aria-current={active ? "page" : undefined}
+              className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-1 max-md:py-2 max-md:text-[11px] ${
                 isSidebar
                   ? `rounded-xl px-3.5 py-2.5 w-full ${
                       active
-                        ? "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30"
+                        ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35"
                         : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
                     }`
-                  : `px-4 py-3 border-b-2 ${
+                  : `px-4 py-3 border-b-2 max-md:border-b-0 ${
                       active
-                        ? "border-sky-400 text-sky-300 bg-sky-500/5"
+                        ? "border-aura-accent text-aura-accent bg-aura-accent/10 max-md:bg-aura-accent/15"
                         : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700"
                     }`
               }`}
             >
-              <span className="flex items-center gap-2">
-                <Icon className="h-4 w-4" />
-                <span>{label}</span>
+              <span className="flex items-center gap-2 max-md:flex-col max-md:gap-0.5">
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="truncate max-md:max-w-[64px]">{label}</span>
               </span>
               {badge !== undefined && (
-                <span className="ml-1 rounded-full aura-glass-pill px-2 py-0.5 text-[10px] text-sky-300 tabular-nums">
+                <Badge
+                  variant="info"
+                  className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums max-md:hidden"
+                >
                   {badge}
-                </span>
+                </Badge>
               )}
             </button>
           );
@@ -905,13 +616,13 @@ export function AppShell() {
         <button
           type="button"
           onClick={() => setCustomizingLayout((v) => !v)}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+          className={`max-md:hidden inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors touch-manipulation cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
             customizingLayout
-              ? "bg-sky-500 text-slate-950"
-              : "aura-glass-pill text-slate-300 hover:text-sky-300"
+              ? "bg-aura-accent text-aura-inverse"
+              : "aura-glass-pill text-slate-300 hover:text-aura-accent"
           }`}
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
           {customizingLayout ? t("dashboard.closeCustomizer") : t("dashboard.customizeLayout")}
         </button>
       )}
@@ -919,7 +630,11 @@ export function AppShell() {
   );
 
   const renderMainContent = () => (
-    <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="flex-1 p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto space-y-6 focus:outline-none"
+    >
       {activeTab === "dashboard" && (
         <DashboardPage
           layout={layout}
@@ -940,17 +655,30 @@ export function AppShell() {
           onChangePlanNotes={setPlanNotes}
           onSavePlanNotes={async () => {
             if (!dailyPlan) return;
-            await dashboardApi.dailyPlanSetPayload(
-              dailyPlan.id,
-              planNotes.trim() || null
-            );
-            await refreshAll();
-            notify(t("dashboard.dailyNotesSaved"));
+            try {
+              const serialized = serializeDailyPlanNotes(planNotes);
+              const updated = await dashboardApi.dailyPlanSetPayload(
+                dailyPlan.id,
+                serialized
+              );
+              const parsed = parseDailyPlanNotes(updated.payload ?? serialized);
+              loadedPlanPayloadRef.current = parsed;
+              setPlanNotes(parsed);
+              await refreshAll();
+              notify(t("dashboard.dailyNotesSaved"));
+            } catch (err) {
+              notify(String(err), true);
+            }
           }}
           onSetPlanState={async (state: PlanState) => {
             if (!dailyPlan) return;
-            await dashboardApi.dailyPlanSetState(dailyPlan.id, state);
-            await refreshAll();
+            try {
+              await dashboardApi.dailyPlanSetState(dailyPlan.id, state);
+              await refreshAll();
+              notify(t("dashboard.planStateUpdated"));
+            } catch (err) {
+              notify(String(err), true);
+            }
           }}
           onChangeNewTaskTitle={setNewTaskTitle}
           onChangeNewTaskPriority={setNewTaskPriority}
@@ -997,6 +725,7 @@ export function AppShell() {
           onImportGithub={handleImportGithub}
           onUnlinkGithub={handleUnlinkGithub}
           onMoveTask={handleMoveTask}
+          onMoveTaskToIndex={handleMoveTaskToIndex}
           onReorderTask={handleReorderTask}
           onUpdateTask={handleSaveTaskEdit}
           onDeleteTask={handleDeleteTask}
@@ -1035,23 +764,11 @@ export function AppShell() {
           onToggleDnd={handleToggleDnd}
           onResolveAlert={handlePopupResolve}
           onSnoozeAlert={handlePopupSnooze}
-          onExceptAlert={async (id, note) => {
-            await alertsApi.except(id, note);
-            await refreshAll();
-          }}
+          onExceptAlert={handleExceptAlert}
           onDismissAlert={handlePopupDismiss}
-          onSnoozeReminder={async (id) => {
-            await remindersApi.snooze(id, 10);
-            await refreshAll();
-          }}
-          onDismissReminder={async (id) => {
-            await remindersApi.dismiss(id);
-            await refreshAll();
-          }}
-          onDeleteReminder={async (id) => {
-            await remindersApi.delete(id);
-            await refreshAll();
-          }}
+          onSnoozeReminder={handleSnoozeReminder}
+          onDismissReminder={handleDismissReminder}
+          onDeleteReminder={handleDeleteReminder}
         />
       )}
 
@@ -1074,63 +791,70 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen aura-bg text-slate-100 flex flex-col">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-aura-accent focus:px-4 focus:py-2 focus:text-xs focus:font-semibold focus:text-aura-inverse focus:shadow-lg"
+      >
+        {t("app.skipToContent")}
+      </a>
+
       {/* Top Header with Winged Notebook Logo + Quick Controls + Language Switcher */}
-      <header className="aura-glass border-b border-slate-800/40 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="p-1 rounded-2xl aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10">
+      <header className="aura-glass border-b border-slate-800/40 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="p-1 rounded-2xl aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0">
             <AuraDeskLogo size={48} animated />
           </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-sky-400 via-indigo-300 to-amber-300 bg-clip-text text-transparent">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1
+                translate="no"
+                className="text-xl font-extrabold tracking-tight aura-brand-gradient bg-clip-text text-transparent"
+              >
                 {t("app.title")}
               </h1>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/30">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[11px]">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {inTauri ? t("app.connectedTauri") : t("app.connectedBrowser")}
-              </span>
+              </Badge>
             </div>
-            <p className="text-xs text-slate-400">{t("app.subtitle")}</p>
+            <p className="text-xs text-slate-400 truncate">{t("app.subtitle")}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {statusBanner && (
-            <span
-              className={`rounded-lg px-3 py-1 text-xs font-medium ring-1 ${
-                statusBanner.isError
-                  ? "bg-red-500/15 text-red-300 ring-red-500/30"
-                  : "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-              }`}
-            >
-              {statusBanner.text}
-            </span>
-          )}
           <button
             type="button"
             onClick={() => void handleQuickThemeToggle()}
             aria-label={t("app.toggleTheme")}
             title={t("app.toggleTheme")}
-            className="rounded-xl aura-glass-pill p-2 text-slate-300 hover:text-sky-300 cursor-pointer"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl aura-glass-pill text-slate-300 hover:text-aura-accent cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
           >
-            {isLightTheme ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {isLightTheme ? (
+              <Moon className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Sun className="h-4 w-4" aria-hidden="true" />
+            )}
           </button>
           <button
             type="button"
             onClick={handleToggleNavLayout}
             aria-label={isSidebar ? t("app.navTop") : t("app.navSidebar")}
             title={isSidebar ? t("app.navTop") : t("app.navSidebar")}
-            className="rounded-xl aura-glass-pill p-2 text-slate-300 hover:text-sky-300 cursor-pointer"
+            className="hidden md:inline-flex h-9 w-9 items-center justify-center rounded-xl aura-glass-pill text-slate-300 hover:text-aura-accent cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
           >
-            {isSidebar ? <PanelTop className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            {isSidebar ? (
+              <PanelTop className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <PanelLeft className="h-4 w-4" aria-hidden="true" />
+            )}
           </button>
           <div className="inline-flex rounded-xl aura-glass-pill p-1">
             <button
               type="button"
               onClick={() => void handleLanguageChange("pt-BR")}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
                 isPt
-                  ? "bg-sky-500 text-slate-950 shadow-sm shadow-sky-500/40"
+                  ? "bg-aura-accent text-aura-inverse shadow-sm"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -1139,9 +863,9 @@ export function AppShell() {
             <button
               type="button"
               onClick={() => void handleLanguageChange("en")}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
                 !isPt
-                  ? "bg-sky-500 text-slate-950 shadow-sm shadow-sky-500/40"
+                  ? "bg-aura-accent text-aura-inverse shadow-sm"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -1150,6 +874,15 @@ export function AppShell() {
           </div>
         </div>
       </header>
+
+      <div className="fixed bottom-20 md:bottom-6 right-4 z-50 max-w-[calc(100vw-2rem)]">
+        <Toast
+          open={Boolean(statusBanner)}
+          message={statusBanner?.text ?? ""}
+          variant={statusBanner?.isError ? "error" : "info"}
+          onClose={() => setStatusBanner(null)}
+        />
+      </div>
 
       {isSidebar ? (
         <div className="flex flex-1 flex-col md:flex-row min-h-0">

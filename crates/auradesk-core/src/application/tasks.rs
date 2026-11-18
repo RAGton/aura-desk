@@ -3,7 +3,7 @@
 #![allow(missing_docs)]
 
 use chrono::{DateTime, Duration, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::domain::task::{NewTask, Task, TaskFilter, TaskPriority, TaskStatus, UpdateTask};
 use crate::infrastructure::db::Db;
@@ -80,8 +80,7 @@ impl<'a> TasksService<'a> {
         self.get(&id)
     }
 
-    pub fn get(&self, id: &str) -> Result<Task, CoreError> {
-        let conn = self.db.writer();
+    fn get_on_conn(conn: &Connection, id: &str) -> Result<Task, CoreError> {
         let task = conn
             .query_row(
                 "SELECT id, project_id, parent_task_id, recurrence_id, title, description, \
@@ -97,46 +96,59 @@ impl<'a> TasksService<'a> {
         task.ok_or_else(|| CoreError::not_found("task", id))
     }
 
+    pub fn get(&self, id: &str) -> Result<Task, CoreError> {
+        let conn = self.db.reader();
+        Self::get_on_conn(&conn, id)
+    }
+
     pub fn list(&self, filter: &TaskFilter) -> Result<Vec<Task>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
+        let mut sql = String::from(
+            "SELECT id, project_id, parent_task_id, recurrence_id, title, description, \
+             priority, status, kanban_order, due_at, started_at, completed_at, \
+             estimate_min, actual_min, tags, created_at, updated_at \
+             FROM tasks",
+        );
+        let mut conditions: Vec<&'static str> = Vec::new();
+        let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+
+        if let Some(status) = filter.status {
+            conditions.push("status = ?");
+            params_vec.push(rusqlite::types::Value::from(status.as_str().to_string()));
+        }
+        if let Some(ref pid) = filter.project_id {
+            conditions.push("project_id = ?");
+            params_vec.push(rusqlite::types::Value::from(pid.clone()));
+        }
+        if filter.top_level_only {
+            conditions.push("parent_task_id IS NULL");
+        }
+        if filter.overdue {
+            conditions.push(
+                "status NOT IN ('done', 'cancelled') \
+                 AND due_at IS NOT NULL \
+                 AND julianday(due_at) < julianday(?)",
+            );
+            params_vec.push(rusqlite::types::Value::from(Utc::now().to_rfc3339()));
+        }
+
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        sql.push_str(" ORDER BY kanban_order ASC, created_at ASC");
+
         let mut stmt = conn
-            .prepare(
-                "SELECT id, project_id, parent_task_id, recurrence_id, title, description, \
-                 priority, status, kanban_order, due_at, started_at, completed_at, \
-                 estimate_min, actual_min, tags, created_at, updated_at \
-                 FROM tasks ORDER BY kanban_order ASC, created_at ASC",
-            )
+            .prepare(&sql)
             .map_err(|e| CoreError::internal(format!("tasks list prepare: {e}")))?;
 
         let rows = stmt
-            .query_map([], Self::map_row)
+            .query_map(params_from_iter(params_vec), Self::map_row)
             .map_err(|e| CoreError::internal(format!("tasks list query: {e}")))?;
 
-        let now = Utc::now();
         let mut out = Vec::new();
         for r in rows {
-            let t = r.map_err(|e| CoreError::internal(format!("tasks list row: {e}")))?;
-            if let Some(status) = filter.status {
-                if t.status != status {
-                    continue;
-                }
-            }
-            if let Some(ref pid) = filter.project_id {
-                if t.project_id.as_deref() != Some(pid.as_str()) {
-                    continue;
-                }
-            }
-            if filter.top_level_only && t.parent_task_id.is_some() {
-                continue;
-            }
-            if filter.overdue {
-                let is_open = !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled);
-                let is_past = t.due_at.map(|d| d < now).unwrap_or(false);
-                if !(is_open && is_past) {
-                    continue;
-                }
-            }
-            out.push(t);
+            out.push(r.map_err(|e| CoreError::internal(format!("tasks list row: {e}")))?);
         }
         Ok(out)
     }
@@ -229,30 +241,28 @@ impl<'a> TasksService<'a> {
         Ok(())
     }
 
-    pub fn set_status(
-        &self,
+    fn apply_status_on_conn(
+        conn: &Connection,
         id: &str,
         status: TaskStatus,
         kanban_order: i32,
+        now_str: &str,
     ) -> Result<Task, CoreError> {
-        let existing = self.get(id)?;
-        let now = Utc::now();
-        let now_str = now.to_rfc3339();
+        let existing = Self::get_on_conn(conn, id)?;
 
         let completed_at_str = if matches!(status, TaskStatus::Done) {
-            Some(now_str.clone())
+            Some(now_str.to_string())
         } else {
             None
         };
 
         let started_at_str = if matches!(status, TaskStatus::Doing) && existing.started_at.is_none()
         {
-            Some(now_str.clone())
+            Some(now_str.to_string())
         } else {
             existing.started_at.map(|d| d.to_rfc3339())
         };
 
-        let conn = self.db.writer();
         conn.execute(
             "UPDATE tasks SET status = ?1, kanban_order = ?2, completed_at = ?3, \
              started_at = ?4, updated_at = ?5 WHERE id = ?6",
@@ -318,9 +328,54 @@ impl<'a> TasksService<'a> {
                 }
             }
         }
-        drop(conn);
 
-        self.get(id)
+        Self::get_on_conn(conn, id)
+    }
+
+    pub fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        kanban_order: i32,
+    ) -> Result<Task, CoreError> {
+        let now_str = Utc::now().to_rfc3339();
+        let mut conn = self.db.writer();
+        let tx = conn
+            .transaction()
+            .map_err(|e| CoreError::internal(format!("tasks set_status tx: {e}")))?;
+        let updated = Self::apply_status_on_conn(&tx, id, status, kanban_order, &now_str)?;
+        tx.commit()
+            .map_err(|e| CoreError::internal(format!("tasks set_status commit: {e}")))?;
+        Ok(updated)
+    }
+
+    /// Atomically reorder and/or transition status for multiple Kanban cards
+    /// within a single SQLite transaction.
+    pub fn reorder_batch(
+        &self,
+        items: &[(String, TaskStatus, i32)],
+    ) -> Result<Vec<Task>, CoreError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let now_str = Utc::now().to_rfc3339();
+        let mut conn = self.db.writer();
+        let tx = conn
+            .transaction()
+            .map_err(|e| CoreError::internal(format!("tasks reorder_batch tx: {e}")))?;
+        let mut updated = Vec::with_capacity(items.len());
+        for (id, status, kanban_order) in items {
+            updated.push(Self::apply_status_on_conn(
+                &tx,
+                id,
+                *status,
+                *kanban_order,
+                &now_str,
+            )?);
+        }
+        tx.commit()
+            .map_err(|e| CoreError::internal(format!("tasks reorder_batch commit: {e}")))?;
+        Ok(updated)
     }
 
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
@@ -411,7 +466,8 @@ fn advance_by_rrule(dt: DateTime<Utc>, rrule: &str) -> DateTime<Utc> {
     if upper.contains("FREQ=WEEKLY") {
         dt + Duration::days(7)
     } else if upper.contains("FREQ=MONTHLY") {
-        dt + Duration::days(30)
+        dt.checked_add_months(chrono::Months::new(1))
+            .unwrap_or_else(|| dt + Duration::days(30))
     } else {
         dt + Duration::days(1)
     }

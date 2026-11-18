@@ -157,7 +157,7 @@ impl<'a> ProposalsService<'a> {
 
     pub fn list_pending_limit(&self, limit: i64) -> Result<Vec<Proposal>, CoreError> {
         let lim = limit.clamp(1, 200);
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT id, source, kind, payload, summary, status, created_at, expires_at, \
@@ -178,7 +178,7 @@ impl<'a> ProposalsService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Proposal, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let prop = conn
             .query_row(
                 "SELECT id, source, kind, payload, summary, status, created_at, expires_at, \

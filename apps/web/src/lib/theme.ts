@@ -20,36 +20,84 @@ export const DEFAULT_VISUAL_PREFS: VisualPrefs = {
   navLayout: "top",
 };
 
-const ACCENT_MAP: Record<AccentColor, { solid: string; soft: string; glow: string }> = {
+interface AccentTokens {
+  solid: string;
+  soft: string;
+  glow: string;
+}
+
+const ACCENT_MAP: Record<AccentColor, { dark: AccentTokens; light: AccentTokens }> = {
   sky: {
-    solid: "56 189 248",
-    soft: "rgba(56, 189, 248, 0.16)",
-    glow: "rgba(56, 189, 248, 0.35)",
+    dark: {
+      solid: "56 189 248",
+      soft: "rgba(56, 189, 248, 0.16)",
+      glow: "rgba(56, 189, 248, 0.35)",
+    },
+    light: {
+      solid: "3 105 161",
+      soft: "rgba(3, 105, 161, 0.14)",
+      glow: "rgba(3, 105, 161, 0.28)",
+    },
   },
   indigo: {
-    solid: "129 140 248",
-    soft: "rgba(129, 140, 248, 0.18)",
-    glow: "rgba(129, 140, 248, 0.35)",
+    dark: {
+      solid: "129 140 248",
+      soft: "rgba(129, 140, 248, 0.18)",
+      glow: "rgba(129, 140, 248, 0.35)",
+    },
+    light: {
+      solid: "79 70 229",
+      soft: "rgba(79, 70, 229, 0.14)",
+      glow: "rgba(79, 70, 229, 0.28)",
+    },
   },
   emerald: {
-    solid: "52 211 153",
-    soft: "rgba(52, 211, 153, 0.16)",
-    glow: "rgba(52, 211, 153, 0.35)",
+    dark: {
+      solid: "52 211 153",
+      soft: "rgba(52, 211, 153, 0.16)",
+      glow: "rgba(52, 211, 153, 0.35)",
+    },
+    light: {
+      solid: "4 120 87",
+      soft: "rgba(4, 120, 87, 0.14)",
+      glow: "rgba(4, 120, 87, 0.28)",
+    },
   },
   amber: {
-    solid: "251 191 36",
-    soft: "rgba(251, 191, 36, 0.18)",
-    glow: "rgba(251, 191, 36, 0.35)",
+    dark: {
+      solid: "251 191 36",
+      soft: "rgba(251, 191, 36, 0.18)",
+      glow: "rgba(251, 191, 36, 0.35)",
+    },
+    light: {
+      solid: "146 64 14",
+      soft: "rgba(146, 64, 14, 0.14)",
+      glow: "rgba(146, 64, 14, 0.26)",
+    },
   },
   rose: {
-    solid: "251 113 133",
-    soft: "rgba(251, 113, 133, 0.18)",
-    glow: "rgba(251, 113, 133, 0.35)",
+    dark: {
+      solid: "251 113 133",
+      soft: "rgba(251, 113, 133, 0.18)",
+      glow: "rgba(251, 113, 133, 0.35)",
+    },
+    light: {
+      solid: "190 18 60",
+      soft: "rgba(190, 18, 60, 0.14)",
+      glow: "rgba(190, 18, 60, 0.26)",
+    },
   },
   violet: {
-    solid: "167 139 250",
-    soft: "rgba(167, 139, 250, 0.18)",
-    glow: "rgba(167, 139, 250, 0.35)",
+    dark: {
+      solid: "167 139 250",
+      soft: "rgba(167, 139, 250, 0.18)",
+      glow: "rgba(167, 139, 250, 0.35)",
+    },
+    light: {
+      solid: "109 40 217",
+      soft: "rgba(109, 40, 217, 0.14)",
+      glow: "rgba(109, 40, 217, 0.26)",
+    },
   },
 };
 
@@ -67,9 +115,28 @@ function resolveEffectiveTheme(theme: AppTheme): "dark" | "light" {
   return "dark";
 }
 
+function applyAccentCssVars(accentKey: string | undefined, effectiveTheme: "dark" | "light"): void {
+  if (typeof document === "undefined") return;
+  const resolvedKey: AccentColor =
+    accentKey && accentKey in ACCENT_MAP ? (accentKey as AccentColor) : "sky";
+  const tokens = ACCENT_MAP[resolvedKey][effectiveTheme];
+  const root = document.documentElement;
+  root.style.setProperty("--aura-accent-rgb", tokens.solid);
+  root.style.setProperty("--aura-accent-soft", tokens.soft);
+  root.style.setProperty("--aura-accent-glow", tokens.glow);
+}
+
+function updateThemeColorMeta(effectiveTheme: "dark" | "light"): void {
+  if (typeof document === "undefined") return;
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (meta) {
+    meta.content = effectiveTheme === "light" ? "#eef4fb" : "#040711";
+  }
+}
+
 /**
  * Applies the selected theme (`dark` | `light` | `system`) onto `document.documentElement`
- * so Tailwind/CSS theme rules react immediately across every page.
+ * so Tailwind/CSS theme rules, accent contrast, and browser theme-color react immediately.
  */
 export function applyTheme(theme: unknown): "dark" | "light" {
   const normalized: AppTheme =
@@ -81,6 +148,8 @@ export function applyTheme(theme: unknown): "dark" | "light" {
     root.dataset.themePref = normalized;
     root.classList.toggle("dark", effective === "dark");
     root.classList.toggle("light", effective === "light");
+    applyAccentCssVars(root.dataset.accent, effective);
+    updateThemeColorMeta(effective);
   }
   return effective;
 }
@@ -124,15 +193,16 @@ export function applyVisualPrefs(prefs: VisualPrefs = loadVisualPrefs()): Visual
     root.dataset.accent = prefs.accent;
     root.dataset.glass = prefs.glass;
     root.dataset.navLayout = prefs.navLayout;
-    const accent = ACCENT_MAP[prefs.accent] ?? ACCENT_MAP.sky;
-    root.style.setProperty("--aura-accent-rgb", accent.solid);
-    root.style.setProperty("--aura-accent-soft", accent.soft);
-    root.style.setProperty("--aura-accent-glow", accent.glow);
     root.style.setProperty("--aura-blur", BLUR_MAP[prefs.glass] ?? "20px");
     if (prefs.preset === "frosted") {
       applyTheme("light");
-    } else if (!root.dataset.theme) {
-      applyTheme("dark");
+    } else {
+      const currentTheme = root.dataset.theme === "light" ? "light" : "dark";
+      if (!root.dataset.theme) {
+        applyTheme("dark");
+      } else {
+        applyAccentCssVars(prefs.accent, currentTheme);
+      }
     }
   }
   return prefs;

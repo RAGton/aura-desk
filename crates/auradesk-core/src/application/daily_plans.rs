@@ -18,6 +18,23 @@ pub struct DailyPlansService<'a> {
     pub clock: &'a dyn Clock,
 }
 
+fn normalize_plan_payload(payload: Option<String>) -> Option<String> {
+    let raw = payload?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if (trimmed.starts_with('{') || trimmed.starts_with('['))
+        && matches!(
+            serde_json::from_str::<serde_json::Value>(trimmed),
+            Ok(serde_json::Value::Object(_)) | Ok(serde_json::Value::Array(_))
+        )
+    {
+        return Some(raw);
+    }
+    Some(serde_json::json!({ "notes": raw }).to_string())
+}
+
 impl<'a> DailyPlansService<'a> {
     pub fn new(db: &'a Db) -> Self {
         Self {
@@ -31,7 +48,7 @@ impl<'a> DailyPlansService<'a> {
     }
 
     pub fn list(&self) -> Result<Vec<DailyPlan>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT id, plan_date, state, started_at, completed_at, payload, rollover_from, created_at, updated_at \
@@ -51,7 +68,7 @@ impl<'a> DailyPlansService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<DailyPlan, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let plan = conn
             .query_row(
                 "SELECT id, plan_date, state, started_at, completed_at, payload, rollover_from, created_at, updated_at \
@@ -66,7 +83,7 @@ impl<'a> DailyPlansService<'a> {
     }
 
     pub fn get_by_date(&self, plan_date: &str) -> Result<Option<DailyPlan>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         conn.query_row(
             "SELECT id, plan_date, state, started_at, completed_at, payload, rollover_from, created_at, updated_at \
              FROM daily_plans WHERE plan_date = ?1",
@@ -88,14 +105,7 @@ impl<'a> DailyPlansService<'a> {
                 "plan_date must be YYYY-MM-DD",
             ));
         }
-        if let Some(ref p) = payload {
-            if serde_json::from_str::<serde_json::Value>(p).is_err() {
-                return Err(CoreError::validation(
-                    "payload",
-                    "payload must be valid JSON",
-                ));
-            }
-        }
+        let payload = normalize_plan_payload(payload);
 
         let id = uuid::Uuid::new_v4().to_string();
         let now_str = self.clock.now().to_rfc3339();
@@ -163,14 +173,7 @@ impl<'a> DailyPlansService<'a> {
 
     pub fn set_payload(&self, id: &str, payload: Option<String>) -> Result<DailyPlan, CoreError> {
         let _ = self.get(id)?;
-        if let Some(ref p) = payload {
-            if serde_json::from_str::<serde_json::Value>(p).is_err() {
-                return Err(CoreError::validation(
-                    "payload",
-                    "payload must be valid JSON",
-                ));
-            }
-        }
+        let payload = normalize_plan_payload(payload);
         let now_str = self.clock.now().to_rfc3339();
         let conn = self.db.writer();
         conn.execute(

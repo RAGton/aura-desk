@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bell, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Bell, ShieldAlert, Unlock } from "lucide-react";
 
 import { ReminderModal } from "../components/ReminderModal";
 import { alertsApi, isTauriRuntime, settingsApi, type Alert } from "../lib/ipc";
@@ -25,6 +25,9 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [blockScreen, setBlockScreen] = useState<boolean>(!popupWindow);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
+  const consecutiveErrorsRef = useRef(0);
 
   const winMeta =
     typeof window !== "undefined"
@@ -61,17 +64,60 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
       if (theme === "light" || theme === "dark" || theme === "system") {
         applyTheme(theme);
       }
+      consecutiveErrorsRef.current = 0;
+      setActionError(null);
     } catch {
-      // ignore transient startup IPC delays
+      consecutiveErrorsRef.current += 1;
+      if (consecutiveErrorsRef.current >= 2) {
+        setActionError(t("alertLock.ipcErrorBanner"));
+      }
     }
-  }, [i18n, popupWindow]);
+  }, [i18n, popupWindow, t]);
+
+  const forceCloseCurrentWindow = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const current = getCurrentWindow();
+      try {
+        await current.close();
+      } catch {
+        await current.destroy();
+      }
+    } catch {
+      // ignore unavailable window runtime (browser or test environment)
+    }
+  }, []);
+
+  const handleEmergencyUnlock = useCallback(async () => {
+    if (unlocking) return;
+    setUnlocking(true);
+    try {
+      await alertsApi.emergencyUnlock();
+      setActionError(null);
+    } catch {
+      setActionError(t("alertLock.ipcErrorBanner"));
+    } finally {
+      await forceCloseCurrentWindow();
+      setUnlocking(false);
+    }
+  }, [forceCloseCurrentWindow, t, unlocking]);
+
+  const emergencyUnlockRef = useRef(handleEmergencyUnlock);
+  emergencyUnlockRef.current = handleEmergencyUnlock;
 
   useEffect(() => {
     void loadState();
 
-    // Prevent escaping the external popup / lock overlay via context menu or refresh keys.
+    // Prevent escaping the external popup / lock overlay via context menu or refresh keys,
+    // while keeping Ctrl+Shift+U always active as an emergency unlock failsafe.
     const onContextMenu = (e: MouseEvent) => e.preventDefault();
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "u") {
+        e.preventDefault();
+        void emergencyUnlockRef.current();
+        return;
+      }
       if (e.key === "F5" || e.key === "F11" || e.key === "F12") {
         e.preventDefault();
       }
@@ -110,18 +156,33 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
     alerts.find((a) => a.kind === "routine" || a.kind === "reminder") ?? alerts[0] ?? null;
 
   const handleResolve = async (id: string) => {
-    await alertsApi.resolve(id);
-    await loadState();
+    try {
+      setActionError(null);
+      await alertsApi.resolve(id);
+      await loadState();
+    } catch {
+      setActionError(t("alertLock.ipcErrorBanner"));
+    }
   };
 
   const handleSnooze = async (id: string) => {
-    await alertsApi.snooze(id);
-    await loadState();
+    try {
+      setActionError(null);
+      await alertsApi.snooze(id);
+      await loadState();
+    } catch {
+      setActionError(t("alertLock.ipcErrorBanner"));
+    }
   };
 
   const handleDismiss = async (id: string) => {
-    await alertsApi.dismiss(id);
-    await loadState();
+    try {
+      setActionError(null);
+      await alertsApi.dismiss(id);
+      await loadState();
+    } catch {
+      setActionError(t("alertLock.ipcErrorBanner"));
+    }
   };
 
   if (isBackdrop) {
@@ -137,12 +198,59 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
         <p className="max-w-md text-xs text-rose-200/80">
           {t("reminders.lockBackdropSubtitle")}
         </p>
+        {actionError && (
+          <div
+            role="alert"
+            data-testid="alert-lock-ipc-error"
+            className="mt-2 flex max-w-md items-center gap-2 rounded-xl bg-rose-950/70 px-3 py-2 text-xs text-rose-200 ring-1 ring-rose-500/40"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" />
+            <span>{actionError}</span>
+          </div>
+        )}
+        <div className="mt-2 flex flex-col items-center gap-1.5">
+          <button
+            type="button"
+            data-testid="emergency-unlock-btn"
+            disabled={unlocking}
+            onClick={() => void handleEmergencyUnlock()}
+            className="inline-flex items-center gap-2 rounded-xl bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-400/40 hover:bg-rose-500/30 disabled:opacity-50 cursor-pointer"
+          >
+            <Unlock className="h-3.5 w-3.5" />
+            {t("alertLock.emergencyUnlock")}
+          </button>
+          <span className="text-[11px] text-rose-200/60">
+            {t("alertLock.emergencyUnlockHint")}
+          </span>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen w-screen aura-bg select-none overflow-hidden">
+      {actionError && (
+        <div
+          role="alert"
+          data-testid="alert-lock-ipc-error"
+          className="fixed top-3 left-1/2 z-50 flex w-[92%] max-w-lg -translate-x-1/2 items-center justify-between gap-3 rounded-xl bg-rose-950/90 px-4 py-2.5 text-xs text-rose-100 ring-1 ring-rose-500/50 shadow-lg backdrop-blur"
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            data-testid="emergency-unlock-btn"
+            disabled={unlocking}
+            onClick={() => void handleEmergencyUnlock()}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-aura-danger px-3 py-1.5 text-[11px] font-semibold text-aura-inverse hover:bg-aura-danger/90 disabled:opacity-50 cursor-pointer"
+          >
+            <Unlock className="h-3 w-3" />
+            {t("alertLock.emergencyUnlock")}
+          </button>
+        </div>
+      )}
       {activeAlert ? (
         <ReminderModal
           alert={activeAlert}
@@ -161,6 +269,19 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
               <Bell className="h-5 w-5 text-sky-400 animate-pulse" />
             </div>
             <p className="text-xs font-medium text-slate-300">{t("reminders.syncingAlert")}</p>
+            <button
+              type="button"
+              data-testid={actionError ? undefined : "emergency-unlock-btn"}
+              disabled={unlocking}
+              onClick={() => void handleEmergencyUnlock()}
+              className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-rose-500/15 px-3 py-1.5 text-xs font-semibold text-rose-200 ring-1 ring-rose-400/35 hover:bg-rose-500/25 disabled:opacity-50 cursor-pointer"
+            >
+              <Unlock className="h-3.5 w-3.5" />
+              {t("alertLock.emergencyUnlock")}
+            </button>
+            <p className="max-w-xs text-[11px] text-slate-400">
+              {t("alertLock.emergencyUnlockHint")}
+            </p>
           </div>
         </div>
       )}

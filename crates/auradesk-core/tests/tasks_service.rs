@@ -242,3 +242,123 @@ fn empty_tag_is_rejected() {
     let err = svc.create(t).expect_err("empty tag must fail");
     assert!(matches!(err, auradesk_core::CoreError::Validation { .. }));
 }
+
+#[test]
+fn list_filters_in_sql_by_project_top_level_and_overdue() {
+    use auradesk_core::application::projects::ProjectsService;
+    use auradesk_core::domain::project::NewProject;
+    use auradesk_core::domain::task::TaskFilter;
+    use chrono::{Duration, Utc};
+
+    let db = fresh_db();
+    let projects = ProjectsService::new(&db);
+    let p1 = projects
+        .create(NewProject {
+            name: "Proj A".to_string(),
+            description: None,
+            color: None,
+            parent_id: None,
+            start_date: None,
+            target_date: None,
+        })
+        .expect("project 1");
+
+    let svc = TasksService::new(&db);
+
+    let mut overdue_root = basic_task("Overdue root");
+    overdue_root.project_id = Some(p1.id.clone());
+    overdue_root.due_at = Some(Utc::now() - Duration::hours(2));
+    let t_overdue = svc.create(overdue_root).expect("overdue root");
+
+    let mut future_task = basic_task("Future root");
+    future_task.project_id = Some(p1.id.clone());
+    future_task.due_at = Some(Utc::now() + Duration::days(2));
+    let _t_future = svc.create(future_task).expect("future root");
+
+    let mut subtask = basic_task("Subtask");
+    subtask.project_id = Some(p1.id.clone());
+    subtask.parent_task_id = Some(t_overdue.id.clone());
+    subtask.due_at = Some(Utc::now() - Duration::hours(1));
+    let _t_sub = svc.create(subtask).expect("subtask");
+
+    let _other = svc.create(basic_task("Other no project")).expect("other");
+
+    let by_project = svc
+        .list(&TaskFilter {
+            project_id: Some(p1.id.clone()),
+            ..Default::default()
+        })
+        .expect("project filter");
+    assert_eq!(by_project.len(), 3);
+
+    let top_level_only = svc
+        .list(&TaskFilter {
+            project_id: Some(p1.id.clone()),
+            top_level_only: true,
+            ..Default::default()
+        })
+        .expect("top level filter");
+    assert_eq!(top_level_only.len(), 2);
+
+    let overdue_roots = svc
+        .list(&TaskFilter {
+            project_id: Some(p1.id),
+            top_level_only: true,
+            overdue: true,
+            ..Default::default()
+        })
+        .expect("overdue root filter");
+    assert_eq!(overdue_roots.len(), 1);
+    assert_eq!(overdue_roots[0].id, t_overdue.id);
+
+    // Done tasks must never count as overdue even if due_at is in the past.
+    svc.set_status(&t_overdue.id, TaskStatus::Done, 0)
+        .expect("mark done");
+    let after_done = svc
+        .list(&TaskFilter {
+            overdue: true,
+            ..Default::default()
+        })
+        .expect("overdue after done");
+    assert_eq!(after_done.len(), 1); // only _t_sub remains todo & overdue
+}
+
+#[test]
+fn reorder_batch_is_atomic_and_rolls_back_on_missing_id() {
+    let db = fresh_db();
+    let svc = TasksService::new(&db);
+
+    let t1 = svc.create(basic_task("Card 1")).expect("t1");
+    let t2 = svc.create(basic_task("Card 2")).expect("t2");
+
+    let updated = svc
+        .reorder_batch(&[
+            (t2.id.clone(), TaskStatus::Doing, 0),
+            (t1.id.clone(), TaskStatus::Done, 1),
+        ])
+        .expect("reorder batch succeeds");
+
+    assert_eq!(updated.len(), 2);
+    assert_eq!(updated[0].id, t2.id);
+    assert_eq!(updated[0].status, TaskStatus::Doing);
+    assert_eq!(updated[0].kanban_order, 0);
+    assert!(updated[0].completed_at.is_none());
+
+    assert_eq!(updated[1].id, t1.id);
+    assert_eq!(updated[1].status, TaskStatus::Done);
+    assert_eq!(updated[1].kanban_order, 1);
+    assert!(updated[1].completed_at.is_some());
+
+    // Including a nonexistent ID must abort and roll back t2's update too.
+    let err = svc
+        .reorder_batch(&[
+            (t2.id.clone(), TaskStatus::Todo, 99),
+            ("missing-task-id".to_string(), TaskStatus::Todo, 100),
+        ])
+        .expect_err("missing id must roll back");
+    assert!(matches!(err, auradesk_core::CoreError::NotFound { .. }));
+
+    let persisted_t2 = svc.get(&t2.id).expect("get t2");
+    assert_eq!(persisted_t2.status, TaskStatus::Doing);
+    assert_eq!(persisted_t2.kanban_order, 0);
+}

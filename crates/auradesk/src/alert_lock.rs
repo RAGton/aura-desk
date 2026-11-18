@@ -60,6 +60,41 @@ pub fn sync_blocking_windows(app: &AppHandle, db: &Arc<Db>) {
     });
 }
 
+/// Emergency fail-safe: dismiss pending alerts best-effort, reset lock state
+/// flags unconditionally, and tear down all lock backdrops and popup windows.
+pub fn emergency_unlock_all(app: &AppHandle, db: &Db) -> usize {
+    let mut dismissed = 0usize;
+    let svc = AlertsService::new(db);
+    if let Ok(pending) = svc.list_pending() {
+        for alert in pending {
+            if svc.dismiss(&alert.id).is_ok() {
+                dismissed += 1;
+            }
+        }
+    }
+
+    if let Some(state) = app.try_state::<AppState>() {
+        state.alert_popup_active.store(false, Ordering::SeqCst);
+        state.screen_lock_active.store(false, Ordering::SeqCst);
+        state.popup_locked_mode.store(false, Ordering::SeqCst);
+    }
+
+    let _ = app.emit(
+        "auradesk://alerts-updated",
+        Vec::<auradesk_core::domain::alert::Alert>::new(),
+    );
+
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        destroy_lock_backdrops(&app_handle);
+        if let Some(popup) = app_handle.get_webview_window(POPUP_WINDOW_LABEL) {
+            let _ = popup.destroy();
+        }
+    });
+
+    dismissed
+}
+
 fn apply_alert_windows_on_main_thread(app: &AppHandle, has_alerts: bool, should_lock: bool) {
     let recreated_primary_lock = if should_lock {
         sync_lock_backdrops(app)

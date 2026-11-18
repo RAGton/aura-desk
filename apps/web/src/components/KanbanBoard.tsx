@@ -3,11 +3,14 @@ import { useTranslation } from "react-i18next";
 
 import type { GithubIssueLink, Project, Task, TaskPriority, TaskStatus } from "../lib/ipc";
 import { KANBAN_COLUMNS, TaskCard } from "./TaskCard";
+import { Badge, EmptyState } from "./ui";
 
 export interface TaskEditExtra {
   description?: string | null;
   estimateMin?: number | null;
   tags?: string[] | null;
+  dueAt?: string | null;
+  projectId?: string | null;
 }
 
 export interface KanbanBoardProps {
@@ -16,13 +19,18 @@ export interface KanbanBoardProps {
   projects?: Project[];
   requireDeleteConfirm?: boolean;
   onMoveTask: (task: Task, targetStatus: TaskStatus) => void | Promise<void>;
+  onMoveTaskToIndex?: (
+    task: Task,
+    targetStatus: TaskStatus,
+    targetIndex: number
+  ) => void | Promise<void>;
   onReorderTask?: (task: Task, targetIndex: number) => void | Promise<void>;
   onUpdateTask: (
     taskId: string,
     title: string,
     priority: TaskPriority,
     extra?: TaskEditExtra
-  ) => void | Promise<void>;
+  ) => void | boolean | Promise<void | boolean>;
   onDeleteTask: (taskId: string) => void | Promise<void>;
   onFocusTask: (task: Task) => void | Promise<void>;
   onUnlinkGithub?: (taskId: string) => void | Promise<void>;
@@ -96,8 +104,9 @@ export function KanbanBoard({
   tasks,
   githubLinks,
   projects = [],
-  requireDeleteConfirm = false,
+  requireDeleteConfirm = true,
   onMoveTask,
+  onMoveTaskToIndex,
   onReorderTask,
   onUpdateTask,
   onDeleteTask,
@@ -113,11 +122,15 @@ export function KanbanBoard({
   const [editingTaskDescription, setEditingTaskDescription] = useState("");
   const [editingTaskEstimate, setEditingTaskEstimate] = useState("");
   const [editingTaskTags, setEditingTaskTags] = useState("");
+  const [editingTaskDueAt, setEditingTaskDueAt] = useState("");
+  const [editingTaskProjectId, setEditingTaskProjectId] = useState("");
 
   const dragSessionRef = useRef<PointerDragSession | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const onMoveTaskRef = useRef(onMoveTask);
   onMoveTaskRef.current = onMoveTask;
+  const onMoveTaskToIndexRef = useRef(onMoveTaskToIndex);
+  onMoveTaskToIndexRef.current = onMoveTaskToIndex;
   const onReorderTaskRef = useRef(onReorderTask);
   onReorderTaskRef.current = onReorderTask;
   const tasksRef = useRef(tasks);
@@ -185,7 +198,12 @@ export function KanbanBoard({
         const clientY = typeof e.clientY === "number" ? e.clientY : cur.y;
         const targetCol = findColumnAtPoint(clientX, clientY);
         if (targetCol && targetCol !== cur.task.status) {
-          void onMoveTaskRef.current(cur.task, targetCol);
+          if (onMoveTaskToIndexRef.current) {
+            const targetIdx = findDropIndexInColumn(targetCol, clientY, cur.task.id);
+            void onMoveTaskToIndexRef.current(cur.task, targetCol, targetIdx);
+          } else {
+            void onMoveTaskRef.current(cur.task, targetCol);
+          }
         } else if (targetCol && targetCol === cur.task.status && onReorderTaskRef.current) {
           const colTasks = tasksRef.current
             .filter((x) => x.status === targetCol)
@@ -288,20 +306,18 @@ export function KanbanBoard({
                 </div>
                 <div className="flex items-center gap-1.5">
                   {totalEstimate > 0 && (
-                    <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 tabular-nums">
+                    <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[11px] tabular-nums">
                       {totalEstimate}m
-                    </span>
+                    </Badge>
                   )}
-                  <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-sky-400 tabular-nums">
+                  <Badge variant="info" className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums">
                     {colTasks.length}
-                  </span>
+                  </Badge>
                 </div>
               </div>
 
               {colTasks.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-800/80 bg-slate-950/20 text-xs text-slate-500 text-center py-8 px-3">
-                  {t("kanban.emptyColumn")}
-                </p>
+                <EmptyState title={t("kanban.emptyColumn")} className="py-8 px-3" />
               ) : (
                 colTasks.map((task) => (
                   <TaskCard
@@ -310,6 +326,7 @@ export function KanbanBoard({
                     col={col}
                     githubLink={linkByTaskId.get(task.id) ?? null}
                     project={task.project_id ? (projectById.get(task.project_id) ?? null) : null}
+                    projects={projects}
                     requireDeleteConfirm={requireDeleteConfirm}
                     isDragging={Boolean(
                       dragSession?.active && dragSession.task.id === task.id
@@ -320,6 +337,8 @@ export function KanbanBoard({
                     editingDescription={editingTaskDescription}
                     editingEstimate={editingTaskEstimate}
                     editingTags={editingTaskTags}
+                    editingDueAt={editingTaskDueAt}
+                    editingProjectId={editingTaskProjectId}
                     onStartEdit={(tk) => {
                       setEditingTaskId(tk.id);
                       setEditingTaskTitle(tk.title);
@@ -329,12 +348,16 @@ export function KanbanBoard({
                         tk.estimate_min != null ? String(tk.estimate_min) : ""
                       );
                       setEditingTaskTags(Array.isArray(tk.tags) ? tk.tags.join(", ") : "");
+                      setEditingTaskDueAt(tk.due_at ? tk.due_at.slice(0, 10) : "");
+                      setEditingTaskProjectId(tk.project_id ?? "");
                     }}
                     onChangeEditTitle={setEditingTaskTitle}
                     onChangeEditPriority={setEditingTaskPriority}
                     onChangeEditDescription={setEditingTaskDescription}
                     onChangeEditEstimate={setEditingTaskEstimate}
                     onChangeEditTags={setEditingTaskTags}
+                    onChangeEditDueAt={setEditingTaskDueAt}
+                    onChangeEditProjectId={setEditingTaskProjectId}
                     onSaveEdit={async (tk) => {
                       const parsedTags = editingTaskTags
                         .split(",")
@@ -343,15 +366,22 @@ export function KanbanBoard({
                       const parsedEst = editingTaskEstimate.trim()
                         ? Number(editingTaskEstimate)
                         : null;
-                      await onUpdateTask(tk.id, editingTaskTitle, editingTaskPriority, {
+                      const parsedDue = editingTaskDueAt.trim()
+                        ? new Date(`${editingTaskDueAt.trim()}T12:00:00`).toISOString()
+                        : null;
+                      const saved = await onUpdateTask(tk.id, editingTaskTitle, editingTaskPriority, {
                         description: editingTaskDescription.trim() || null,
                         estimateMin:
                           parsedEst !== null && Number.isFinite(parsedEst) && parsedEst > 0
                             ? parsedEst
                             : null,
                         tags: parsedTags.length > 0 ? parsedTags : null,
+                        dueAt: parsedDue,
+                        projectId: editingTaskProjectId || null,
                       });
-                      setEditingTaskId(null);
+                      if (saved !== false) {
+                        setEditingTaskId(null);
+                      }
                     }}
                     onCancelEdit={() => setEditingTaskId(null)}
                     onMove={onMoveTask}
@@ -376,7 +406,7 @@ export function KanbanBoard({
           <div className="text-xs font-bold text-slate-100 truncate">
             {dragSession.task.title}
           </div>
-          <div className="text-[10px] text-sky-300">{t("kanban.holdingToDrag")}</div>
+          <div className="text-[11px] text-aura-accent">{t("kanban.holdingToDrag")}</div>
         </div>
       )}
     </>

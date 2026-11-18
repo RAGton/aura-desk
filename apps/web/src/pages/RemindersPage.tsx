@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { Badge, Button, EmptyState, Input, Select } from "../components/ui";
 import type { Alert, Reminder, ReminderSound, RepeatKind } from "../lib/ipc";
 
 export interface CreateReminderOptions {
@@ -58,11 +59,11 @@ function normalizeSoundKey(sound: string): "normal" | "urgent" | "none" {
   return "normal";
 }
 
-function formatShortTime(iso?: string | null): string | null {
+function formatShortTime(locale: string, iso?: string | null): string | null {
   if (!iso) return null;
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return null;
-  return new Date(parsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(parsed).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function RemindersPage({
@@ -81,7 +82,7 @@ export function RemindersPage({
   onDismissReminder,
   onDeleteReminder,
 }: RemindersPageProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [exceptAlertId, setExceptAlertId] = useState<string | null>(null);
   const [exceptNote, setExceptNote] = useState("");
   const [body, setBody] = useState("");
@@ -158,144 +159,156 @@ export function RemindersPage({
             <div className="flex flex-wrap items-center gap-2.5">
               <h2 className="text-lg font-bold text-slate-50">{t("reminders.title")}</h2>
               {alerts.length > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/35">
+                <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
                   <BellRing className="h-3 w-3" />
                   {t("reminders.queueBadge", { count: alerts.length })}
-                </span>
+                </Badge>
               )}
               {dndActive && dndUntil && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-medium text-amber-300 ring-1 ring-amber-500/30">
-                  <BellOff className="h-3 w-3" />
+                <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium">
+                  <BellOff className="h-3 w-3" aria-hidden="true" />
                   {t("reminders.dndActiveUntil", {
-                    time: new Date(dndUntil).toLocaleTimeString([], {
+                    time: new Date(dndUntil).toLocaleTimeString(i18n.language, {
                       hour: "2-digit",
                       minute: "2-digit",
                     }),
                   })}
-                </span>
+                </Badge>
               )}
             </div>
             <p className="text-xs text-slate-400">{t("reminders.subtitle")}</p>
           </div>
           {onToggleDnd && (
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant={dndActive ? "outline" : "secondary"}
               onClick={() => void onToggleDnd()}
-              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
-                dndActive
-                  ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-500/40"
-                  : "aura-glass-pill text-slate-200 hover:text-amber-300"
+              className={`rounded-xl text-xs font-semibold ${
+                dndActive ? "bg-amber-500/20 text-amber-200 border-amber-500/40" : ""
               }`}
             >
               <BellOff className="h-3.5 w-3.5" />
               {dndActive ? t("reminders.dndDisable") : t("reminders.dndEnable")}
-            </button>
+            </Button>
           )}
         </div>
 
         <form onSubmit={handleFormSubmit} className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <input
+            <Input
+              containerClassName="flex-1 min-w-[200px]"
               type="text"
+              aria-label={t("reminders.titleLabel")}
               value={newReminderTitle}
               onChange={(e) => onChangeTitle(e.target.value)}
               placeholder={t("reminders.newPlaceholder")}
-              className="flex-1 min-w-[240px] rounded-xl bg-slate-950/70 px-3.5 py-2 text-sm text-slate-100 ring-1 ring-slate-800 outline-none focus:ring-sky-500"
+              className="px-3.5 py-2 text-sm"
             />
-            <button
-              type="button"
+            <Button
+              size="md"
+              variant="primary"
               onClick={() => void submitWithOptions(0)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-sm shadow-amber-500/25 hover:bg-amber-400 cursor-pointer transition-colors"
+              className="rounded-xl bg-aura-warning text-xs font-bold text-aura-inverse shadow-sm hover:bg-aura-warning/90"
             >
-              <Zap className="h-3.5 w-3.5" />
+              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
               {t("reminders.addNow")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="md"
+              variant="primary"
               onClick={() => void submitWithOptions(1)}
-              className="rounded-xl bg-sky-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 cursor-pointer transition-colors"
+              className="rounded-xl text-xs font-bold shadow-sm"
             >
               + {t("reminders.addIn1Min")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="md"
+              variant="secondary"
               onClick={() => void submitWithOptions(5)}
-              className="rounded-xl aura-glass-pill px-3 py-2 text-xs font-semibold text-slate-200 hover:text-sky-300 cursor-pointer transition-colors"
+              className="rounded-xl text-xs font-semibold"
             >
               + {t("reminders.addIn5Min")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="md"
+              variant="secondary"
               onClick={() => void submitWithOptions(15)}
-              className="rounded-xl aura-glass-pill px-3 py-2 text-xs font-semibold text-slate-200 hover:text-sky-300 cursor-pointer transition-colors"
+              className="rounded-xl text-xs font-semibold"
             >
               + {t("reminders.addIn15Min")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="md"
+              variant="secondary"
               onClick={() => void submitWithOptions(60)}
-              className="rounded-xl aura-glass-pill px-3 py-2 text-xs font-semibold text-slate-200 hover:text-sky-300 cursor-pointer transition-colors"
+              className="rounded-xl text-xs font-semibold"
             >
               + {t("reminders.addIn1Hour")}
-            </button>
+            </Button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <input
+            <Input
+              containerClassName="flex-1 min-w-[200px]"
               type="text"
+              aria-label={t("reminders.bodyLabel")}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={t("reminders.bodyPlaceholder")}
-              className="flex-1 min-w-[200px] rounded-xl bg-slate-950/70 px-3 py-1.5 text-xs text-slate-200 ring-1 ring-slate-800 outline-none focus:ring-sky-500"
+              className="py-1.5 text-xs"
             />
             <label className="inline-flex items-center gap-1.5 text-slate-400">
               <span>{t("reminders.soundLabel")}</span>
-              <select
+              <Select
+                containerClassName="w-auto"
                 value={sound}
                 onChange={(e) => setSound(e.target.value as ReminderSound)}
-                className="rounded-xl bg-slate-950/70 px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-slate-800"
+                className="rounded-xl py-1.5 text-xs"
               >
                 <option value="normal">{t("reminders.sounds.normal")}</option>
                 <option value="urgent">{t("reminders.sounds.urgent")}</option>
                 <option value="none">{t("reminders.sounds.none")}</option>
-              </select>
+              </Select>
             </label>
             <label className="inline-flex items-center gap-1.5 text-slate-400">
               <span>{t("reminders.repeatLabel")}</span>
-              <select
+              <Select
+                containerClassName="w-auto"
                 value={repeatKind}
                 onChange={(e) => setRepeatKind(e.target.value as RepeatKind)}
-                className="rounded-xl bg-slate-950/70 px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-slate-800"
+                className="rounded-xl py-1.5 text-xs"
               >
                 <option value="none">{t("reminders.repeats.none")}</option>
                 <option value="daily">{t("reminders.repeats.daily")}</option>
                 <option value="weekly">{t("reminders.repeats.weekly")}</option>
                 <option value="monthly">{t("reminders.repeats.monthly")}</option>
-              </select>
+              </Select>
             </label>
             <label className="inline-flex items-center gap-1.5 text-slate-400">
               <span>{t("reminders.customDateTime")}</span>
-              <input
+              <Input
+                containerClassName="w-auto"
                 type="datetime-local"
                 value={customDateTime}
                 onChange={(e) => setCustomDateTime(e.target.value)}
-                className="rounded-xl bg-slate-950/70 px-2.5 py-1 text-xs text-slate-200 ring-1 ring-slate-800"
+                className="rounded-xl px-2.5 py-1 text-xs"
               />
             </label>
             {customDateTime && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="outline"
                 onClick={() => {
                   const parsed = new Date(customDateTime);
                   if (!Number.isNaN(parsed.getTime())) {
                     void submitWithOptions(1, parsed.toISOString());
                   }
                 }}
-                className="inline-flex items-center gap-1 rounded-xl bg-sky-500/20 px-3 py-1.5 text-xs font-semibold text-sky-300 ring-1 ring-sky-500/40 hover:bg-sky-500/30 cursor-pointer"
+                className="rounded-xl bg-sky-500/20 text-xs font-semibold text-sky-300 border-sky-500/40 hover:bg-sky-500/30"
               >
-                <CalendarClock className="h-3.5 w-3.5" />
+                <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
                 {t("reminders.scheduleCustom")}
-              </button>
+              </Button>
             )}
           </div>
         </form>
@@ -308,18 +321,19 @@ export function RemindersPage({
           {templates.map((tpl) => {
             const Icon = tpl.icon;
             return (
-              <button
+              <Button
                 key={tpl.key}
-                type="button"
+                size="sm"
+                variant="ghost"
                 onClick={() => {
                   onChangeTitle(tpl.label);
                   setSound(tpl.sound);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-full aura-glass-pill px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-sky-300 cursor-pointer transition-colors"
+                className="h-7 rounded-full aura-glass-pill px-2.5 text-[11px] font-medium text-slate-300 hover:text-aura-accent"
               >
-                <Icon className="h-3 w-3 text-sky-400" />
+                <Icon className="h-3 w-3 text-aura-accent" aria-hidden="true" />
                 {tpl.label}
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -331,30 +345,32 @@ export function RemindersPage({
           <section className="flex items-center gap-2">
             <BellRing className="h-4 w-4 text-amber-400" />
             <h3 className="text-sm font-semibold text-amber-300">{t("reminders.activeAlerts")}</h3>
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-500/30">
+            <Badge variant="warning" className="rounded-full px-2 py-0.5 text-[11px] font-semibold">
               {alerts.length}
-            </span>
+            </Badge>
           </section>
           {alerts.length > 1 && (
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="outline"
               disabled={resolvingAll}
+              loading={resolvingAll}
               onClick={() => void handleResolveAll()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50 cursor-pointer transition-colors"
+              className="rounded-xl bg-emerald-500/20 text-xs font-semibold text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
             >
               <CheckCheck className="h-3.5 w-3.5" />
               {t("reminders.resolveAll")}
-            </button>
+            </Button>
           )}
         </section>
         {alerts.length === 0 ? (
-          <p className="text-xs text-slate-500">{t("reminders.noAlerts")}</p>
+          <EmptyState title={t("reminders.noAlerts")} className="py-6" />
         ) : (
           <div className="space-y-2.5">
             {alerts.map((a) => {
               const water = a.kind === "routine" && isWaterTitle(a.title);
               const isUrgent = a.severity === "urgent";
-              const createdTime = formatShortTime(a.created_at);
+              const createdTime = formatShortTime(i18n.language, a.created_at);
               return (
                 <div
                   key={a.id}
@@ -388,22 +404,19 @@ export function RemindersPage({
                           <span className="text-sm font-semibold text-slate-100 break-words">
                             {a.title}
                           </span>
-                          <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                          <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[10px] font-semibold">
                             {a.kind === "routine"
                               ? t("reminders.kindRoutine")
                               : t("reminders.kindReminder")}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
-                              isUrgent
-                                ? "bg-rose-500/15 text-rose-300 ring-rose-500/35"
-                                : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
-                            }`}
+                          </Badge>
+                          <Badge
+                            variant={isUrgent ? "danger" : "warning"}
+                            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
                           >
                             {isUrgent
                               ? t("reminders.severityUrgent")
                               : t("reminders.severityNormal")}
-                          </span>
+                          </Badge>
                           {createdTime && (
                             <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
                               <Clock className="h-3 w-3" />
@@ -415,35 +428,39 @@ export function RemindersPage({
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 shrink-0">
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
+                        variant="primary"
                         onClick={() => void onResolveAlert(a.id)}
-                        className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer transition-colors"
+                        className="rounded-xl bg-aura-success text-xs font-bold text-aura-inverse hover:bg-aura-success/90"
                       >
                         ✓ {t("reminders.resolve")}
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
                         onClick={() => void onSnoozeAlert(a.id)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-slate-800/90 px-2.5 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-slate-700/60 hover:bg-slate-700 cursor-pointer"
+                        className="rounded-xl text-xs font-medium"
                       >
                         <AlarmClock className="h-3 w-3 text-sky-400" />
                         {t("reminders.snooze")}
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
                         onClick={() => setExceptAlertId(exceptAlertId === a.id ? null : a.id)}
-                        className="rounded-xl bg-slate-800/90 px-2.5 py-1.5 text-xs font-medium text-amber-300 ring-1 ring-slate-700/60 hover:bg-slate-700 cursor-pointer"
+                        className="rounded-xl text-xs font-medium text-amber-300"
                       >
                         {t("reminders.except")}
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => void onDismissAlert(a.id)}
-                        className="rounded-xl bg-slate-800/90 px-2.5 py-1.5 text-xs font-medium text-slate-400 ring-1 ring-slate-700/60 hover:text-slate-200 cursor-pointer"
+                        className="rounded-xl text-xs font-medium"
                       >
                         {t("reminders.dismiss")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                   {exceptAlertId === a.id && (
@@ -457,19 +474,23 @@ export function RemindersPage({
                       }}
                       className="flex gap-2 pt-2 border-t border-slate-800/70"
                     >
-                      <input
+                      <Input
+                        containerClassName="flex-1"
                         type="text"
+                        aria-label={t("reminders.exceptNoteLabel")}
                         value={exceptNote}
                         onChange={(e) => setExceptNote(e.target.value)}
                         placeholder={t("reminders.exceptPlaceholder")}
-                        className="flex-1 rounded-xl bg-slate-950/70 px-3 py-1.5 text-xs text-slate-100 ring-1 ring-slate-700 outline-none focus:ring-amber-400"
+                        className="py-1.5 text-xs"
                       />
-                      <button
+                      <Button
                         type="submit"
-                        className="rounded-xl bg-amber-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 cursor-pointer"
+                        size="sm"
+                        variant="primary"
+                        className="rounded-xl bg-aura-warning text-xs font-semibold text-aura-inverse hover:bg-aura-warning/90"
                       >
                         {t("kanban.save")}
-                      </button>
+                      </Button>
                     </form>
                   )}
                 </div>
@@ -484,12 +505,12 @@ export function RemindersPage({
         <section className="flex items-center gap-2">
           <CalendarClock className="h-4 w-4 text-sky-400" />
           <h3 className="text-sm font-semibold text-slate-200">{t("reminders.upcoming")}</h3>
-          <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-slate-300">
+          <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[11px] font-semibold">
             {reminders.length}
-          </span>
+          </Badge>
         </section>
         {reminders.length === 0 ? (
-          <p className="text-xs text-slate-500">{t("reminders.noReminders")}</p>
+          <EmptyState title={t("reminders.noReminders")} className="py-6" />
         ) : (
           <div className="space-y-2">
             {reminders.map((r) => {
@@ -508,70 +529,72 @@ export function RemindersPage({
                       <span className="text-sm font-semibold text-slate-100 break-words">
                         {r.title}
                       </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
-                          r.status === "snoozed"
-                            ? "bg-amber-500/15 text-amber-300 ring-amber-500/30"
-                            : "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-                        }`}
+                      <Badge
+                        variant={r.status === "snoozed" ? "warning" : "info"}
+                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
                       >
                         {statusLabel}
-                      </span>
+                      </Badge>
                     </div>
                     {r.body && <div className="text-xs text-slate-400 truncate">{r.body}</div>}
                     <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-400">
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-slate-500" />
-                        {new Date(r.fire_at).toLocaleString()}
+                      <span className="inline-flex items-center gap-1 tabular-nums">
+                        <Clock className="h-3 w-3 text-slate-500" aria-hidden="true" />
+                        {new Date(r.fire_at).toLocaleString(i18n.language)}
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <Volume2 className="h-3 w-3 text-slate-500" />
+                        <Volume2 className="h-3 w-3 text-slate-500" aria-hidden="true" />
                         {t(`reminders.sounds.${soundKey}`)}
                       </span>
                       {r.repeat_kind !== "none" && (
                         <span className="inline-flex items-center gap-1 text-sky-300">
-                          <Repeat className="h-3 w-3" />
+                          <Repeat className="h-3 w-3" aria-hidden="true" />
                           {t(`reminders.repeats.${r.repeat_kind}`)}
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
                       onClick={() => void onSnoozeReminder(r.id)}
-                      className="inline-flex items-center gap-1 rounded-xl bg-slate-800/90 px-2.5 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700/60 hover:bg-slate-700 cursor-pointer"
+                      className="rounded-xl text-xs"
                     >
-                      <AlarmClock className="h-3 w-3 text-sky-400" />
+                      <AlarmClock className="h-3 w-3 text-sky-400" aria-hidden="true" />
                       {t("reminders.snooze")}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
                       onClick={() => void onDismissReminder(r.id)}
-                      className="rounded-xl bg-slate-800/90 px-2.5 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700/60 hover:bg-slate-700 cursor-pointer"
+                      className="rounded-xl text-xs"
                     >
                       {t("reminders.dismiss")}
-                    </button>
+                    </Button>
                     {confirmDeleteId === r.id ? (
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
+                        variant="danger"
                         onClick={() => {
                           setConfirmDeleteId(null);
                           void onDeleteReminder(r.id);
                         }}
-                        className="rounded-xl bg-red-500/20 px-2.5 py-1.5 text-xs font-semibold text-red-300 ring-1 ring-red-500/40 hover:bg-red-500/30 cursor-pointer"
+                        className="rounded-xl text-xs font-semibold"
                       >
                         {t("reminders.confirmDelete")}
-                      </button>
+                      </Button>
                     ) : (
-                      <button
-                        type="button"
+                      <Button
+                        size="icon"
+                        variant="secondary"
                         aria-label={t("kanban.delete")}
+                        title={t("kanban.delete")}
                         onClick={() => setConfirmDeleteId(r.id)}
-                        className="rounded-xl bg-slate-800/90 p-1.5 text-xs text-slate-400 ring-1 ring-slate-700/60 hover:text-red-400 cursor-pointer"
+                        className="h-8 w-8 rounded-xl text-slate-400 hover:text-red-400"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
                     )}
                   </div>
                 </div>

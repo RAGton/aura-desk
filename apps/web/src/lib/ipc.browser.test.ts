@@ -11,12 +11,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import {
+  advanceCalendarMonthIso,
   alertsApi,
   dashboardApi,
   dataIoApi,
   githubApi,
   integrationApi,
   ipc,
+  parseDailyPlanNotes,
   pomodoroApi,
   projectsApi,
   remindersApi,
@@ -24,6 +26,7 @@ import {
   settingsApi,
   tasksApi,
 } from "./ipc";
+import { base64ToBytes, decodeZipTextEntries, encodeZipBase64 } from "./zip";
 
 const STORAGE_KEY = "auradesk_browser_db_v1";
 
@@ -347,7 +350,9 @@ describe("browser fallback (localStorage engine)", () => {
 
       await dashboardApi.dailyPlanSetPayload(plan.id, "Três prioridades");
       const withNotes = await dashboardApi.dailyPlanGet();
-      expect(withNotes.payload).toBe("Três prioridades");
+      expect(withNotes.payload).toBe('{"notes":"Três prioridades"}');
+      expect(parseDailyPlanNotes(withNotes.payload)).toBe("Três prioridades");
+      expect(parseDailyPlanNotes("Texto legado direto")).toBe("Texto legado direto");
     });
   });
 
@@ -430,6 +435,164 @@ describe("browser fallback (localStorage engine)", () => {
 
       await githubApi.unlinkTask(task.id);
       expect(await githubApi.listIssues()).toHaveLength(0);
+    });
+  });
+
+  describe("phase 1 regression fixes", () => {
+    it("exports genuine PKZIP archives containing desktop-compatible bundle.json and imports bundle.json-only archives", async () => {
+      await tasksApi.create({ title: "PKZIP Task", priority: "high" });
+      const zipB64 = await dataIoApi.exportZipBase64();
+      const rawBytes = base64ToBytes(zipB64);
+
+      expect(Array.from(rawBytes.slice(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);
+
+      const entries = decodeZipTextEntries(zipB64);
+      expect(entries["bundle.json"]).toBeDefined();
+      const parsedBundle = JSON.parse(entries["bundle.json"]) as {
+        version: number;
+        tasks: Array<{ title: string }>;
+      };
+      expect(parsedBundle.version).toBe(2);
+      expect(parsedBundle.tasks[0]?.title).toBe("PKZIP Task");
+
+      // Simulate a Desktop-style bundle.json-only ZIP archive import in browser.
+      localStorage.clear();
+      const desktopOnlyZip = encodeZipBase64({
+        "bundle.json": JSON.stringify({
+          version: 2,
+          exported_at: new Date().toISOString(),
+          projects: [],
+          tasks: [
+            {
+              id: "desktop-task-1",
+              project_id: null,
+              parent_task_id: null,
+              title: "Imported from Desktop Bundle",
+              description: null,
+              priority: "normal",
+              status: "todo",
+              due_at: null,
+              estimate_min: null,
+              actual_min: 0,
+              kanban_order: 0,
+              tags: [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              completed_at: null,
+            },
+          ],
+          routines: [],
+          reminders: [],
+          pomodoro_sessions: [],
+          daily_plans: [],
+          settings: [{ key: "app.theme", value: "light" }],
+        }),
+      });
+
+      const imported = await dataIoApi.importZipBase64(desktopOnlyZip);
+      expect(imported.tasks).toBe(1);
+      expect((await tasksApi.list())[0]?.title).toBe("Imported from Desktop Bundle");
+      expect(await settingsApi.get("app.theme")).toBe("light");
+    });
+
+    it("advances monthly recurring reminders by true calendar month and clamps short months", async () => {
+      expect(advanceCalendarMonthIso("2026-01-31T10:00:00.000Z")).toBe(
+        "2026-02-28T10:00:00.000Z"
+      );
+      expect(advanceCalendarMonthIso("2028-01-31T10:00:00.000Z")).toBe(
+        "2028-02-29T10:00:00.000Z"
+      );
+      expect(advanceCalendarMonthIso("2026-03-31T10:00:00.000Z")).toBe(
+        "2026-04-30T10:00:00.000Z"
+      );
+      expect(advanceCalendarMonthIso("2026-12-15T14:30:00.000Z")).toBe(
+        "2027-01-15T14:30:00.000Z"
+      );
+
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-01-31T10:05:00.000Z"));
+        const fireAt = "2026-01-31T10:00:00.000Z";
+        const rem = await remindersApi.create({
+          title: "Fatura mensal",
+          fire_at: fireAt,
+          repeat_kind: "monthly",
+          sound: "normal",
+        });
+        const pendingAlerts = await alertsApi.listPending();
+        const alert = pendingAlerts.find((a) => a.ref_id === rem.id);
+        expect(alert).toBeDefined();
+
+        await alertsApi.resolve(alert!.id);
+        const updated = (await remindersApi.list(true)).find((r) => r.id === rem.id);
+        expect(updated?.status).toBe("pending");
+        expect(updated?.fire_at).toBe("2026-02-28T10:00:00.000Z");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reorders tasks in a single atomic batch and rolls back on missing task id", async () => {
+      const t1 = await tasksApi.create({ title: "First", status: "todo", priority: "normal" });
+      const t2 = await tasksApi.create({ title: "Second", status: "todo", priority: "normal" });
+
+      const reordered = await tasksApi.reorder([
+        { id: t2.id, status: "doing", kanban_order: 0 },
+        { id: t1.id, status: "done", kanban_order: 1 },
+      ]);
+      expect(reordered).toHaveLength(2);
+      const t1After = reordered.find((t) => t.id === t1.id);
+      const t2After = reordered.find((t) => t.id === t2.id);
+      expect(t2After?.status).toBe("doing");
+      expect(t2After?.kanban_order).toBe(0);
+      expect(t1After?.status).toBe("done");
+      expect(t1After?.completed_at).not.toBeNull();
+
+      await expect(
+        tasksApi.reorder([
+          { id: t2.id, status: "todo", kanban_order: 5 },
+          { id: "nonexistent-task", status: "todo", kanban_order: 6 },
+        ])
+      ).rejects.toThrow();
+
+      // Verify t2 stayed in "doing" after rollback.
+      const persistedT2 = (await tasksApi.list()).find((t) => t.id === t2.id);
+      expect(persistedT2?.status).toBe("doing");
+    });
+
+    it("unlocks pending alerts and disables screen block via emergencyUnlock", async () => {
+      await alertsApi.triggerTestBlock("Lock test", "Testing emergency unlock");
+      expect(await settingsApi.get("reminders.block_screen")).toBe(true);
+      expect((await alertsApi.listPending()).length).toBeGreaterThan(0);
+
+      const dismissedCount = await alertsApi.emergencyUnlock();
+      expect(dismissedCount).toBeGreaterThan(0);
+      expect(await alertsApi.listPending()).toHaveLength(0);
+      expect(await settingsApi.get("reminders.block_screen")).toBe(false);
+    });
+
+    it("suppresses overdue reminder firing while reminders.paused_until (DND) is active", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-11-17T12:00:00.000Z"));
+        await settingsApi.set("reminders.paused_until", "2026-11-17T13:00:00.000Z");
+
+        await remindersApi.create({
+          title: "Silenced overdue",
+          fire_at: "2026-11-17T11:55:00.000Z",
+          repeat_kind: "none",
+          sound: "normal",
+        });
+
+        expect(await alertsApi.listPending()).toHaveLength(0);
+
+        // Once DND expires or is cleared, the overdue reminder fires normally.
+        await settingsApi.set("reminders.paused_until", null);
+        const pending = await alertsApi.listPending();
+        expect(pending.some((a) => a.title === "Silenced overdue")).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

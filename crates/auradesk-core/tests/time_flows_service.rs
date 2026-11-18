@@ -5,12 +5,16 @@ use chrono::{Duration, TimeZone, Utc};
 use std::sync::Arc;
 
 use auradesk_core::application::alerts::AlertsService;
+use auradesk_core::application::daily_plans::DailyPlansService;
+use auradesk_core::application::data_io::DataIoService;
 use auradesk_core::application::pomodoros::PomodorosService;
 use auradesk_core::application::reminders::RemindersService;
+use auradesk_core::application::settings::SettingsService;
 use auradesk_core::application::tasks::TasksService;
 use auradesk_core::domain::alert::{AlertResolution, AlertSeverity};
 use auradesk_core::domain::pomodoro::{NewPomodoroSession, SessionKind};
 use auradesk_core::domain::reminder::{NewReminder, ReminderSound, ReminderStatus, RepeatKind};
+use auradesk_core::domain::settings_key::SettingsKey;
 use auradesk_core::domain::task::{NewTask, TaskFilter, TaskPriority, TaskStatus};
 use auradesk_core::infrastructure::db::Db;
 
@@ -844,4 +848,424 @@ fn test_data_io_zip_export_and_import_roundtrip() {
             .unwrap(),
         Some(serde_json::Value::Bool(true))
     );
+}
+
+#[test]
+fn test_daily_plan_plain_text_payload_normalizes_to_canonical_json() {
+    use auradesk_core::application::daily_plans::DailyPlansService;
+
+    let db = Db::open_in_memory().unwrap();
+    let svc = DailyPlansService::new(&db);
+    let plan = svc.current_or_create().unwrap();
+
+    // Plain text notes normalize into canonical {"notes": "..."} JSON.
+    let saved_plain = svc
+        .set_payload(&plan.id, Some("Three priorities today".into()))
+        .unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(saved_plain.payload.as_deref().unwrap()).unwrap();
+    assert_eq!(parsed["notes"], "Three priorities today");
+
+    // Pre-structured JSON objects pass through intact.
+    let structured = r#"{"notes":"Ship Phase 1","focusBlocks":2}"#.to_string();
+    let saved_json = svc.set_payload(&plan.id, Some(structured.clone())).unwrap();
+    assert_eq!(saved_json.payload, Some(structured));
+
+    // Whitespace-only payloads clear back to None.
+    let cleared = svc.set_payload(&plan.id, Some("   \n\t ".into())).unwrap();
+    assert_eq!(cleared.payload, None);
+}
+
+#[test]
+fn test_data_io_imports_browser_bundle_json_only_zip_archive() {
+    use auradesk_core::application::data_io::DataIoService;
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipArchive, ZipWriter};
+
+    let src = Db::open_in_memory().unwrap();
+    let created = TasksService::new(&src)
+        .create(NewTask {
+            title: "Browser-created ZIP Task".into(),
+            description: None,
+            project_id: None,
+            parent_task_id: None,
+            priority: TaskPriority::High,
+            status: TaskStatus::Todo,
+            due_at: None,
+            estimate_min: None,
+            tags: None,
+        })
+        .unwrap();
+
+    let full_zip = DataIoService::new(&src).export_zip_bytes().unwrap();
+    let mut reader = ZipArchive::new(std::io::Cursor::new(&full_zip)).unwrap();
+    let mut bundle_json = String::new();
+    reader
+        .by_name("bundle.json")
+        .unwrap()
+        .read_to_string(&mut bundle_json)
+        .unwrap();
+
+    // Repackage using Stored bundle.json only (no auradesk.db), matching browser exports.
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = ZipWriter::new(&mut cursor);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("bundle.json", opts).unwrap();
+        writer.write_all(bundle_json.as_bytes()).unwrap();
+        writer.finish().unwrap();
+    }
+    let browser_zip = cursor.into_inner();
+
+    let dst = Db::open_in_memory().unwrap();
+    let summary = DataIoService::new(&dst)
+        .import_zip_bytes(&browser_zip)
+        .unwrap();
+    assert_eq!(summary.tasks, 1);
+
+    let restored = TasksService::new(&dst).get(&created.id).unwrap();
+    assert_eq!(restored.title, "Browser-created ZIP Task");
+}
+
+#[test]
+fn test_reminders_poll_precheck_skips_future_and_fires_only_due() {
+    let db = Db::open_in_memory().unwrap();
+    let reminders = RemindersService::new(&db);
+
+    let now = Utc.with_ymd_and_hms(2026, 11, 15, 12, 0, 0).unwrap();
+    let future_rem = reminders
+        .create(NewReminder {
+            title: "Future reminder".into(),
+            body: None,
+            fire_at: now + Duration::hours(2),
+            repeat_kind: RepeatKind::None,
+            sound: ReminderSound::Normal,
+            task_id: None,
+        })
+        .unwrap();
+
+    // Pre-check returns empty when only future reminders exist.
+    let first_poll = reminders.poll_and_fire_overdue(now).unwrap();
+    assert!(first_poll.is_empty());
+    assert_eq!(
+        reminders.get(&future_rem.id).unwrap().status,
+        ReminderStatus::Pending
+    );
+
+    // Advance past due time: pre-check passes and fires exactly this reminder.
+    let due_poll = reminders
+        .poll_and_fire_overdue(now + Duration::hours(3))
+        .unwrap();
+    assert_eq!(due_poll.len(), 1);
+    assert_eq!(due_poll[0].ref_id.as_deref(), Some(future_rem.id.as_str()));
+    assert_eq!(
+        reminders.get(&future_rem.id).unwrap().status,
+        ReminderStatus::Fired
+    );
+}
+
+#[test]
+fn test_db_wal_reader_pool_enforces_query_only_and_concurrent_reads() {
+    let db_dir = std::env::temp_dir().join(format!("auradesk-wal-pool-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&db_dir).expect("create temp db directory");
+
+    {
+        let db = Db::open(&db_dir).expect("open file-backed WAL db");
+        let task = TasksService::new(&db)
+            .create(NewTask {
+                title: "WAL reader task".into(),
+                description: None,
+                project_id: None,
+                parent_task_id: None,
+                priority: TaskPriority::Normal,
+                status: TaskStatus::Todo,
+                due_at: None,
+                estimate_min: None,
+                tags: None,
+            })
+            .expect("create task on writer");
+
+        // Readers can read committed WAL data without acquiring the writer mutex.
+        let r1 = db.reader();
+        let title: String = r1
+            .query_row(
+                "SELECT title FROM tasks WHERE id = ?1",
+                rusqlite::params![task.id],
+                |row| row.get(0),
+            )
+            .expect("reader sees task");
+        assert_eq!(title, "WAL reader task");
+
+        // Readers must reject writes via SQLite PRAGMA query_only = ON.
+        let write_attempt = r1.execute(
+            "UPDATE tasks SET title = 'mutated' WHERE id = ?1",
+            rusqlite::params![task.id],
+        );
+        assert!(write_attempt.is_err());
+    }
+
+    let _ = std::fs::remove_dir_all(&db_dir);
+}
+
+#[test]
+fn monthly_reminder_recurrence_preserves_calendar_day_and_clamps_short_months() {
+    // Non-leap year: Jan 31 -> Feb 28
+    {
+        let db = Arc::new(Db::open_in_memory().unwrap());
+        let reminders_svc = RemindersService::new(&db);
+        let alerts_svc = AlertsService::new(&db);
+        let jan31_non_leap = Utc.with_ymd_and_hms(2026, 1, 31, 10, 0, 0).unwrap();
+        let r_non_leap = reminders_svc
+            .create(NewReminder {
+                title: "Fatura Jan31".into(),
+                body: None,
+                fire_at: jan31_non_leap,
+                repeat_kind: RepeatKind::Monthly,
+                sound: ReminderSound::Normal,
+                task_id: None,
+            })
+            .unwrap();
+        let fired = reminders_svc
+            .poll_and_fire_overdue(jan31_non_leap + Duration::minutes(1))
+            .unwrap();
+        assert_eq!(fired.len(), 1);
+        alerts_svc.resolve(&fired[0].id).unwrap();
+        assert_eq!(
+            reminders_svc.get(&r_non_leap.id).unwrap().fire_at,
+            Utc.with_ymd_and_hms(2026, 2, 28, 10, 0, 0).unwrap()
+        );
+    }
+
+    // Leap year: Jan 31 -> Feb 29
+    {
+        let db = Arc::new(Db::open_in_memory().unwrap());
+        let reminders_svc = RemindersService::new(&db);
+        let alerts_svc = AlertsService::new(&db);
+        let jan31_leap = Utc.with_ymd_and_hms(2028, 1, 31, 10, 0, 0).unwrap();
+        let r_leap = reminders_svc
+            .create(NewReminder {
+                title: "Fatura Bissexta".into(),
+                body: None,
+                fire_at: jan31_leap,
+                repeat_kind: RepeatKind::Monthly,
+                sound: ReminderSound::Normal,
+                task_id: None,
+            })
+            .unwrap();
+        let fired_leap = reminders_svc
+            .poll_and_fire_overdue(jan31_leap + Duration::minutes(1))
+            .unwrap();
+        assert_eq!(fired_leap.len(), 1);
+        alerts_svc.resolve(&fired_leap[0].id).unwrap();
+        assert_eq!(
+            reminders_svc.get(&r_leap.id).unwrap().fire_at,
+            Utc.with_ymd_and_hms(2028, 2, 29, 10, 0, 0).unwrap()
+        );
+    }
+
+    // 31-day to 30-day month: Mar 31 -> Apr 30
+    {
+        let db = Arc::new(Db::open_in_memory().unwrap());
+        let reminders_svc = RemindersService::new(&db);
+        let alerts_svc = AlertsService::new(&db);
+        let mar31 = Utc.with_ymd_and_hms(2026, 3, 31, 9, 15, 0).unwrap();
+        let r_mar = reminders_svc
+            .create(NewReminder {
+                title: "Fechamento Mar31".into(),
+                body: None,
+                fire_at: mar31,
+                repeat_kind: RepeatKind::Monthly,
+                sound: ReminderSound::Normal,
+                task_id: None,
+            })
+            .unwrap();
+        let fired_mar = reminders_svc
+            .poll_and_fire_overdue(mar31 + Duration::minutes(1))
+            .unwrap();
+        assert_eq!(fired_mar.len(), 1);
+        alerts_svc.resolve(&fired_mar[0].id).unwrap();
+        assert_eq!(
+            reminders_svc.get(&r_mar.id).unwrap().fire_at,
+            Utc.with_ymd_and_hms(2026, 4, 30, 9, 15, 0).unwrap()
+        );
+    }
+}
+
+#[test]
+fn large_backup_zip_roundtrip_interoperability() {
+    let db1 = Arc::new(Db::open_in_memory().unwrap());
+    let tasks_svc = TasksService::new(&db1);
+    let pomos_svc = PomodorosService::new(&db1);
+    let reminders_svc = RemindersService::new(&db1);
+    let plans_svc = DailyPlansService::new(&db1);
+
+    for i in 0..250 {
+        tasks_svc
+            .create(NewTask {
+                title: format!("Large backup task #{i}"),
+                description: Some(format!(
+                    "Multi-paragraph payload for regression item {i}: {}",
+                    "a".repeat(200)
+                )),
+                project_id: None,
+                parent_task_id: None,
+                priority: TaskPriority::Normal,
+                status: if i % 4 == 0 {
+                    TaskStatus::Done
+                } else {
+                    TaskStatus::Todo
+                },
+                due_at: None,
+                estimate_min: Some(30),
+                tags: Some(vec!["backup".into(), format!("grp-{}", i % 8)]),
+            })
+            .unwrap();
+    }
+    for _ in 0..80 {
+        pomos_svc
+            .start(NewPomodoroSession {
+                kind: SessionKind::Focus,
+                planned_min: 25,
+                task_id: None,
+            })
+            .unwrap();
+        pomos_svc.complete_running(25).unwrap();
+    }
+    for i in 0..60 {
+        reminders_svc
+            .create(NewReminder {
+                title: format!("Reminder #{i}"),
+                body: Some(format!("Details for reminder {i}")),
+                fire_at: Utc.with_ymd_and_hms(2027, 5, 1, 10, 0, 0).unwrap() + Duration::hours(i),
+                repeat_kind: RepeatKind::Monthly,
+                sound: ReminderSound::Normal,
+                task_id: None,
+            })
+            .unwrap();
+    }
+    let plan = plans_svc.current_or_create().unwrap();
+    plans_svc
+        .set_payload(
+            &plan.id,
+            Some(r#"{"notes":"Plano salvo para teste de backup grande"}"#.to_string()),
+        )
+        .unwrap();
+
+    let zip_b64 = DataIoService::new(&db1).export_zip_base64().unwrap();
+    assert!(
+        zip_b64.len() > 20_000,
+        "expected compressed ZIP base64 payload"
+    );
+
+    let db2 = Arc::new(Db::open_in_memory().unwrap());
+    let summary = DataIoService::new(&db2)
+        .import_zip_base64(&zip_b64)
+        .unwrap();
+    assert_eq!(summary.tasks, 250);
+    assert_eq!(summary.pomodoros, 80);
+    assert_eq!(summary.reminders, 60);
+
+    let imported_tasks = TasksService::new(&db2)
+        .list(&TaskFilter::default())
+        .unwrap();
+    assert_eq!(imported_tasks.len(), 250);
+}
+
+#[test]
+fn wal_reader_pool_concurrent_reads_and_writes() {
+    let db_dir = std::env::temp_dir().join(format!("auradesk-wal-stress-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&db_dir).expect("create temp db directory");
+
+    {
+        let db = Arc::new(Db::open(&db_dir).expect("open file-backed WAL db"));
+        let tasks_svc = TasksService::new(&db);
+        let initial_a = tasks_svc
+            .create(NewTask {
+                title: "Seed A".into(),
+                description: None,
+                project_id: None,
+                parent_task_id: None,
+                priority: TaskPriority::Normal,
+                status: TaskStatus::Todo,
+                due_at: None,
+                estimate_min: None,
+                tags: None,
+            })
+            .unwrap();
+        let initial_b = tasks_svc
+            .create(NewTask {
+                title: "Seed B".into(),
+                description: None,
+                project_id: None,
+                parent_task_id: None,
+                priority: TaskPriority::Normal,
+                status: TaskStatus::Todo,
+                due_at: None,
+                estimate_min: None,
+                tags: None,
+            })
+            .unwrap();
+
+        std::thread::scope(|s| {
+            // 1 concurrent writer thread performing inserts, settings updates, and batch reorder
+            let writer_db = Arc::clone(&db);
+            let id_a = initial_a.id.clone();
+            let id_b = initial_b.id.clone();
+            let writer = s.spawn(move || {
+                let ts = TasksService::new(&writer_db);
+                let ss = SettingsService::new(&writer_db);
+                for idx in 0..30 {
+                    ts.create(NewTask {
+                        title: format!("Concurrent W-{idx}"),
+                        description: None,
+                        project_id: None,
+                        parent_task_id: None,
+                        priority: TaskPriority::Normal,
+                        status: TaskStatus::Todo,
+                        due_at: None,
+                        estimate_min: None,
+                        tags: None,
+                    })
+                    .unwrap();
+                    ts.reorder_batch(&[
+                        (id_a.clone(), TaskStatus::Todo, idx % 2),
+                        (id_b.clone(), TaskStatus::Doing, (idx + 1) % 2),
+                    ])
+                    .unwrap();
+                    ss.set(
+                        SettingsKey::PomodoroFocusMin,
+                        serde_json::json!(25 + (idx % 5)),
+                    )
+                    .unwrap();
+                }
+            });
+
+            // 4 concurrent reader threads hitting the WAL reader pool continuously
+            let mut readers = Vec::new();
+            for _ in 0..4 {
+                let rdb = Arc::clone(&db);
+                readers.push(s.spawn(move || {
+                    let ts = TasksService::new(&rdb);
+                    let ss = SettingsService::new(&rdb);
+                    for _ in 0..40 {
+                        let list = ts.list(&TaskFilter::default()).unwrap();
+                        assert!(list.len() >= 2);
+                        let all_settings = ss.get_all().unwrap();
+                        assert!(!all_settings.is_empty());
+                    }
+                }));
+            }
+
+            writer.join().expect("writer finished cleanly");
+            for r in readers {
+                r.join().expect("reader finished cleanly");
+            }
+        });
+
+        let final_tasks = TasksService::new(&db).list(&TaskFilter::default()).unwrap();
+        assert_eq!(final_tasks.len(), 32);
+    }
+
+    let _ = std::fs::remove_dir_all(&db_dir);
 }

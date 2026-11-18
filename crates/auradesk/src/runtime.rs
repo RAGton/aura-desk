@@ -83,10 +83,13 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             // Tauri config is built without bundled resources), the
             // data dir still works — Tauri's `path::app_data_dir()`
             // honours the identifier in tauri.conf.json.
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(|e| format!("resolve app data dir: {e}"))?;
+            let data_dir = match std::env::var_os("AURADESK_DATA_DIR") {
+                Some(custom) if !custom.is_empty() => std::path::PathBuf::from(custom),
+                _ => app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("resolve app data dir: {e}"))?,
+            };
             std::fs::create_dir_all(&data_dir)
                 .map_err(|e| format!("create app data dir {data_dir:?}: {e}"))?;
 
@@ -124,7 +127,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 screen_lock_active,
                 alert_popup_active,
                 popup_locked_mode,
-                github_fetcher,
+                github_fetcher: Arc::clone(&github_fetcher),
                 instance_lock,
             });
 
@@ -163,8 +166,9 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 let app_handle = app.handle().clone();
                 let db = Arc::clone(&db);
                 let in_focus = Arc::clone(&in_focus);
+                let github_fetcher = Arc::clone(&github_fetcher);
                 move || {
-                    crate::routines::run_loop(app_handle, db, in_focus);
+                    crate::routines::run_loop(app_handle, db, in_focus, github_fetcher);
                 }
             });
 
@@ -299,6 +303,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::tasks_update,
             crate::ipc::tasks_delete,
             crate::ipc::tasks_set_status,
+            crate::ipc::tasks_reorder,
             crate::ipc::projects_list,
             crate::ipc::projects_create,
             crate::ipc::pomodoro_start,
@@ -324,6 +329,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::alerts_except,
             crate::ipc::alerts_sync_desktop_lock,
             crate::ipc::alerts_trigger_test_block,
+            crate::ipc::alerts_emergency_unlock,
             crate::ipc::report_summary,
             crate::ipc::integration_state,
             crate::ipc::daily_plan_get,

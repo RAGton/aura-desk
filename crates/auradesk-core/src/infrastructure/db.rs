@@ -9,6 +9,7 @@
 //! in T1+ of the foundation plan as the application services grow.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{Connection, OpenFlags};
@@ -16,15 +17,19 @@ use thiserror::Error;
 
 use crate::CoreError;
 
-/// Bundles an exclusive-writer connection with an optional read-only connection.
-/// (Phase 0 ships only the writer; readers go in T1+.)
+const READER_POOL_SIZE: usize = 4;
+
+/// Bundles an exclusive-writer connection with a pool of read-only
+/// SQLite connections in WAL mode so concurrent reads do not contend with writes.
 pub struct Db {
     writer: Arc<Mutex<Connection>>,
+    readers: Vec<Arc<Mutex<Connection>>>,
+    reader_cursor: AtomicUsize,
 }
 
 impl Db {
     /// Open or create the database at `path/auradesk.db`, set PRAGMAs,
-    /// and run all embedded migrations.
+    /// run all embedded migrations, and initialize the read-only pool.
     pub fn open(path: &Path) -> Result<Self, CoreError> {
         let db_path = path.join("auradesk.db");
         let mut conn = Connection::open_with_flags(
@@ -40,12 +45,29 @@ impl Db {
             .map_err(|e| CoreError::internal(format!("PRAGMA foreign_keys: {e}")))?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| CoreError::internal(format!("PRAGMA synchronous: {e}")))?;
+        conn.pragma_update(None, "busy_timeout", 5000)
+            .map_err(|e| CoreError::internal(format!("PRAGMA busy_timeout: {e}")))?;
 
         // Migrations.
         Self::run_migrations(&mut conn)?;
 
+        let mut readers = Vec::with_capacity(READER_POOL_SIZE);
+        for _ in 0..READER_POOL_SIZE {
+            let rconn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|e| CoreError::internal(format!("Connection::open read_only: {e}")))?;
+            rconn
+                .pragma_update(None, "query_only", "ON")
+                .map_err(|e| CoreError::internal(format!("PRAGMA query_only: {e}")))?;
+            rconn
+                .pragma_update(None, "busy_timeout", 5000)
+                .map_err(|e| CoreError::internal(format!("PRAGMA busy_timeout: {e}")))?;
+            readers.push(Arc::new(Mutex::new(rconn)));
+        }
+
         Ok(Self {
             writer: Arc::new(Mutex::new(conn)),
+            readers,
+            reader_cursor: AtomicUsize::new(0),
         })
     }
 
@@ -59,9 +81,13 @@ impl Db {
             .map_err(|e| CoreError::internal(format!("PRAGMA foreign_keys: {e}")))?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| CoreError::internal(format!("PRAGMA synchronous: {e}")))?;
+        conn.pragma_update(None, "busy_timeout", 5000)
+            .map_err(|e| CoreError::internal(format!("PRAGMA busy_timeout: {e}")))?;
         Self::run_migrations(&mut conn)?;
         Ok(Self {
             writer: Arc::new(Mutex::new(conn)),
+            readers: Vec::new(),
+            reader_cursor: AtomicUsize::new(0),
         })
     }
 
@@ -69,6 +95,16 @@ impl Db {
     /// promptly; this serializes all writes.
     pub fn writer(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.writer.lock().expect("Db writer mutex poisoned")
+    }
+
+    /// Acquire a pooled read-only connection on file-backed DBs (WAL),
+    /// falling back to the writer connection on in-memory DBs.
+    pub fn reader(&self) -> std::sync::MutexGuard<'_, Connection> {
+        if self.readers.is_empty() {
+            return self.writer();
+        }
+        let idx = self.reader_cursor.fetch_add(1, Ordering::Relaxed) % self.readers.len();
+        self.readers[idx].lock().expect("Db reader mutex poisoned")
     }
 
     /// Snapshot the active SQLite database into raw `.db` file bytes using

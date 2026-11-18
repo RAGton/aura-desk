@@ -52,10 +52,12 @@ describe("ReportsPage", () => {
 
     expect(screen.getByText("Relatórios & Métricas")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText("75m")).toBeInTheDocument();
+      expect(screen.getAllByText("75m").length).toBeGreaterThan(0);
     });
     expect(screen.getByText("900m")).toBeInTheDocument();
     expect(screen.getByText("62")).toBeInTheDocument();
     expect(screen.getByTestId("reports-chart")).toBeInTheDocument();
+    expect(screen.getByText("Resumo diário dos últimos 14 dias")).toBeInTheDocument();
+    expect(screen.getByRole("table", { hidden: true })).toBeInTheDocument();
   });
 });
