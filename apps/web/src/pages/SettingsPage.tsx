@@ -5,6 +5,7 @@ import {
   Download,
   Droplets,
   GitBranch,
+  Monitor,
   Palette,
   Settings,
   ShieldAlert,
@@ -13,7 +14,15 @@ import {
 } from "lucide-react";
 
 import { Badge, Button, Dialog, Input, Select, Switch, Toast } from "@/components/ui";
-import { alertsApi, dataIoApi, githubApi, settingsApi, type GithubAuthStatus } from "@/lib/ipc";
+import {
+  alertsApi,
+  dataIoApi,
+  desktopApi,
+  githubApi,
+  settingsApi,
+  type GithubAuthStatus,
+  type MonitorInfo,
+} from "@/lib/ipc";
 import {
   applyTheme,
   loadVisualPrefs,
@@ -39,7 +48,7 @@ interface SettingDef {
   placeholder?: string;
   numericValue?: boolean;
   visualField?: keyof VisualPrefs;
-  group: "app" | "appearance" | "pomodoro" | "reminders" | "routines" | "github";
+  group: "app" | "desktop" | "appearance" | "pomodoro" | "reminders" | "routines" | "github";
 }
 
 const SETTINGS_DEF: SettingDef[] = [
@@ -81,6 +90,46 @@ const SETTINGS_DEF: SettingDef[] = [
       { value: "60", label: "60s" },
     ],
     group: "app",
+  },
+  {
+    key: "app.autostart",
+    labelKey: "settings.items.autostart.label",
+    descriptionKey: "settings.items.autostart.description",
+    type: "boolean",
+    group: "desktop",
+  },
+  {
+    key: "desktop.compact_mode",
+    labelKey: "settings.items.compactMode.label",
+    descriptionKey: "settings.items.compactMode.description",
+    type: "boolean",
+    group: "desktop",
+  },
+  {
+    key: "monitor.preferred",
+    labelKey: "settings.items.monitorPreferred.label",
+    descriptionKey: "settings.items.monitorPreferred.description",
+    type: "select",
+    options: [
+      { value: "primary", labelKey: "settings.items.monitorPreferred.primary" },
+      { value: "secondary", labelKey: "settings.items.monitorPreferred.secondary" },
+    ],
+    group: "desktop",
+  },
+  {
+    key: "monitor.fallback_strategy",
+    labelKey: "settings.items.monitorFallback.label",
+    descriptionKey: "settings.items.monitorFallback.description",
+    type: "select",
+    options: [
+      {
+        value: "primary_then_hide",
+        labelKey: "settings.items.monitorFallback.primary_then_hide",
+      },
+      { value: "primary", labelKey: "settings.items.monitorFallback.primary" },
+      { value: "hide", labelKey: "settings.items.monitorFallback.hide" },
+    ],
+    group: "desktop",
   },
   {
     key: "ui.preset",
@@ -243,6 +292,7 @@ const SETTINGS_DEF: SettingDef[] = [
 
 const GROUP_LABEL_KEYS: Record<string, string> = {
   app: "settings.groups.app",
+  desktop: "settings.groups.desktop",
   appearance: "settings.groups.appearance",
   pomodoro: "settings.groups.pomodoro",
   reminders: "settings.groups.reminders",
@@ -252,6 +302,7 @@ const GROUP_LABEL_KEYS: Record<string, string> = {
 
 const GROUP_ICONS: Record<string, typeof Settings> = {
   app: Settings,
+  desktop: Monitor,
   appearance: Palette,
   pomodoro: Timer,
   reminders: Bell,
@@ -304,6 +355,7 @@ export function SettingsPage({
     return initial;
   });
   const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [githubAuth, setGithubAuth] = useState<GithubAuthStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -321,10 +373,14 @@ export function SettingsPage({
 
   const loadAll = async (applyLoaded = false) => {
     try {
-      const entries = asArray<[string, unknown]>(await settingsApi.getAll());
+      const [entries, detectedMonitors] = await Promise.all([
+        settingsApi.getAll(),
+        desktopApi.listMonitors().catch(() => [] as MonitorInfo[]),
+      ]);
       if (!mountedRef.current) return;
+      setMonitors(asArray<MonitorInfo>(detectedMonitors));
       const map: Record<string, unknown> = {};
-      for (const [k, v] of entries) {
+      for (const [k, v] of asArray<[string, unknown]>(entries)) {
         map[k] = v;
       }
       setValues((prev) => ({ ...prev, ...map }));
@@ -387,7 +443,13 @@ export function SettingsPage({
     setLoading(true);
     setError(null);
     try {
-      await settingsApi.set(key, value);
+      if (key === "app.autostart") {
+        await desktopApi.setAutostart(Boolean(value));
+      } else if (key === "desktop.compact_mode") {
+        await desktopApi.toggleCompact(Boolean(value));
+      } else {
+        await settingsApi.set(key, value);
+      }
       setValues((v) => ({ ...v, [key]: value }));
       setSavedValues((v) => ({ ...v, [key]: value }));
 
@@ -397,6 +459,8 @@ export function SettingsPage({
         applyTheme(value);
       } else if (key === "reminders.block_screen") {
         await alertsApi.syncDesktopLock().catch(() => {});
+      } else if (key === "monitor.preferred" || key === "monitor.fallback_strategy") {
+        await desktopApi.applyMonitorPreference(false).catch(() => {});
       }
 
       onSettingSaved?.(key, value);
@@ -411,6 +475,20 @@ export function SettingsPage({
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleApplyMonitorPlacement() {
+    setLoading(true);
+    setError(null);
+    try {
+      const outcome = await desktopApi.applyMonitorPreference(true);
+      setSavedMsg(t("settings.monitorApplied", { outcome }));
+      setTimeout(() => setSavedMsg(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      if (mountedRef.current) setLoading(false);
     }
   }
 
@@ -561,10 +639,23 @@ export function SettingsPage({
                       !s.visualField &&
                       (s.type === "number" || s.type === "string") &&
                       String(rowVal ?? "") !== String(savedVal ?? "");
+                    const effectiveDef =
+                      s.key === "monitor.preferred" && monitors.length > 0
+                        ? {
+                            ...s,
+                            options: [
+                              ...(s.options ?? []),
+                              ...monitors.map((m) => ({
+                                value: m.name,
+                                label: `${m.name} (${m.width}x${m.height}${m.isPrimary ? " ★" : ""})`,
+                              })),
+                            ],
+                          }
+                        : s;
                     return (
                       <SettingRow
                         key={s.key}
-                        def={s}
+                        def={effectiveDef}
                         value={rowVal}
                         dirty={isDirty}
                         disabled={loading}
@@ -577,6 +668,24 @@ export function SettingsPage({
                       />
                     );
                   })}
+
+                  {group === "desktop" && (
+                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                      <div className="text-xs text-slate-400">
+                        {monitors.map((m) => `${m.name} (${m.width}x${m.height})`).join(" • ")}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={loading}
+                        onClick={() => void handleApplyMonitorPlacement()}
+                        className="rounded-xl text-xs font-semibold"
+                      >
+                        <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
+                        {t("settings.applyMonitorButton")}
+                      </Button>
+                    </div>
+                  )}
 
                   {group === "reminders" && (
                     <div className="flex flex-wrap items-center justify-between gap-4 py-3">
@@ -832,6 +941,13 @@ function defaultFor(s: SettingDef): unknown {
       return "pt-BR";
     case "app.theme":
       return "dark";
+    case "app.autostart":
+    case "desktop.compact_mode":
+      return false;
+    case "monitor.preferred":
+      return "primary";
+    case "monitor.fallback_strategy":
+      return "primary_then_hide";
     case "dashboard.refresh_sec":
       return 30;
     case "pomodoro.focus_min":

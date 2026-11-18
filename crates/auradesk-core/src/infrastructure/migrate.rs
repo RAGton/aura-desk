@@ -12,6 +12,7 @@ use crate::infrastructure::db::DbError;
 const V001: &str = include_str!("../../migrations/V001__init.sql");
 const V002: &str = include_str!("../../migrations/V002__github_issues.sql");
 const V003: &str = include_str!("../../migrations/V003__block_screen_setting.sql");
+const V004: &str = include_str!("../../migrations/V004__desktop_settings.sql");
 
 /// Run every embedded migration on the given connection idempotently.
 pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
@@ -26,6 +27,7 @@ pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
     apply_if_missing(conn, "V001__init", V001)?;
     apply_if_missing(conn, "V002__github_issues", V002)?;
     apply_if_missing(conn, "V003__block_screen_setting", V003)?;
+    apply_if_missing(conn, "V004__desktop_settings", V004)?;
     Ok(())
 }
 

@@ -20,6 +20,7 @@ use auradesk_core::infrastructure::scheduler::Scheduler;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::DesktopAudio;
+use crate::desktop::WakeSignal;
 use crate::github::GhCliIssueFetcher;
 
 /// How often the loop evaluates reminders and routines.
@@ -78,12 +79,20 @@ pub fn run_loop(
     db: Arc<Db>,
     in_focus: Arc<AtomicBool>,
     github_fetcher: Arc<GhCliIssueFetcher>,
+    wake_signal: Arc<WakeSignal>,
 ) {
     let clock = SystemClock;
     let audio = DesktopAudio::new();
     let mut tick_count: u64 = 0;
+    let mut last_wall = chrono::Utc::now();
 
     loop {
+        let now_wall = chrono::Utc::now();
+        if now_wall.signed_duration_since(last_wall) > chrono::Duration::seconds(40) {
+            let _ = app.emit("auradesk://system-resumed", ());
+        }
+        last_wall = now_wall;
+
         let scheduler = Scheduler::new(&db, &clock).with_audio(&audio);
         match scheduler.tick() {
             Ok(outcome) => {
@@ -122,7 +131,7 @@ pub fn run_loop(
         }
         tick_count = tick_count.wrapping_add(1);
 
-        std::thread::sleep(TICK_INTERVAL);
+        let _woken_early = wake_signal.wait_timeout(TICK_INTERVAL);
     }
 }
 

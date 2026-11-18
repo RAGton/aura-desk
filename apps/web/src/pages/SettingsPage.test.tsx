@@ -21,6 +21,29 @@ describe("SettingsPage", () => {
     document.documentElement.removeAttribute("data-theme");
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "settings_get_all") return [];
+      if (cmd === "desktop_list_monitors") {
+        return [
+          {
+            name: "DP-1",
+            width: 2560,
+            height: 1440,
+            x: 0,
+            y: 0,
+            scaleFactor: 1,
+            isPrimary: true,
+          },
+          {
+            name: "HDMI-1",
+            width: 1920,
+            height: 1080,
+            x: 2560,
+            y: 0,
+            scaleFactor: 1,
+            isPrimary: false,
+          },
+        ];
+      }
+      if (cmd === "desktop_apply_monitor_preference") return "placed:HDMI-1";
       return undefined;
     });
   });
@@ -33,6 +56,7 @@ describe("SettingsPage", () => {
     });
 
     expect(screen.getByText("Aplicativo")).toBeInTheDocument();
+    expect(screen.getByText("Desktop & Multi-Monitor")).toBeInTheDocument();
     expect(screen.getByText("Pomodoro")).toBeInTheDocument();
     expect(screen.getByText("Lembretes")).toBeInTheDocument();
     expect(screen.getByText("Rotinas")).toBeInTheDocument();
@@ -88,6 +112,18 @@ describe("SettingsPage", () => {
           value: true,
         },
       });
+    });
+
+    const autostartToggle = screen.getByLabelText("Iniciar com o sistema");
+    fireEvent.click(autostartToggle);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("desktop_set_autostart", { enabled: true });
+    });
+
+    const compactToggle = screen.getByLabelText("Widget compacto flutuante");
+    fireEvent.click(compactToggle);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("desktop_toggle_compact", { enabled: true });
     });
   });
 

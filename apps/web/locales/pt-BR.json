@@ -8,7 +8,17 @@
     "navTop": "Topo",
     "navSidebar": "Lateral",
     "toggleTheme": "Alternar Tema",
+    "compactMode": "Modo Compacto",
     "skipToContent": "Ir para o conteúdo principal"
+  },
+  "compact": {
+    "title": "AuraDesk Compacto",
+    "noNextTask": "Nenhuma tarefa pendente",
+    "startFocus": "Focar",
+    "completeTask": "Concluir próxima tarefa",
+    "openMain": "Abrir painel completo",
+    "close": "Fechar widget compacto",
+    "alertsBadge": "{{count}} alerta(s)"
   },
   "nav": {
     "dashboard": "Painel Geral",
@@ -298,6 +308,7 @@
     "unsavedIndicator": "Não salvo",
     "groups": {
       "app": "Aplicativo",
+      "desktop": "Desktop & Multi-Monitor",
       "appearance": "Aparência & Liquid Glass",
       "pomodoro": "Pomodoro",
       "reminders": "Lembretes",
@@ -413,8 +424,31 @@
       "githubAutoSync": {
         "label": "Sincronização automática GitHub",
         "description": "Manter flag de sincronização automática ativa."
+      },
+      "autostart": {
+        "label": "Iniciar com o sistema",
+        "description": "Abrir o AuraDesk minimizado na bandeja ao fazer login."
+      },
+      "compactMode": {
+        "label": "Widget compacto flutuante",
+        "description": "Mantém uma minibarra sempre visível com Pomodoro e próxima tarefa."
+      },
+      "monitorPreferred": {
+        "label": "Monitor preferencial",
+        "description": "Tela onde a janela principal abre e se reposiciona.",
+        "primary": "Monitor primário",
+        "secondary": "Monitor secundário"
+      },
+      "monitorFallback": {
+        "label": "Fallback ao desconectar monitor",
+        "description": "Comportamento quando o monitor preferencial for desconectado.",
+        "primary_then_hide": "Mover para primário (ocultar se não houver)",
+        "primary": "Sempre mover para primário",
+        "hide": "Ocultar na bandeja"
       }
     },
+    "applyMonitorButton": "Aplicar posição do monitor",
+    "monitorApplied": "✓ Janela posicionada ({{outcome}})",
     "validation": {
       "invalidNumber": "Informe um número inteiro positivo.",
       "invalidTime": "Informe um horário válido no formato HH:MM."

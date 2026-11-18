@@ -15,6 +15,7 @@ import {
   alertsApi,
   dashboardApi,
   dataIoApi,
+  desktopApi,
   githubApi,
   integrationApi,
   ipc,
@@ -593,6 +594,20 @@ describe("browser fallback (localStorage engine)", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("supports desktopApi monitor listing, compact toggle, and autostart in browser fallback", async () => {
+      const monitors = await desktopApi.listMonitors();
+      expect(monitors.length).toBeGreaterThanOrEqual(1);
+      expect(monitors[0].isPrimary).toBe(true);
+
+      expect(await desktopApi.toggleCompact(true)).toBe(true);
+      expect(await desktopApi.setAutostart(true)).toBe(true);
+
+      const state = await desktopApi.getState();
+      expect(state.compactOpen).toBe(true);
+      expect(state.autostartEnabled).toBe(true);
+      expect(await desktopApi.applyMonitorPreference(false)).toContain("placed:");
     });
   });
 });

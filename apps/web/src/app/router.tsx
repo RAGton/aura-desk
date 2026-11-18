@@ -1,8 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { AlertLockPage } from "../pages/AlertLockPage";
+import { CompactPage } from "../pages/CompactPage";
 
-export type StandaloneWindowMode = "alert-popup" | "alert-lock-backdrop" | "alert-lock" | null;
+export type StandaloneWindowMode =
+  | "alert-popup"
+  | "alert-lock-backdrop"
+  | "alert-lock"
+  | "compact"
+  | null;
 
 export function detectStandaloneWindowMode(): StandaloneWindowMode {
   if (typeof window === "undefined") return null;
@@ -12,15 +18,18 @@ export function detectStandaloneWindowMode(): StandaloneWindowMode {
   };
   if (win.__AURADESK_WINDOW_MODE__ === "alert-popup") return "alert-popup";
   if (win.__AURADESK_WINDOW_MODE__ === "alert-lock-backdrop") return "alert-lock-backdrop";
+  if (win.__AURADESK_WINDOW_MODE__ === "compact") return "compact";
 
   const label = win.__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
   if (label === "alert-popup") return "alert-popup";
+  if (label === "compact") return "compact";
   if (typeof label === "string" && label.startsWith("alert-lock-")) {
     return "alert-lock-backdrop";
   }
 
   const view = new URLSearchParams(window.location.search).get("view");
   if (view === "alert-popup") return "alert-popup";
+  if (view === "compact") return "compact";
   if (view === "alert-lock") {
     return window.location.search.includes("backdrop=1") ? "alert-lock-backdrop" : "alert-lock";
   }
@@ -38,6 +47,9 @@ export function AppRouter() {
   }
   if (mode === "alert-lock") {
     return <AlertLockPage />;
+  }
+  if (mode === "compact") {
+    return <CompactPage />;
   }
 
   return (
@@ -57,6 +69,7 @@ export function AppRouter() {
         <Route path="/reminders" element={<AppShell />} />
         <Route path="/reports" element={<AppShell />} />
         <Route path="/settings" element={<AppShell />} />
+        <Route path="/compact" element={<CompactPage />} />
         <Route path="/alert-popup" element={<AlertLockPage popupWindow />} />
         <Route path="/alert-lock" element={<AlertLockPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

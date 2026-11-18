@@ -7,7 +7,11 @@ pt-BR:
     focus_completed_body: Hora de alongar. Clique em ✓ para iniciar a pausa.
   tray:
     show: Mostrar AuraDesk
+    compact: Alternar Modo Compacto
+    proposals: Abrir Propostas Hermes
+    pause_all: Pausar Alertas (60 min)
     quit: Sair
     alert_title: AuraDesk — Lembrete
+    compact_title: AuraDesk Compacto
   github:
     issue_label: Issue

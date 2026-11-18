@@ -8,7 +8,17 @@
     "navTop": "Top Bar",
     "navSidebar": "Sidebar",
     "toggleTheme": "Switch Theme",
+    "compactMode": "Compact Mode",
     "skipToContent": "Skip to main content"
+  },
+  "compact": {
+    "title": "AuraDesk Compact",
+    "noNextTask": "No pending priority task",
+    "startFocus": "Focus",
+    "completeTask": "Mark next task done",
+    "openMain": "Open full dashboard",
+    "close": "Close compact widget",
+    "alertsBadge": "{{count}} alert(s)"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -298,6 +308,7 @@
     "unsavedIndicator": "Unsaved",
     "groups": {
       "app": "Application",
+      "desktop": "Desktop & Multi-Monitor",
       "appearance": "Appearance & Liquid Glass",
       "pomodoro": "Pomodoro",
       "reminders": "Reminders",
@@ -413,8 +424,31 @@
       "githubAutoSync": {
         "label": "Auto-sync GitHub issues",
         "description": "Keep automatic issue sync flag enabled."
+      },
+      "autostart": {
+        "label": "Launch at OS login",
+        "description": "Start AuraDesk minimized in the system tray when signing in."
+      },
+      "compactMode": {
+        "label": "Floating compact widget",
+        "description": "Keep an always-on-top mini bar with Pomodoro timer and next task."
+      },
+      "monitorPreferred": {
+        "label": "Preferred monitor",
+        "description": "Display where the main dashboard window opens and relocates.",
+        "primary": "Primary monitor",
+        "secondary": "Secondary monitor"
+      },
+      "monitorFallback": {
+        "label": "Disconnected monitor fallback",
+        "description": "Behavior when the preferred display is unplugged.",
+        "primary_then_hide": "Move to primary (hide if none)",
+        "primary": "Always move to primary",
+        "hide": "Hide to system tray"
       }
     },
+    "applyMonitorButton": "Apply monitor placement",
+    "monitorApplied": "✓ Window positioned ({{outcome}})",
     "validation": {
       "invalidNumber": "Enter a positive whole number.",
       "invalidTime": "Enter a valid time in HH:MM format."
