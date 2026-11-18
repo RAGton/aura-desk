@@ -101,4 +101,63 @@ describe("HermesChatPanel", () => {
       expect(screen.getByText(/Proposal rejected/i)).toBeInTheDocument();
     });
   });
+
+  it("supports quick action buttons and records WAV audio when microphone APIs are mocked", async () => {
+    const stopTrack = vi.fn();
+    const disconnectProc = vi.fn();
+    const closeCtx = vi.fn().mockResolvedValue(undefined);
+    const mockProcessor: Record<string, unknown> = {
+      connect: vi.fn(),
+      disconnect: disconnectProc,
+      onaudioprocess: null as ((ev: unknown) => void) | null,
+    };
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [{ stop: stopTrack }],
+        }),
+      },
+    });
+    (window as unknown as { AudioContext?: unknown }).AudioContext = vi.fn(() => ({
+      sampleRate: 16_000,
+      destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn() }),
+      createScriptProcessor: () => mockProcessor,
+      close: closeCtx,
+    }));
+
+    try {
+      renderPanel();
+
+      fireEvent.click(screen.getByRole("button", { name: /Today's summary/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/Today:/i)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /^Propose task$/i }));
+      const chatInput = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+      expect((chatInput as HTMLInputElement).value).toBe("Propose task: ");
+
+      fireEvent.click(screen.getByRole("button", { name: /Record WAV Note/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /Stop & Save WAV/i })).toBeInTheDocument();
+      });
+
+      const onAudio = mockProcessor.onaudioprocess as ((ev: unknown) => void) | null;
+      onAudio?.({ inputBuffer: { getChannelData: () => new Float32Array([0.1, -0.2]) } });
+
+      fireEvent.click(screen.getByRole("button", { name: /Stop & Save WAV/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/Saved voice note/i)).toBeInTheDocument();
+      });
+      expect(stopTrack).toHaveBeenCalledTimes(1);
+      expect(disconnectProc).toHaveBeenCalledTimes(1);
+      expect(closeCtx).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (window as unknown as { AudioContext?: unknown }).AudioContext;
+      delete (navigator as unknown as { mediaDevices?: unknown }).mediaDevices;
+    }
+  });
 });

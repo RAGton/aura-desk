@@ -6,26 +6,13 @@ AuraDesk is a personal command-center for productivity: dashboard, tasks, kanban
 
 ## Status
 
-**Phase 0 — Foundation committed** (T0–T11 in `docs/superpowers/plans/2026-10-16-auradesk-foundation.md`).
+**v0.2.0 MVP Complete** — All planned MVP phases (Phases 0–5) are implemented, integrated on `main`, and verified across Rust unit/integration suites, MCP stdio tooling, Vitest frontend coverage, Playwright E2E flows, and Windows native builds:
 
-Structural validation completed:
+- **Rust Workspace (`auradesk-core`, `auradesk`, `auradesk-mcp`)**: SQLite WAL writer/reader pool (`V001`–`V005`), 19 spec MCP tools over stdio, Tauri 2 tray + Compact Mode + multi-monitor + wake recovery, Hermes CLI bridge / offline proposal parser, and WAV voice capture storage.
+- **Frontend (`apps/web`)**: Dashboard, Kanban board with atomic reorder, Pomodoro & Deep Focus timer, Persistent Reminders & fail-safe Alert Lock, Reports (CSV/JSON export), Hermes AI chat + Edit & Approve proposals + `ia_commands` audit log, and Settings (ZIP backup/restore, multi-monitor, autostart, themes, `pt-BR`/`en` i18n).
+- **CI Gates**: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`, `check-strings` (0 hardcoded UI string violations), `pnpm lint` / `typecheck` / `test:coverage` / `build`, and Playwright E2E flows.
 
-- `nix flake check --no-build`: PASS (Nix dev shell resolves; all Nixpkgs
-  attributes verified — `webkitgtk_4_1`, `gtk3`, `libsoup_3`,
-  `libayatana-appindicator`, `librsvg`, `openssl`, `nodejs_22`, `pnpm`,
-  `wayland`, `wlr-protocols`).
-- V001 SQL migration validated end-to-end via `sqlite3` 3.53.4:
-  13 tables, 31 indexes, 17 default settings seeded, 3 default routines,
-  CHECK + UNIQUE constraints working.
-- Frontend `pnpm install` (149 packages), `pnpm typecheck` and
-  `pnpm build`: PASS (57 modules, 219 kB JS, 70 kB gzipped).
-- LICENSE SHA-256 verified unchanged against the upstream GPL-3.0 text.
-
-Runtime validation pending on a host with a working Rust toolchain
-(this host's `rustup` toolchain is missing its manifest and
-`nix-daemon` is in a failed state post-reboot). CI workflows are
-configured in `.github/workflows/ci.yml` and will exercise the
-remaining gates on push.
+See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/PHASE1_EXECUTION_REPORT.md`](docs/PHASE1_EXECUTION_REPORT.md) for stabilization history.
 
 Documentation:
 

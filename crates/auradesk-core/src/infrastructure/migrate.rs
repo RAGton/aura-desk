@@ -13,6 +13,7 @@ const V001: &str = include_str!("../../migrations/V001__init.sql");
 const V002: &str = include_str!("../../migrations/V002__github_issues.sql");
 const V003: &str = include_str!("../../migrations/V003__block_screen_setting.sql");
 const V004: &str = include_str!("../../migrations/V004__desktop_settings.sql");
+const V005: &str = include_str!("../../migrations/V005__release_0_2_0.sql");
 
 /// Run every embedded migration on the given connection idempotently.
 pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
@@ -28,6 +29,7 @@ pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
     apply_if_missing(conn, "V002__github_issues", V002)?;
     apply_if_missing(conn, "V003__block_screen_setting", V003)?;
     apply_if_missing(conn, "V004__desktop_settings", V004)?;
+    apply_if_missing(conn, "V005__release_0_2_0", V005)?;
     Ok(())
 }
 

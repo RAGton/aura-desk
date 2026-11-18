@@ -397,7 +397,7 @@ interface BrowserDbState {
 const STORAGE_KEY = "auradesk_browser_db_v1";
 
 const DEFAULT_SETTINGS: Record<string, unknown> = {
-  "app.version": "0.1.0",
+  "app.version": "0.2.0",
   "app.theme": "dark",
   "app.locale": "pt-BR",
   "app.autostart": false,
