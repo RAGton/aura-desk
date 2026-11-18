@@ -2,6 +2,15 @@
 
 All notable changes to AuraDesk are documented in this file.
 
+## [0.2.1] - 2026-11-18
+
+### Fixed
+- **Tauri IPC Main-Thread Deadlock Prevention (`crates/auradesk/src/ipc.rs`)**: Converted synchronous window-manipulating Tauri IPC commands (`pomodoro_complete`, `pomodoro_abandon`, `reminders_create`, `reminders_dismiss`, `reminders_snooze`, `settings_set`, `alerts_*`, `desktop_apply_monitor_preference`, `desktop_toggle_compact`, `desktop_show_main`) to `async` with `tauri::async_runtime::spawn_blocking`, preventing `run_on_main_thread` UI stalls.
+- **UI/Theme/CI Polish**:
+  - Synchronized header quick-toggles for theme (`app.theme`) and locale (`app.locale`) cleanly into `SettingsPage` (`externalTheme` / `externalLocale`).
+  - Improved `Toast` contrast backdrop (`bg-aura-overlay/95`, `backdrop-blur-md`) and `TaskCard` footer wrapping (`flex-wrap`).
+  - Updated `.github/workflows/ci.yml` (`check-rust`) to build `@auradesk/web` prior to `cargo clippy` across Linux, Windows, and macOS runners.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added

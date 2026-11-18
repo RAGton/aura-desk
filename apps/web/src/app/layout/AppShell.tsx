@@ -847,6 +847,10 @@ export function AppShell() {
 
       {activeTab === "settings" && (
         <SettingsPage
+          externalTheme={
+            typeof settingsMap["app.theme"] === "string" ? settingsMap["app.theme"] : undefined
+          }
+          externalLocale={currentLang}
           onSettingSaved={(key, value) => {
             setSettingsMap((prev) => ({ ...prev, [key]: value }));
           }}
