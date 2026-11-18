@@ -7,7 +7,8 @@
     "language": "Idioma",
     "navTop": "Topo",
     "navSidebar": "Lateral",
-    "toggleTheme": "Alternar Tema"
+    "toggleTheme": "Alternar Tema",
+    "skipToContent": "Ir para o conteúdo principal"
   },
   "nav": {
     "dashboard": "Painel Geral",
@@ -49,6 +50,12 @@
     "planNotesPlaceholder": "Anote suas 3 prioridades do dia...",
     "saveNotes": "Salvar Notas",
     "dailyNotesSaved": "✓ Notas do dia salvas!",
+    "planStateUpdated": "✓ Estado do plano atualizado!",
+    "priorityLabel": "Prioridade da nova tarefa",
+    "dailyNotesLabel": "Notas do planejamento diário",
+    "moveWidgetUp": "Mover seção para cima",
+    "moveWidgetDown": "Mover seção para baixo",
+    "toggleWidgetVisible": "Alternar visibilidade da seção",
     "focusSuffix": "m foco",
     "planStatus": {
       "not_started": "Não iniciado",
@@ -93,6 +100,16 @@
     "descriptionPlaceholder": "Descrição da tarefa (opcional)...",
     "tagsPlaceholder": "Tags (ex: urgente, backend)...",
     "dueAtLabel": "Prazo",
+    "searchLabel": "Buscar tarefas",
+    "priorityFilterLabel": "Filtrar por prioridade",
+    "projectFilterLabel": "Filtrar por projeto",
+    "projectLabel": "Projeto da tarefa",
+    "priorityLabel": "Prioridade da tarefa",
+    "estimateLabel": "Estimativa em minutos",
+    "tagsLabel": "Tags da tarefa",
+    "descriptionLabel": "Descrição da tarefa",
+    "moreTags": "+{{count}}",
+    "dragHandle": "Arrastar cartão",
     "confirmDelete": "Confirmar exclusão?",
     "create": "Criar Card",
     "taskCreated": "✓ Card criado!",
@@ -140,6 +157,8 @@
     "paused": "Pausado",
     "idle": "Selecione uma tarefa opcional e inicie um bloco de foco",
     "selectTask": "Vincular à tarefa (opcional)...",
+    "selectTaskLabel": "Vincular tarefa ao foco",
+    "customMinutesLabel": "Duração personalizada em minutos",
     "noTaskLinked": "Sem tarefa vinculada",
     "startFocus": "Iniciar Foco (25 min)",
     "startShortBreak": "Pausa Curta (5 min)",
@@ -191,9 +210,14 @@
     },
     "customDateTime": "Data e hora",
     "scheduleCustom": "Agendar Horário",
+    "titleLabel": "Título do lembrete",
+    "bodyLabel": "Detalhes do lembrete",
+    "exceptNoteLabel": "Justificativa para exceção",
     "dndEnable": "Não Perturbe (1h)",
     "dndDisable": "Desativar Não Perturbe",
     "dndActiveUntil": "Silenciado até {{time}}",
+    "dndEnabledToast": "Modo Não Perturbe ativado por 1h.",
+    "dndDisabledToast": "Modo Não Perturbe desativado.",
     "confirmDelete": "Remover",
     "addNow": "Disparar Agora (Teste)",
     "addIn1Min": "Agendar (+1 min)",
@@ -238,6 +262,15 @@
     "queueBadge": "{{count}} pendentes",
     "syncingAlert": "Sincronizando lembrete..."
   },
+  "alertLock": {
+    "emergencyUnlock": "Desbloqueio de emergência",
+    "emergencyUnlockHint": "Atalho: Ctrl+Shift+U para encerrar o bloqueio se a comunicação falhar.",
+    "ipcErrorBanner": "Falha de comunicação com o serviço de alertas. Use o desbloqueio de emergência para liberar a tela com segurança."
+  },
+  "ui": {
+    "closeDialog": "Fechar diálogo",
+    "closeNotification": "Fechar notificação"
+  },
   "reports": {
     "title": "Relatórios & Métricas",
     "subtitle": "Resumo consolidado dos últimos 30 dias",
@@ -252,6 +285,8 @@
     "activeDays": "Dias ativos",
     "pomodoros": "Pomodoros",
     "dailyChartTitle": "Histórico Diário (Últimos 14 dias)",
+    "tableCaption": "Resumo diário dos últimos 14 dias",
+    "dateLabel": "Data",
     "exportCsv": "Exportar CSV",
     "exportJson": "Exportar JSON",
     "noData": "Nenhuma métrica registrada no período ainda."
@@ -260,6 +295,7 @@
     "title": "Configurações do Sistema",
     "subtitle": "Personalize aparência Liquid Glass, ritmos Pomodoro, alertas e backups.",
     "saved": "Salvo com sucesso!",
+    "unsavedIndicator": "Não salvo",
     "groups": {
       "app": "Aplicativo",
       "appearance": "Aparência & Liquid Glass",
@@ -387,6 +423,7 @@
     "githubConnected": "Conectado como {{account}}",
     "githubNotConnected": "CLI encontrado, mas não autenticado",
     "githubCliMissing": "GitHub CLI (gh) não encontrado",
+    "githubAutoSyncNeedsRepo": "Defina o repositório (owner/repo) antes de ativar a sincronização automática.",
     "testBlockLabel": "Validação de Bloqueio",
     "testBlockDescription": "Dispare um alerta de teste para experimentar o modal bloqueante no desktop.",
     "backup": {
@@ -395,7 +432,10 @@
       "description": "Gera um arquivo .zip contendo auradesk.db, settings.json e audit-log.json.",
       "exportSuccess": "✓ Backup .zip exportado!",
       "importSuccess": "✓ Backup restaurado ({{tasks}} tarefas, {{settings}} configurações)!",
-      "invalidZip": "Arquivo .zip inválido ou corrompido."
+      "invalidZip": "Arquivo .zip inválido ou corrompido.",
+      "confirmTitle": "Confirmar restauração de backup?",
+      "confirmDescription": "Restaurar \"{{file}}\" substituirá suas tarefas, lembretes, sessões Pomodoro e configurações atuais. Esta ação não pode ser desfeita.",
+      "confirmAction": "Restaurar agora"
     }
   },
   "errors": {

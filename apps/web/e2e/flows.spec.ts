@@ -58,8 +58,23 @@ test.beforeEach(async ({ page }) => {
           if (found) {
             found.status = input.status;
             found.kanbanOrder = input.kanbanOrder ?? 0;
+            found.kanban_order = input.kanban_order ?? 0;
           }
           return found ?? tasks[0];
+        }
+        if (cmd === "tasks_reorder") {
+          const items = (args?.items ?? []) as Array<Record<string, unknown>>;
+          const updated: Array<Record<string, unknown>> = [];
+          for (const item of items) {
+            const found = tasks.find((t) => t.id === item.id);
+            if (found) {
+              found.status = item.status;
+              found.kanbanOrder = item.kanban_order ?? 0;
+              found.kanban_order = item.kanban_order ?? 0;
+              updated.push(found);
+            }
+          }
+          return updated;
         }
         if (cmd === "settings_get_all") {
           return Object.entries(settings);
@@ -221,5 +236,31 @@ test("Flow 4: reports charts and settings persistence", async ({ page }) => {
   await page.screenshot({
     path: path.join(screenshotDir, "04-pause-quit-settings.png"),
     fullPage: true,
+  });
+});
+
+test("Flow 5: mobile bottom navigation, theme switching, and zero horizontal overflow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator("nav")).toBeVisible();
+
+  const overflowPx = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth
+  );
+  expect(overflowPx).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: /Alternar Tema|Switch Theme/i }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  const startFocusBtn = page.getByRole("button", { name: /Iniciar Foco|Start Focus/i });
+  await expect(startFocusBtn).toHaveCSS("background-color", "rgb(3, 105, 161)");
+  await expect(startFocusBtn).toHaveCSS("color", "rgb(248, 250, 252)");
+  const dailyInput = page.locator('input[placeholder*="prioridades"], input[placeholder*="priorities"]');
+  await expect(dailyInput).toHaveCSS("color", "rgb(15, 23, 42)");
+
+  await page.screenshot({
+    path: path.join(screenshotDir, "05-mobile-light-theme.png"),
+    fullPage: false,
   });
 });

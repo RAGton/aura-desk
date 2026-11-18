@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BarChart3, CheckCircle2, Download, Droplets, Flame, Timer } from "lucide-react";
 
+import { Badge, Button, EmptyState, Skeleton } from "../components/ui";
 import { reportsApi, type ReportSummary } from "../lib/ipc";
 
 export interface ReportsPageProps {
@@ -23,6 +24,7 @@ function triggerDownload(filename: string, content: string, mime: string) {
 export function ReportsPage({ initialReport = null }: ReportsPageProps) {
   const { t } = useTranslation();
   const [report, setReport] = useState<ReportSummary | null>(initialReport);
+  const [loading, setLoading] = useState<boolean>(!initialReport);
 
   useEffect(() => {
     let active = true;
@@ -31,7 +33,10 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
       .then((res) => {
         if (active && res) setReport(res);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -76,24 +81,26 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             disabled={!report}
             onClick={exportCsv}
-            className="inline-flex items-center gap-1.5 rounded-lg aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
+            className="text-xs font-semibold"
           >
             <Download className="h-3.5 w-3.5" />
             {t("reports.exportCsv")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             disabled={!report}
             onClick={exportJson}
-            className="inline-flex items-center gap-1.5 rounded-lg aura-glass-pill px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-sky-300 disabled:opacity-40 cursor-pointer"
+            className="text-xs font-semibold"
           >
             <Download className="h-3.5 w-3.5" />
             {t("reports.exportJson")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -153,9 +160,9 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
                   {card.title}
                 </span>
                 {card.activeDays !== undefined && (
-                  <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                  <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[11px] font-medium">
                     {card.activeDays} {t("reports.activeDays")}
-                  </span>
+                  </Badge>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2.5 text-xs">
@@ -211,12 +218,12 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80 flex">
                   <div
-                    className="h-full bg-sky-400 transition-all"
+                    className="h-full bg-sky-400 transition-[width] duration-300"
                     style={{ width: `${focusPct}%` }}
                   />
                   {totalRatioMin > 0 && (
                     <div
-                      className="h-full bg-indigo-400/80 transition-all"
+                      className="h-full bg-indigo-400/80 transition-[width] duration-300"
                       style={{ width: `${100 - focusPct}%` }}
                     />
                   )}
@@ -253,8 +260,10 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
           </div>
         </div>
 
-        {days.length === 0 ? (
-          <p className="text-xs text-slate-500 py-8 text-center">{t("reports.noData")}</p>
+        {loading && !report ? (
+          <Skeleton lines={4} className="h-6" />
+        ) : days.length === 0 ? (
+          <EmptyState title={t("reports.noData")} className="py-8" />
         ) : (
           <div className="w-full overflow-x-auto">
             <svg
@@ -314,7 +323,7 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
                       x={xBase + 13}
                       y={158}
                       textAnchor="middle"
-                      className="fill-slate-400 text-[9px]"
+                      className="fill-slate-400 text-[10px]"
                     >
                       {label}
                     </text>
@@ -322,7 +331,7 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
                       x={xBase + 6}
                       y={172}
                       textAnchor="middle"
-                      className="fill-emerald-400 text-[9px]"
+                      className="fill-emerald-400 text-[10px]"
                     >
                       {d.waterCount}💧
                     </text>
@@ -330,7 +339,7 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
                       x={xBase + 22}
                       y={172}
                       textAnchor="middle"
-                      className="fill-amber-400 text-[9px]"
+                      className="fill-amber-400 text-[10px]"
                     >
                       {d.tasksDone}✓
                     </text>
@@ -339,6 +348,38 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
               })}
             </svg>
           </div>
+        )}
+
+        {days.length > 0 && (
+          <details className="rounded-xl border border-aura-border/25 bg-aura-surface/35 px-3.5 py-2 text-xs">
+            <summary className="cursor-pointer font-medium text-aura-secondary select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus rounded">
+              {t("reports.tableCaption")}
+            </summary>
+            <div className="mt-2.5 overflow-x-auto">
+              <table className="w-full text-left border-collapse tabular-nums">
+                <thead>
+                  <tr className="border-b border-aura-border/25 text-aura-text-muted">
+                    <th className="py-1.5 pr-3 font-medium">{t("reports.dateLabel")}</th>
+                    <th className="py-1.5 px-3 font-medium">{t("reports.focusLabel")}</th>
+                    <th className="py-1.5 px-3 font-medium">{t("reports.breakLabel")}</th>
+                    <th className="py-1.5 px-3 font-medium">{t("reports.waterLabel")}</th>
+                    <th className="py-1.5 pl-3 font-medium">{t("reports.tasksLabel")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-aura-border/15">
+                  {days.map((d) => (
+                    <tr key={d.date}>
+                      <td className="py-1.5 pr-3 text-aura-primary">{d.date}</td>
+                      <td className="py-1.5 px-3 text-sky-300">{d.focusMin}m</td>
+                      <td className="py-1.5 px-3 text-indigo-300">{d.breakMin}m</td>
+                      <td className="py-1.5 px-3 text-emerald-300">{d.waterCount}</td>
+                      <td className="py-1.5 pl-3 text-amber-300">{d.tasksDone}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         )}
       </div>
     </div>

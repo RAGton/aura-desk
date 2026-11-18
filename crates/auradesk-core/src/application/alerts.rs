@@ -31,7 +31,7 @@ impl<'a> AlertsService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Alert, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         conn.query_row(
             "SELECT id, kind, title, body, severity, ref_id, options, resolution, resolved_at, created_at \
              FROM alerts_pending WHERE id = ?1",
@@ -134,7 +134,7 @@ impl<'a> AlertsService<'a> {
     }
 
     pub fn list_pending(&self) -> Result<Vec<Alert>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT id, kind, title, body, severity, ref_id, options, resolution, resolved_at, created_at \
@@ -205,7 +205,10 @@ impl<'a> AlertsService<'a> {
                             .map_err(|e| CoreError::internal(format!("advance weekly reminder: {e}")))?;
                         }
                         Some("monthly") => {
-                            let next_fire = (old_fire + Duration::days(30)).to_rfc3339();
+                            let next_fire = old_fire
+                                .checked_add_months(chrono::Months::new(1))
+                                .unwrap_or_else(|| old_fire + Duration::days(30))
+                                .to_rfc3339();
                             tx.execute(
                                 "UPDATE reminders SET status = 'pending', fire_at = ?1, updated_at = ?2 WHERE id = ?3",
                                 params![next_fire, now_str, rem_id],

@@ -102,13 +102,23 @@ pub fn tasks_get(state: State<'_, AppState>, id: String) -> Result<Task, String>
     svc.get(&id).map_err(|e| format!("tasks_get: {e}"))
 }
 
+fn default_new_task_priority() -> TaskPriority {
+    TaskPriority::Normal
+}
+
+fn default_new_task_status() -> TaskStatus {
+    TaskStatus::Todo
+}
+
 /// Frontend-friendly `NewTask`. Mirrors the domain type but with
 /// JSON-friendly types (strings for enums, optionals as nullable).
 #[derive(Debug, Deserialize)]
 pub struct NewTaskInput {
     pub title: String,
     pub description: Option<String>,
+    #[serde(default = "default_new_task_priority")]
     pub priority: TaskPriority,
+    #[serde(default = "default_new_task_status")]
     pub status: TaskStatus,
     pub project_id: Option<String>,
     pub parent_task_id: Option<String>,
@@ -256,6 +266,28 @@ pub fn tasks_set_status(state: State<'_, AppState>, input: SetStatusInput) -> Re
     let svc = TasksService::new(&db);
     svc.set_status(&input.id, input.status, input.kanban_order)
         .map_err(|e| format!("tasks_set_status: {e}"))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskReorderItem {
+    pub id: String,
+    pub status: TaskStatus,
+    pub kanban_order: i32,
+}
+
+#[tauri::command]
+pub fn tasks_reorder(
+    state: State<'_, AppState>,
+    items: Vec<TaskReorderItem>,
+) -> Result<Vec<Task>, String> {
+    let db = db_from(&state);
+    let svc = TasksService::new(&db);
+    let batch: Vec<(String, TaskStatus, i32)> = items
+        .into_iter()
+        .map(|item| (item.id, item.status, item.kanban_order))
+        .collect();
+    svc.reorder_batch(&batch)
+        .map_err(|e| format!("tasks_reorder: {e}"))
 }
 
 #[tauri::command]
@@ -1067,6 +1099,15 @@ pub fn alerts_trigger_test_block(
     Ok(alert)
 }
 
+#[tauri::command]
+pub fn alerts_emergency_unlock(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let db = db_from(&state);
+    Ok(crate::alert_lock::emergency_unlock_all(&app, &db))
+}
+
 // ── Report ────────────────────────────────────────────────────────────
 
 /// Time-spent report: per-day breakdown of focus / break minutes
@@ -1414,3 +1455,17 @@ pub fn proposals_reject(
 /// `#[tauri::command]` expansion pulls in.
 #[allow(dead_code)]
 fn _suppress(_state: Arc<AppState>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_task_input_deserializes_without_optional_status_or_priority() {
+        let json = r#"{"title":"smoke task"}"#;
+        let parsed: NewTaskInput =
+            serde_json::from_str(json).expect("NewTaskInput should default status & priority");
+        assert_eq!(parsed.priority, TaskPriority::Normal);
+        assert_eq!(parsed.status, TaskStatus::Todo);
+    }
+}

@@ -38,12 +38,12 @@ describe("SettingsPage", () => {
     expect(screen.getByLabelText("Intervalo de hidratação (min)")).toHaveValue(60);
     expect(screen.getByLabelText("Intervalo de pausa (min)")).toHaveValue(90);
     expect(screen.getByLabelText("Bloquear PC até confirmar leitura")).toHaveAttribute(
-      "aria-pressed",
+      "aria-checked",
       "false"
     );
   });
 
-  it("allows changing number values and saving them", async () => {
+  it("allows changing number values, shows unsaved badge, and saves them", async () => {
     render(<SettingsPage />);
 
     const focusInput = screen.getByLabelText("Foco (min)");
@@ -51,6 +51,7 @@ describe("SettingsPage", () => {
 
     fireEvent.change(focusInput, { target: { value: "30" } });
     expect(focusInput).toHaveValue(30);
+    expect(screen.getByText("Não salvo")).toBeInTheDocument();
 
     const saveButtons = screen.getAllByRole("button", { name: "Salvar" });
     fireEvent.click(saveButtons[0]);
@@ -65,14 +66,16 @@ describe("SettingsPage", () => {
     });
 
     expect(await screen.findByText(/✓ (Salvo|Saved)/i)).toBeInTheDocument();
+    expect(screen.queryByText("Não salvo")).not.toBeInTheDocument();
   });
 
-  it("auto-saves boolean toggles including reminders.block_screen", async () => {
+  it("auto-saves boolean switches including reminders.block_screen", async () => {
     render(<SettingsPage />);
 
     const blockToggle = screen.getByLabelText("Bloquear PC até confirmar leitura");
+    expect(blockToggle).toHaveAttribute("role", "switch");
     fireEvent.click(blockToggle);
-    expect(blockToggle).toHaveAttribute("aria-pressed", "true");
+    expect(blockToggle).toHaveAttribute("aria-checked", "true");
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_set", {
@@ -84,7 +87,7 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("auto-saves select changes and applies app.theme to documentElement", async () => {
+  it("auto-saves select changes and preserves light theme when changing preset", async () => {
     render(<SettingsPage />);
 
     const themeSelect = screen.getByLabelText("Tema");
@@ -98,6 +101,11 @@ describe("SettingsPage", () => {
         },
       });
     });
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    const presetSelect = screen.getByLabelText("Preset de Tema Glass");
+    fireEvent.change(presetSelect, { target: { value: "emerald" } });
+    expect(document.documentElement.dataset.preset).toBe("emerald");
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
@@ -169,6 +177,12 @@ describe("SettingsPage", () => {
         value: async () => new Uint8Array([80, 75, 3, 4]).buffer,
       });
       fireEvent.change(fileInput, { target: { files: [fakeFile] } });
+
+      // Confirmation dialog opens before destructive import executes
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(mockInvoke).not.toHaveBeenCalledWith("data_import_zip", expect.anything());
+
+      fireEvent.click(screen.getByRole("button", { name: "Restaurar agora" }));
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("data_import_zip", {

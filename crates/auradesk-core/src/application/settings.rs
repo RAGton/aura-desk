@@ -23,7 +23,7 @@ impl<'a> SettingsService<'a> {
     /// Read one setting. Returns `None` if the key is not in the table
     /// (which would indicate a missing seed or a manual row deletion).
     pub fn get(&self, key: SettingsKey) -> Result<Option<Value>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let raw: Option<String> = conn
             .query_row(
                 "SELECT value FROM settings WHERE key = ?1",
@@ -55,7 +55,7 @@ impl<'a> SettingsService<'a> {
 
     /// Read all raw rows from the settings table (used by data export).
     pub fn list_raw(&self) -> Result<Vec<(String, String, String)>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare("SELECT key, value, updated_at FROM settings")
             .map_err(|e| CoreError::internal(format!("settings list_raw: {e}")))?;

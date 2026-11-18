@@ -692,6 +692,16 @@ impl<'a> DataIoService<'a> {
             .write_all(audit_json.as_bytes())
             .map_err(|e| CoreError::internal(format!("zip write audit-log.json: {e}")))?;
 
+        let bundle_json = self.export_json()?;
+        let stored_opts =
+            SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer
+            .start_file("bundle.json", stored_opts)
+            .map_err(|e| CoreError::internal(format!("zip start bundle.json: {e}")))?;
+        writer
+            .write_all(bundle_json.as_bytes())
+            .map_err(|e| CoreError::internal(format!("zip write bundle.json: {e}")))?;
+
         let cursor = writer
             .finish()
             .map_err(|e| CoreError::internal(format!("zip finish: {e}")))?;
@@ -713,13 +723,30 @@ impl<'a> DataIoService<'a> {
             .map_err(|e| CoreError::validation("zip", format!("invalid zip archive: {e}")))?;
 
         let mut db_bytes = Vec::new();
-        {
-            let mut db_entry = archive.by_name("auradesk.db").map_err(|_| {
-                CoreError::validation("zip", "zip archive missing auradesk.db entry")
+        let has_sqlite = match archive.by_name("auradesk.db") {
+            Ok(mut db_entry) => {
+                db_entry
+                    .read_to_end(&mut db_bytes)
+                    .map_err(|e| CoreError::validation("zip", format!("read auradesk.db: {e}")))?;
+                true
+            }
+            Err(_) => false,
+        };
+
+        if !has_sqlite {
+            let mut bundle_raw = String::new();
+            let mut bundle_entry = archive.by_name("bundle.json").map_err(|_| {
+                CoreError::validation(
+                    "zip",
+                    "zip archive missing auradesk.db or bundle.json entry",
+                )
             })?;
-            db_entry
-                .read_to_end(&mut db_bytes)
-                .map_err(|e| CoreError::validation("zip", format!("read auradesk.db: {e}")))?;
+            bundle_entry
+                .read_to_string(&mut bundle_raw)
+                .map_err(|e| CoreError::validation("zip", format!("read bundle.json: {e}")))?;
+            let bundle: DataBundle = serde_json::from_str(&bundle_raw)
+                .map_err(|e| CoreError::validation("zip", format!("invalid bundle.json: {e}")))?;
+            return self.import(bundle);
         }
 
         const SQLITE_MAGIC: [u8; 16] = [

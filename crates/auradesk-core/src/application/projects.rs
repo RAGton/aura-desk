@@ -55,7 +55,7 @@ impl<'a> ProjectsService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Project, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let project = conn
             .query_row(
                 "SELECT id, name, description, color, parent_id, status, start_date, target_date, created_at, updated_at \
@@ -70,7 +70,7 @@ impl<'a> ProjectsService<'a> {
     }
 
     pub fn list(&self) -> Result<Vec<Project>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, description, color, parent_id, status, start_date, target_date, created_at, updated_at \

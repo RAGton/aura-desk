@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { KanbanBoard } from "./KanbanBoard";
@@ -50,6 +50,10 @@ describe("KanbanBoard press-and-hold drag & GitHub links", () => {
       />
     );
 
+    await waitFor(() => {
+      expect(document.querySelector('[data-task-card="task-1"]')).toHaveAttribute("tabindex", "0");
+    });
+
     const card = document.querySelector('[data-task-card="task-1"]') as HTMLElement;
     const doingCol = document.querySelector('[data-kanban-column="doing"]') as HTMLElement;
     expect(card).toBeTruthy();
@@ -100,7 +104,7 @@ describe("KanbanBoard press-and-hold drag & GitHub links", () => {
     expect(onMoveTask).toHaveBeenCalledWith(sampleTask, "doing");
   });
 
-  it("activates drag after hold delay and ignores clicks on child action buttons", () => {
+  it("activates drag after hold delay, ignores child clicks, and requires two-step delete confirmation by default", () => {
     vi.useFakeTimers();
     const onMoveTask = vi.fn();
     const onDeleteTask = vi.fn();
@@ -124,6 +128,10 @@ describe("KanbanBoard press-and-hold drag & GitHub links", () => {
     expect(screen.queryByTestId("kanban-drag-ghost")).not.toBeInTheDocument();
 
     fireEvent.click(deleteBtn);
+    expect(onDeleteTask).not.toHaveBeenCalled();
+
+    const confirmBtn = screen.getByRole("button", { name: "Confirmar exclusão?" });
+    fireEvent.click(confirmBtn);
     expect(onDeleteTask).toHaveBeenCalledWith("task-1");
 
     const card = document.querySelector('[data-task-card="task-1"]') as HTMLElement;
@@ -136,6 +144,77 @@ describe("KanbanBoard press-and-hold drag & GitHub links", () => {
     expect(onMoveTask).not.toHaveBeenCalled();
 
     vi.useRealTimers();
+  });
+
+  it("supports inline editing of project and due date and calls onMoveTaskToIndex on cross-column drop", async () => {
+    const onUpdateTask = vi.fn();
+    const onMoveTaskToIndex = vi.fn();
+    render(
+      <KanbanBoard
+        tasks={[sampleTask]}
+        projects={[
+          {
+            id: "proj-1",
+            name: "Core",
+            status: "active",
+            created_at: "2026-11-01T00:00:00Z",
+            updated_at: "2026-11-01T00:00:00Z",
+          },
+        ]}
+        githubLinks={[]}
+        onMoveTask={vi.fn()}
+        onMoveTaskToIndex={onMoveTaskToIndex}
+        onUpdateTask={onUpdateTask}
+        onDeleteTask={vi.fn()}
+        onFocusTask={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    fireEvent.change(screen.getByLabelText("Projeto da tarefa"), { target: { value: "proj-1" } });
+    fireEvent.change(screen.getByLabelText("Prazo"), { target: { value: "2026-12-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(onUpdateTask).toHaveBeenCalledWith(
+      "task-1",
+      "Implement pointer drag",
+      "high",
+      expect.objectContaining({
+        projectId: "proj-1",
+        dueAt: expect.stringContaining("2026-12-20"),
+      })
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-task-card="task-1"]')).toHaveAttribute("tabindex", "0");
+    });
+
+    const card = document.querySelector('[data-task-card="task-1"]') as HTMLElement;
+    const doingCol = document.querySelector('[data-kanban-column="doing"]') as HTMLElement;
+    vi.spyOn(doingCol, "getBoundingClientRect").mockReturnValue({
+      left: 300,
+      right: 550,
+      top: 100,
+      bottom: 500,
+      width: 250,
+      height: 400,
+      x: 300,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    const dispatchMouse = (target: EventTarget, type: string, x: number, y: number) => {
+      const ev = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+      Object.defineProperty(ev, "pointerType", { value: "mouse" });
+      target.dispatchEvent(ev);
+    };
+
+    act(() => {
+      dispatchMouse(card, "pointerdown", 50, 150);
+      dispatchMouse(window, "pointermove", 350, 220);
+      dispatchMouse(window, "pointerup", 350, 220);
+    });
+    expect(onMoveTaskToIndex).toHaveBeenCalledWith(sampleTask, "doing", 0);
   });
 
   it("renders GitHub issue badge, supports unlink, and supports keyboard Alt+Arrow moves", () => {

@@ -82,6 +82,17 @@ Six phases, each with verifiable acceptance:
 
 Full acceptance criteria live in the [spec](docs/superpowers/specs/2026-10-16-auradesk-mvp-design.md) §11.
 
+## Phase 1 Stabilization & Architecture Foundation
+
+Before adding cloud sync or new feature domains, Phase 1 hardens the existing Tauri 2 + React + SQLite runtime:
+
+- **Cross-runtime interoperability**: Daily Plan payloads normalize cleanly between plain text and canonical `{"notes": ...}` JSON across Rust (`auradesk-core`) and Web fallback (`ipc.ts`); Web ZIP backup exports produce genuine PKZIP archives (`apps/web/src/lib/zip.ts`) containing `bundle.json` v2 compatible with Desktop `DataIoService`; monthly alert recurrence advances `+30d` in Web fallback as well as Rust.
+- **Desktop security & fail-safe recovery**: Tightened Tauri `app.security.csp` in `crates/auradesk/tauri.conf.json` and added `alerts_emergency_unlock` (`emergency_unlock_all` + `Ctrl+Shift+U` + UI error banner/button in `AlertLockPage`) so IPC interruptions cannot leave the workstation locked.
+- **SQLite concurrency & query performance**: `Db::reader()` introduces a 4-connection read-only SQLite WAL pool (`query_only = ON`) across read services while reserving `Db::writer()` for serialized transactions; `TasksService::list` pushes filtering into SQL `WHERE` clauses; `TasksService::reorder_batch` (`tasks_reorder` IPC) persists Kanban ordering atomically; `RemindersService::poll_and_fire_overdue` short-circuits via an `EXISTS` pre-check on `reader()`.
+- **Frontend state & Aura Design System**: Extracted Pomodoro lifecycle/timer state into `usePomodoroController.ts`, reduced polling overhead in `AppShell.tsx` (30s interval paused when tab is hidden + selective domain refreshes), eliminated Light Mode `!important` CSS hacks using semantic RGB design tokens in `apps/web/src/styles/globals.css` + `apps/web/tailwind.config.js`, and established accessible UI primitives (`Button`, `Input`, `Badge`, `Dialog`, `Toast`, `Skeleton`, `EmptyState`) in `apps/web/src/components/ui/`.
+
+See [`docs/PHASE1_EXECUTION_REPORT.md`](docs/PHASE1_EXECUTION_REPORT.md) and [`docs/architecture/ADR-0014-phase1-stabilization-and-design-system.md`](docs/architecture/ADR-0014-phase1-stabilization-and-design-system.md) for details.
+
 ## License
 
 AuraDesk is offered under the **GNU General Public License, version 3

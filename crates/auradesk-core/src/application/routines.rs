@@ -20,7 +20,7 @@ impl<'a> RoutinesService<'a> {
     }
 
     pub fn list(&self, only_enabled: bool) -> Result<Vec<Routine>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let sql = if only_enabled {
             "SELECT id, kind, title, body, cron_expr, start_date, end_date, enabled, metadata, last_fired_at, created_at, updated_at \
              FROM routines WHERE enabled = 1 ORDER BY kind ASC, title ASC"
@@ -44,7 +44,7 @@ impl<'a> RoutinesService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Routine, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let routine = conn
             .query_row(
                 "SELECT id, kind, title, body, cron_expr, start_date, end_date, enabled, metadata, last_fired_at, created_at, updated_at \

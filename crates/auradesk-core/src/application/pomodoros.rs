@@ -32,7 +32,7 @@ impl<'a> PomodorosService<'a> {
 
     pub fn list(&self, limit: impl Into<i64>) -> Result<Vec<PomodoroSession>, CoreError> {
         let lim = limit.into().max(1);
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT id, task_id, kind, status, planned_min, actual_min, interruptions, started_at, ended_at \
@@ -52,7 +52,7 @@ impl<'a> PomodorosService<'a> {
     }
 
     pub fn running_session(&self) -> Result<Option<PomodoroSession>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         conn.query_row(
             "SELECT id, task_id, kind, status, planned_min, actual_min, interruptions, started_at, ended_at \
              FROM pomodoro_sessions WHERE status = 'running' ORDER BY started_at DESC LIMIT 1",
@@ -202,7 +202,7 @@ impl<'a> PomodorosService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<PomodoroSession, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let session = conn
             .query_row(
                 "SELECT id, task_id, kind, status, planned_min, actual_min, interruptions, started_at, ended_at \

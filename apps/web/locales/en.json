@@ -7,7 +7,8 @@
     "language": "Language",
     "navTop": "Top Bar",
     "navSidebar": "Sidebar",
-    "toggleTheme": "Switch Theme"
+    "toggleTheme": "Switch Theme",
+    "skipToContent": "Skip to main content"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -49,6 +50,12 @@
     "planNotesPlaceholder": "Write your top 3 priorities for today...",
     "saveNotes": "Save Notes",
     "dailyNotesSaved": "✓ Daily notes saved!",
+    "planStateUpdated": "✓ Daily plan state updated!",
+    "priorityLabel": "New task priority",
+    "dailyNotesLabel": "Daily planning notes",
+    "moveWidgetUp": "Move section up",
+    "moveWidgetDown": "Move section down",
+    "toggleWidgetVisible": "Toggle section visibility",
     "focusSuffix": "m focus",
     "planStatus": {
       "not_started": "Not started",
@@ -93,6 +100,16 @@
     "descriptionPlaceholder": "Task description (optional)...",
     "tagsPlaceholder": "Tags (e.g. urgent, backend)...",
     "dueAtLabel": "Due date",
+    "searchLabel": "Search tasks",
+    "priorityFilterLabel": "Filter by priority",
+    "projectFilterLabel": "Filter by project",
+    "projectLabel": "Task project",
+    "priorityLabel": "Task priority",
+    "estimateLabel": "Estimate in minutes",
+    "tagsLabel": "Task tags",
+    "descriptionLabel": "Task description",
+    "moreTags": "+{{count}}",
+    "dragHandle": "Drag card",
     "confirmDelete": "Confirm delete?",
     "create": "Create Card",
     "taskCreated": "✓ Card created!",
@@ -140,6 +157,8 @@
     "paused": "Paused",
     "idle": "Select an optional task and start a focus block",
     "selectTask": "Link to task (optional)...",
+    "selectTaskLabel": "Link task to focus",
+    "customMinutesLabel": "Custom duration in minutes",
     "noTaskLinked": "No linked task",
     "startFocus": "Start Focus (25 min)",
     "startShortBreak": "Short Break (5 min)",
@@ -191,9 +210,14 @@
     },
     "customDateTime": "Date & time",
     "scheduleCustom": "Schedule Time",
+    "titleLabel": "Reminder title",
+    "bodyLabel": "Reminder details",
+    "exceptNoteLabel": "Reason for exception",
     "dndEnable": "Do Not Disturb (1h)",
     "dndDisable": "Turn Off DND",
     "dndActiveUntil": "Silenced until {{time}}",
+    "dndEnabledToast": "Do Not Disturb enabled for 1h.",
+    "dndDisabledToast": "Do Not Disturb turned off.",
     "confirmDelete": "Remove",
     "addNow": "Fire Now (Test)",
     "addIn1Min": "Schedule (+1 min)",
@@ -238,6 +262,15 @@
     "queueBadge": "{{count}} pending",
     "syncingAlert": "Syncing reminder..."
   },
+  "alertLock": {
+    "emergencyUnlock": "Emergency unlock",
+    "emergencyUnlockHint": "Shortcut: Ctrl+Shift+U to safely clear the lock if IPC stops responding.",
+    "ipcErrorBanner": "Alert service communication failed. Use emergency unlock to safely release your screen."
+  },
+  "ui": {
+    "closeDialog": "Close dialog",
+    "closeNotification": "Close notification"
+  },
   "reports": {
     "title": "Reports & Metrics",
     "subtitle": "Consolidated summary for the last 30 days",
@@ -252,6 +285,8 @@
     "activeDays": "Active days",
     "pomodoros": "Pomodoros",
     "dailyChartTitle": "Daily History (Last 14 days)",
+    "tableCaption": "Daily metrics for the last 14 days",
+    "dateLabel": "Date",
     "exportCsv": "Export CSV",
     "exportJson": "Export JSON",
     "noData": "No metrics recorded in this period yet."
@@ -260,6 +295,7 @@
     "title": "System Settings",
     "subtitle": "Customize Liquid Glass appearance, Pomodoro rhythms, alerts, and backups.",
     "saved": "Saved successfully!",
+    "unsavedIndicator": "Unsaved",
     "groups": {
       "app": "Application",
       "appearance": "Appearance & Liquid Glass",
@@ -387,6 +423,7 @@
     "githubConnected": "Connected as {{account}}",
     "githubNotConnected": "CLI installed, not authenticated",
     "githubCliMissing": "GitHub CLI (gh) not found",
+    "githubAutoSyncNeedsRepo": "Configure the repository (owner/repo) before enabling auto-sync.",
     "testBlockLabel": "Lock Validation",
     "testBlockDescription": "Trigger a test alert to verify the desktop blocking modal.",
     "backup": {
@@ -395,7 +432,10 @@
       "description": "Creates a .zip archive containing auradesk.db, settings.json, and audit-log.json.",
       "exportSuccess": "✓ .zip backup exported!",
       "importSuccess": "✓ Backup restored ({{tasks}} tasks, {{settings}} settings)!",
-      "invalidZip": "Invalid or corrupted .zip archive."
+      "invalidZip": "Invalid or corrupted .zip archive.",
+      "confirmTitle": "Confirm backup restore?",
+      "confirmDescription": "Restoring \"{{file}}\" will overwrite your current tasks, reminders, Pomodoro sessions, and settings. This action cannot be undone.",
+      "confirmAction": "Restore now"
     }
   },
   "errors": {

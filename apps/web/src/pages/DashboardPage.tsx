@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { AuraDeskLogo } from "../components/AuraDeskLogo";
+import { Badge, Button, EmptyState, Input, Select, Switch } from "../components/ui";
 import { asArray } from "../lib/utils";
 import type {
   Alert,
@@ -208,30 +209,32 @@ export function DashboardPage({
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="text-2xl font-bold text-slate-50">{t("dashboard.welcome")}</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full aura-glass-pill px-2.5 py-0.5 text-[11px] font-medium text-slate-300 capitalize">
+                  <Badge variant="neutral" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize">
                     <CalendarDays className="h-3 w-3 text-sky-400" />
                     {formattedToday}
-                  </span>
+                  </Badge>
                 </div>
                 <p className="text-xs text-slate-400">{t("dashboard.subtitle")}</p>
                 {activePomo ? (
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => onNavigateTab("pomodoro")}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3.5 py-1.5 text-xs font-semibold text-amber-300 ring-1 ring-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-colors"
+                    className="rounded-full bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25 text-xs font-semibold"
                   >
                     <Flame className="h-3.5 w-3.5" />
                     {t("dashboard.focusActive")} • {formatClock(timerSecondsLeft)}
-                  </button>
+                  </Button>
                 ) : (
-                  <button
-                    type="button"
+                  <Button
+                    size="md"
+                    variant="primary"
                     onClick={() => void onStartQuickFocus(null)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 transition-colors cursor-pointer"
+                    className="rounded-xl text-xs font-semibold shadow-sm shadow-sky-500/25"
                   >
                     <Timer className="h-3.5 w-3.5" />
                     {t("pomodoro.startFocusCustom", { min: focusMin })}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -256,42 +259,44 @@ export function DashboardPage({
                 }}
                 className="flex gap-1.5"
               >
-                <input
+                <Input
+                  containerClassName="flex-1"
                   type="text"
+                  aria-label={t("dashboard.dailyNotesLabel")}
                   value={planNotes}
                   onChange={(e) => onChangePlanNotes(e.target.value)}
                   placeholder={t("dashboard.planNotesPlaceholder")}
-                  className="flex-1 rounded-lg bg-slate-950/70 px-2.5 py-1.5 text-xs text-slate-200 ring-1 ring-slate-800 outline-none focus:ring-sky-500"
+                  className="py-1.5 text-xs"
                 />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-[11px] font-medium text-sky-300 cursor-pointer"
-                >
+                <Button type="submit" size="sm" variant="secondary" className="text-[11px] text-aura-accent">
                   {t("dashboard.saveNotes")}
-                </button>
+                </Button>
               </form>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="secondary"
                   onClick={() => void onSetPlanState("in_progress")}
-                  className="flex-1 rounded-lg bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-200 cursor-pointer transition-colors"
+                  className="flex-1 text-xs"
                 >
                   {t("dashboard.startPlan")}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
                   onClick={() => void onSetPlanState("completed")}
-                  className="flex-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 px-2.5 py-1.5 text-xs font-medium text-white cursor-pointer transition-colors"
+                  className="flex-1 bg-aura-success hover:bg-aura-success/90 text-aura-inverse font-semibold text-xs"
                 >
                   {t("dashboard.completePlan")}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => void onSetPlanState("skipped")}
-                  className="rounded-lg aura-glass-pill px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-amber-300 cursor-pointer transition-colors"
+                  className="text-xs text-slate-300 hover:text-amber-300"
                 >
                   {t("dashboard.skipPlan")}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -316,9 +321,9 @@ export function DashboardPage({
                   {summary?.pendingCount ?? tasks.filter((x) => x.status !== "done").length}
                 </span>
                 {overdueCount > 0 && (
-                  <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300 ring-1 ring-rose-500/35">
+                  <Badge variant="danger" className="rounded-full px-2 py-0.5 text-[10px] font-semibold">
                     {t("dashboard.overdueBadge", { count: overdueCount })}
-                  </span>
+                  </Badge>
                 )}
               </div>
             </button>
@@ -391,20 +396,21 @@ export function DashboardPage({
                     {summary.nextTask.title}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <span
-                      className={`rounded-full px-2 py-0.5 font-semibold ${
+                    <Badge
+                      variant={
                         summary.nextTask.priority === "urgent"
-                          ? "bg-rose-500/20 text-rose-300"
+                          ? "danger"
                           : summary.nextTask.priority === "high"
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-sky-500/15 text-sky-300"
-                      }`}
+                            ? "warning"
+                            : "info"
+                      }
+                      className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
                     >
                       {t(`kanban.priority.${summary.nextTask.priority}`)}
-                    </span>
-                    <span className="rounded-full aura-glass-pill px-2 py-0.5 text-slate-300">
+                    </Badge>
+                    <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[11px]">
                       {t(`kanban.columns.${summary.nextTask.status}`)}
-                    </span>
+                    </Badge>
                     {summary.nextTask.actual_min ? (
                       <span className="text-emerald-400 font-medium">
                         {summary.nextTask.actual_min}
@@ -414,58 +420,61 @@ export function DashboardPage({
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="secondary"
                     onClick={() =>
                       summary.nextTask && void onStartQuickFocus(summary.nextTask.id)
                     }
-                    className="rounded-lg bg-sky-500/20 px-3 py-1.5 text-xs font-medium text-sky-300 ring-1 ring-sky-500/30 hover:bg-sky-500/30 cursor-pointer"
+                    className="text-xs font-medium text-sky-300 border-sky-500/30 bg-sky-500/15 hover:bg-sky-500/25"
                   >
                     ▶ {t("kanban.focusTask")}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
                     onClick={() =>
                       summary.nextTask && void onMoveTask(summary.nextTask, "done")
                     }
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 cursor-pointer"
+                    className="bg-aura-success hover:bg-aura-success/90 text-aura-inverse text-xs font-semibold"
                   >
                     ✓ {t("kanban.columns.done")}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-slate-400">{t("dashboard.noPendingTasks")}</p>
+              <EmptyState title={t("dashboard.noPendingTasks")} className="py-5 px-3" />
             )}
 
             <form
               onSubmit={(e) => void onCreateTask(e)}
               className="flex flex-wrap gap-2 pt-1"
             >
-              <input
+              <Input
+                containerClassName="flex-1 min-w-[200px]"
                 type="text"
+                aria-label={t("kanban.newTaskPlaceholder")}
                 value={newTaskTitle}
                 onChange={(e) => onChangeNewTaskTitle(e.target.value)}
                 placeholder={t("dashboard.quickTaskPlaceholder")}
-                className="flex-1 min-w-[200px] rounded-lg bg-slate-950/70 px-3.5 py-2 text-sm text-slate-100 ring-1 ring-slate-800 focus:ring-sky-500 outline-none"
+                className="px-3.5 py-2 text-sm"
               />
-              <select
+              <Select
+                containerClassName="w-auto min-w-[110px]"
+                aria-label={t("dashboard.priorityLabel")}
                 value={newTaskPriority}
                 onChange={(e) => onChangeNewTaskPriority(e.target.value as TaskPriority)}
-                className="rounded-lg bg-slate-950/70 px-3 py-2 text-xs text-slate-200 ring-1 ring-slate-800"
+                className="py-2 text-xs"
               >
                 <option value="low">{t("kanban.priority.low")}</option>
                 <option value="normal">{t("kanban.priority.normal")}</option>
                 <option value="high">{t("kanban.priority.high")}</option>
                 <option value="urgent">{t("kanban.priority.urgent")}</option>
-              </select>
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 cursor-pointer transition-colors"
-              >
-                <Plus className="h-4 w-4" />
+              </Select>
+              <Button type="submit" size="md" variant="primary" className="text-xs font-semibold">
+                <Plus className="h-4 w-4" aria-hidden="true" />
                 {t("dashboard.addTask")}
-              </button>
+              </Button>
             </form>
           </div>
         );
@@ -535,21 +544,12 @@ export function DashboardPage({
                         </div>
                       </div>
                       {onToggleRoutine && (
-                        <button
-                          type="button"
+                        <Switch
+                          size="sm"
                           aria-label={`${t("dashboard.toggleRoutine")}: ${r.title}`}
-                          aria-pressed={r.enabled}
-                          onClick={() => void onToggleRoutine(r.id, !r.enabled)}
-                          className={`h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${
-                            r.enabled ? "bg-sky-500" : "bg-slate-700"
-                          }`}
-                        >
-                          <span
-                            className={`block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              r.enabled ? "translate-x-4" : "translate-x-0.5"
-                            }`}
-                          />
-                        </button>
+                          checked={r.enabled}
+                          onCheckedChange={(next) => void onToggleRoutine(r.id, next)}
+                        />
                       )}
                     </div>
                   );
@@ -600,9 +600,9 @@ export function DashboardPage({
                 <Bell className="h-4 w-4 text-amber-400" />
                 {t("dashboard.widgets.mini_alerts")}
                 {alerts.length > 0 && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
+                  <Badge variant="warning" className="rounded-full px-2 py-0.5 text-[11px] font-semibold">
                     {alerts.length}
-                  </span>
+                  </Badge>
                 )}
               </h3>
               <button
@@ -614,7 +614,7 @@ export function DashboardPage({
               </button>
             </div>
             {alerts.length === 0 ? (
-              <p className="text-xs text-slate-500">{t("reminders.noAlerts")}</p>
+              <EmptyState title={t("reminders.noAlerts")} className="py-5 px-3" />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {alerts.slice(0, 4).map((a) => (
@@ -633,13 +633,14 @@ export function DashboardPage({
                         )}
                       </div>
                     </div>
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
+                      variant="primary"
                       onClick={() => void onResolveAlert(a.id)}
-                      className="rounded-lg bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer shrink-0 transition-colors"
+                      className="h-7 px-2.5 bg-aura-success text-[11px] font-bold text-aura-inverse hover:bg-aura-success/90 shrink-0"
                     >
                       ✓ {t("reminders.resolve")}
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -667,7 +668,7 @@ export function DashboardPage({
                   onClick={() => onUpdateLayout({ ...layout, density: "comfortable" })}
                   className={`px-2.5 py-1 rounded-md cursor-pointer ${
                     layout.density === "comfortable"
-                      ? "bg-sky-500 text-slate-950 font-semibold"
+                      ? "bg-aura-accent text-aura-inverse font-semibold"
                       : "text-slate-400"
                   }`}
                 >
@@ -678,7 +679,7 @@ export function DashboardPage({
                   onClick={() => onUpdateLayout({ ...layout, density: "compact" })}
                   className={`px-2.5 py-1 rounded-md cursor-pointer ${
                     layout.density === "compact"
-                      ? "bg-sky-500 text-slate-950 font-semibold"
+                      ? "bg-aura-accent text-aura-inverse font-semibold"
                       : "text-slate-400"
                   }`}
                 >
@@ -709,37 +710,44 @@ export function DashboardPage({
                   <button
                     type="button"
                     onClick={() => toggleWidgetSpan(w.id)}
-                    className="rounded bg-slate-800 px-2 py-1 text-[10px] font-semibold text-sky-300 hover:bg-slate-700 cursor-pointer"
+                    className="rounded bg-slate-800 px-2 py-1 text-[11px] font-semibold text-sky-300 hover:bg-slate-700 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
                     title={t("dashboard.widgetWidth")}
                   >
                     {w.span === "full" ? t("dashboard.widthFull") : t("dashboard.widthHalf")}
                   </button>
                   <button
                     type="button"
+                    aria-label={`${t("dashboard.moveWidgetUp")}: ${t(`dashboard.widgets.${w.id}`)}`}
                     onClick={() => moveWidget(idx, -1)}
                     disabled={idx === 0}
-                    className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+                    className="p-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
                   >
-                    <ArrowUp className="h-3.5 w-3.5" />
+                    <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
+                    aria-label={`${t("dashboard.moveWidgetDown")}: ${t(`dashboard.widgets.${w.id}`)}`}
                     onClick={() => moveWidget(idx, 1)}
                     disabled={idx === layout.widgets.length - 1}
-                    className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+                    className="p-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
                   >
-                    <ArrowDown className="h-3.5 w-3.5" />
+                    <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
+                    aria-label={`${t("dashboard.toggleWidgetVisible")}: ${t(`dashboard.widgets.${w.id}`)}`}
                     onClick={() => toggleWidgetVisible(w.id)}
-                    className={`p-1 rounded cursor-pointer ${
+                    className={`p-1.5 rounded cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
                       w.visible
                         ? "bg-emerald-500/20 text-emerald-300"
                         : "bg-slate-800 text-slate-500"
                     }`}
                   >
-                    {w.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {w.visible ? (
+                      <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -770,22 +778,24 @@ export function DashboardPage({
                 </div>
                 <div className="flex items-center gap-2">
                   {onApproveProposal && (
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
+                      variant="primary"
                       onClick={() => void onApproveProposal(p.id)}
-                      className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500 cursor-pointer"
+                      className="bg-aura-success hover:bg-aura-success/90 text-aura-inverse text-xs font-semibold"
                     >
                       {t("dashboard.proposalsApprove")}
-                    </button>
+                    </Button>
                   )}
                   {onRejectProposal && (
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
+                      variant="secondary"
                       onClick={() => void onRejectProposal(p.id)}
-                      className="rounded-lg bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
+                      className="text-xs font-medium"
                     >
                       {t("dashboard.proposalsReject")}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

@@ -12,6 +12,7 @@ import {
   Timer,
 } from "lucide-react";
 
+import { Badge, Button, EmptyState, Input, Select } from "../components/ui";
 import type { PomodoroSession, SessionKind, Task } from "../lib/ipc";
 
 export interface PomodoroPageProps {
@@ -38,11 +39,11 @@ function formatClock(secs: number): string {
   return `${m}:${s}`;
 }
 
-function formatSessionTime(iso?: string | null): string | null {
+function formatSessionTime(locale: string, iso?: string | null): string | null {
   if (!iso) return null;
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return null;
-  return new Date(parsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(parsed).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function PomodoroPage({
@@ -62,7 +63,7 @@ export function PomodoroPage({
   onComplete,
   onAbandon,
 }: PomodoroPageProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [customMin, setCustomMin] = useState("");
 
   const safeCyclesTotal = Math.max(1, cyclesToLong);
@@ -104,9 +105,9 @@ export function PomodoroPage({
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-2.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full aura-glass-pill px-3.5 py-1 text-xs font-medium text-sky-300">
+          <Badge variant="info" className="rounded-full px-3.5 py-1 text-xs font-medium">
             {t("pomodoro.cycleProgress", { current: cycleCurrent, total: safeCyclesTotal })}
-          </span>
+          </Badge>
           <div className="inline-flex items-center gap-1.5 rounded-full aura-glass-pill px-2.5 py-1.5">
             {Array.from({ length: safeCyclesTotal }).map((_, idx) => {
               const filled = idx < completedFocusCount % safeCyclesTotal;
@@ -158,15 +159,18 @@ export function PomodoroPage({
               </svg>
               <div
                 data-testid="pomodoro-clock"
+                aria-live="off"
                 className="absolute text-5xl font-extrabold tracking-tight text-sky-300 tabular-nums"
               >
                 {formatClock(timerSecondsLeft)}
               </div>
             </div>
 
-            <div className="rounded-full aura-glass-pill px-4 py-1 text-xs font-semibold text-amber-300">
-              {timerPaused ? t("pomodoro.paused") : t("pomodoro.running")} •{" "}
-              {activePomo.planned_min} min ({t(`pomodoro.kinds.${activePomo.kind}`)})
+            <div role="status" aria-live="polite">
+              <Badge variant="warning" className="rounded-full px-4 py-1 text-xs font-semibold">
+                {timerPaused ? t("pomodoro.paused") : t("pomodoro.running")} •{" "}
+                {activePomo.planned_min} min ({t(`pomodoro.kinds.${activePomo.kind}`)})
+              </Badge>
             </div>
             {activePomo.task_id && (
               <div className="inline-flex items-center gap-1.5 text-xs text-slate-300 aura-glass-pill px-3.5 py-1.5 rounded-xl">
@@ -175,10 +179,11 @@ export function PomodoroPage({
               </div>
             )}
             <div className="flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
+              <Button
+                size="md"
+                variant="secondary"
                 onClick={onTogglePause}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 cursor-pointer"
+                className="rounded-xl text-xs font-semibold"
               >
                 {timerPaused ? (
                   <>
@@ -189,21 +194,23 @@ export function PomodoroPage({
                     <Pause className="h-4 w-4" /> {t("pomodoro.pauseTimer")}
                   </>
                 )}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="lg"
+                variant="primary"
                 onClick={() => void onComplete()}
-                className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-sm shadow-emerald-500/25 hover:bg-emerald-400 cursor-pointer"
+                className="rounded-xl bg-aura-success text-aura-inverse font-bold shadow-sm hover:bg-aura-success/90"
               >
                 ✓ {t("pomodoro.complete")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="lg"
+                variant="danger"
                 onClick={() => void onAbandon()}
-                className="rounded-xl bg-red-500/20 px-5 py-2.5 text-sm font-semibold text-red-300 ring-1 ring-red-500/40 hover:bg-red-500/30 cursor-pointer"
+                className="rounded-xl bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30 font-semibold"
               >
                 ✕ {t("pomodoro.abandon")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -218,10 +225,11 @@ export function PomodoroPage({
               </span>
             </div>
             <p className="text-sm text-slate-400">{t("pomodoro.idle")}</p>
-            <select
+            <Select
+              aria-label={t("pomodoro.selectTaskLabel")}
               value={selectedTaskId}
               onChange={(e) => onSelectTaskId(e.target.value)}
-              className="w-full rounded-xl bg-slate-950/80 px-3.5 py-2.5 text-xs text-slate-200 ring-1 ring-slate-800"
+              className="rounded-xl py-2.5 text-xs"
             >
               <option value="">{t("pomodoro.noTaskLinked")}</option>
               {tasks
@@ -231,52 +239,55 @@ export function PomodoroPage({
                     {task.title} ({t(`kanban.priority.${task.priority}`)})
                   </option>
                 ))}
-            </select>
+            </Select>
             <div className="flex flex-wrap justify-center gap-3 pt-1">
-              <button
-                type="button"
+              <Button
+                size="lg"
+                variant="primary"
                 onClick={() => void onStart("focus", focusMin, selectedTaskId || null)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-sm shadow-sky-500/25 hover:bg-sky-400 cursor-pointer"
+                className="rounded-xl font-bold shadow-sm shadow-sky-500/25"
               >
                 <Flame className="h-4 w-4" />
                 {t("pomodoro.startFocusCustom", { min: focusMin })}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
                 onClick={() => void onStart("short_break", shortMin, null)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700 cursor-pointer"
+                className="rounded-xl font-semibold"
               >
                 <Coffee className="h-4 w-4" />
                 {t("pomodoro.startShortBreakCustom", { min: shortMin })}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
                 onClick={() => void onStart("long_break", longMin, null)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700 cursor-pointer"
+                className="rounded-xl font-semibold"
               >
                 <Leaf className="h-4 w-4" />
                 {t("pomodoro.startLongBreakCustom", { min: longMin })}
-              </button>
+              </Button>
             </div>
 
             <form
               onSubmit={handleCustomSubmit}
               className="flex items-center justify-center gap-2 pt-1"
             >
-              <input
+              <Input
+                containerClassName="w-24"
                 type="number"
+                inputMode="numeric"
                 min={1}
+                aria-label={t("pomodoro.customMinutesLabel")}
                 value={customMin}
                 onChange={(e) => setCustomMin(e.target.value)}
                 placeholder={t("pomodoro.customMinutesPlaceholder")}
-                className="w-24 rounded-xl bg-slate-950/70 px-3 py-1.5 text-xs text-slate-100 ring-1 ring-slate-800 outline-none focus:ring-sky-500 text-center"
+                className="py-1.5 text-xs text-center"
               />
-              <button
-                type="submit"
-                className="rounded-xl aura-glass-pill px-3.5 py-1.5 text-xs font-semibold text-sky-300 hover:text-sky-200 cursor-pointer"
-              >
+              <Button type="submit" size="sm" variant="outline" className="rounded-xl text-xs font-semibold text-sky-300">
                 {t("pomodoro.startCustomFocus")}
-              </button>
+              </Button>
             </form>
           </div>
         )}
@@ -311,12 +322,12 @@ export function PomodoroPage({
               <Clock className="h-4 w-4 text-sky-400" />
               {t("pomodoro.history")}
             </h3>
-            <span className="rounded-full aura-glass-pill px-2 py-0.5 text-[11px] font-semibold text-slate-300 tabular-nums">
+            <Badge variant="neutral" className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums">
               {pomoHistory.length}
-            </span>
+            </Badge>
           </div>
           {pomoHistory.length === 0 ? (
-            <p className="text-xs text-slate-500 py-4 text-center">{t("pomodoro.noHistory")}</p>
+            <EmptyState title={t("pomodoro.noHistory")} className="py-6 px-3" />
           ) : (
             <div className="space-y-2 max-h-[340px] overflow-y-auto aura-scrollbar pr-1">
               {pomoHistory.map((s) => {
@@ -328,20 +339,20 @@ export function PomodoroPage({
                     : s.kind === "short_break"
                       ? "text-amber-400 bg-amber-500/15"
                       : "text-emerald-400 bg-emerald-500/15";
-                const statusBadge =
+                const statusVariant =
                   s.status === "completed"
-                    ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
+                    ? "success"
                     : s.status === "running" || s.status === "active"
-                      ? "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-                      : "bg-slate-800/80 text-slate-400 ring-slate-700/60";
-                const startedAt = formatSessionTime(s.started_at);
+                      ? "info"
+                      : "neutral";
+                const startedAt = formatSessionTime(i18n.language, s.started_at);
                 return (
                   <div
                     key={s.id}
                     className="flex items-center justify-between gap-2.5 rounded-xl aura-glass-pill px-3 py-2 text-xs"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`rounded-lg p-1.5 shrink-0 ${kindTone}`}>
+                      <span className={`rounded-lg p-1.5 shrink-0 ${kindTone}`} aria-hidden="true">
                         <KindIcon className="h-3.5 w-3.5" />
                       </span>
                       <div className="min-w-0">
@@ -349,15 +360,13 @@ export function PomodoroPage({
                           {t(`pomodoro.kinds.${s.kind}`)} • {s.actual_min ?? s.planned_min} min
                         </div>
                         {startedAt && (
-                          <div className="text-[10px] text-slate-400">{startedAt}</div>
+                          <div className="text-[11px] text-slate-400 tabular-nums">{startedAt}</div>
                         )}
                       </div>
                     </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 shrink-0 ${statusBadge}`}
-                    >
+                    <Badge variant={statusVariant} className="rounded-full px-2 py-0.5 text-[11px] font-semibold shrink-0">
                       {t(`pomodoro.statuses.${s.status}`)}
-                    </span>
+                    </Badge>
                   </div>
                 );
               })}

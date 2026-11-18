@@ -68,7 +68,7 @@ impl<'a> RemindersService<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Reminder, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let rem = conn
             .query_row(
                 "SELECT id, task_id, title, body, fire_at, repeat_kind, sound, status, \
@@ -84,7 +84,7 @@ impl<'a> RemindersService<'a> {
     }
 
     pub fn list(&self, include_resolved: bool) -> Result<Vec<Reminder>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let sql = if include_resolved {
             "SELECT id, task_id, title, body, fire_at, repeat_kind, sound, status, \
              snooze_count, last_snoozed_at, resolved_at, exceptions_log, created_at, updated_at \
@@ -113,6 +113,29 @@ impl<'a> RemindersService<'a> {
     /// creates `alerts_pending` + `notifications` records, and transitions
     /// each fired reminder to `status = 'fired'`.
     pub fn poll_and_fire_overdue(&self, now: DateTime<Utc>) -> Result<Vec<Alert>, CoreError> {
+        let now_str = now.to_rfc3339();
+        {
+            let reader = self.db.reader();
+            let has_due: bool = reader
+                .query_row(
+                    "SELECT EXISTS( \
+                        SELECT 1 FROM reminders \
+                        WHERE status = 'pending' \
+                        AND julianday(fire_at) <= julianday(?1) \
+                        AND NOT EXISTS ( \
+                            SELECT 1 FROM alerts_pending ap \
+                            WHERE ap.kind = 'reminder' AND ap.ref_id = reminders.id AND ap.resolved_at IS NULL \
+                        ) \
+                    )",
+                    params![now_str],
+                    |r| r.get(0),
+                )
+                .map_err(|e| CoreError::internal(format!("poll_overdue precheck: {e}")))?;
+            if !has_due {
+                return Ok(Vec::new());
+            }
+        }
+
         let mut conn = self.db.writer();
         let tx = conn
             .transaction()
@@ -124,6 +147,7 @@ impl<'a> RemindersService<'a> {
                     "SELECT id, task_id, title, body, fire_at, repeat_kind, sound, status, \
                      snooze_count, last_snoozed_at, resolved_at, exceptions_log, created_at, updated_at \
                      FROM reminders WHERE status = 'pending' \
+                     AND julianday(fire_at) <= julianday(?1) \
                      AND NOT EXISTS ( \
                          SELECT 1 FROM alerts_pending ap \
                          WHERE ap.kind = 'reminder' AND ap.ref_id = reminders.id AND ap.resolved_at IS NULL \
@@ -133,7 +157,7 @@ impl<'a> RemindersService<'a> {
                 .map_err(|e| CoreError::internal(format!("poll_overdue prepare: {e}")))?;
 
             let rows = stmt
-                .query_map([], Self::map_row)
+                .query_map(params![now_str], Self::map_row)
                 .map_err(|e| CoreError::internal(format!("poll_overdue query: {e}")))?;
 
             for r in rows {
@@ -144,7 +168,6 @@ impl<'a> RemindersService<'a> {
             }
         }
 
-        let now_str = now.to_rfc3339();
         let mut fired_alerts = Vec::new();
 
         for rem in due_reminders {

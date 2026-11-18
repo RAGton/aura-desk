@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AlertLockPage } from "./AlertLockPage";
@@ -100,5 +100,88 @@ describe("AlertLockPage", () => {
     render(<AlertLockPage />);
     expect(await screen.findByTestId("alert-lock-backdrop")).toBeInTheDocument();
     window.history.pushState({}, "", "/");
+  });
+
+  it("shows IPC error banner on resolve failure and supports emergency unlock button", async () => {
+    const pending = [
+      {
+        id: "lock-err-1",
+        kind: "reminder",
+        title: "Falha IPC",
+        body: "Testar destravamento",
+        severity: "urgent",
+        ref_id: null,
+        resolution: null,
+        resolved_at: null,
+        created_at: "2026-11-14T12:00:00Z",
+      },
+    ];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "alerts_list_pending") return pending;
+      if (cmd === "settings_get") return null;
+      if (cmd === "alerts_resolve") throw new Error("ipc channel offline");
+      if (cmd === "alerts_emergency_unlock") return 1;
+      return null;
+    });
+
+    render(<AlertLockPage />);
+    expect(await screen.findByText("Falha IPC")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("confirm-read-checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /Resolver/i }));
+
+    expect(await screen.findByTestId("alert-lock-ipc-error")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("emergency-unlock-btn"));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("alerts_emergency_unlock", undefined);
+    });
+  });
+
+  it("triggers emergency unlock on Ctrl+Shift+U keyboard shortcut", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "alerts_list_pending") return [];
+      if (cmd === "settings_get") return null;
+      if (cmd === "alerts_emergency_unlock") return 0;
+      return null;
+    });
+
+    render(<AlertLockPage />);
+    expect(await screen.findByTestId("emergency-unlock-btn")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "U", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("alerts_emergency_unlock", undefined);
+    });
+  });
+
+  it("shows IPC recovery banner after consecutive polling failures and unlocks via emergency button", async () => {
+    vi.useFakeTimers();
+    try {
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === "alerts_list_pending") {
+          throw new Error("ipc_down");
+        }
+        if (cmd === "alerts_emergency_unlock") return 1;
+        return null;
+      });
+
+      render(<AlertLockPage forceBackdrop />);
+
+      // Poll #1 runs on mount, poll #2 runs after 1000ms -> consecutiveErrorsRef >= 2.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+
+      expect(screen.getByTestId("alert-lock-ipc-error")).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("emergency-unlock-btn"));
+      });
+      expect(mockInvoke).toHaveBeenCalledWith("alerts_emergency_unlock", undefined);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

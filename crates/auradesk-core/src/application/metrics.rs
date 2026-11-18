@@ -31,7 +31,7 @@ impl<'a> MetricsService<'a> {
     }
 
     pub fn get_or_default(&self, date: &str) -> Result<DailyMetrics, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let row = conn
             .query_row(
                 "SELECT date, focus_minutes, break_minutes, water_count, tasks_done, tasks_created, active_minutes, notes \
@@ -104,7 +104,7 @@ impl<'a> MetricsService<'a> {
 
     pub fn list_recent(&self, limit: i64) -> Result<Vec<DailyMetrics>, CoreError> {
         let lim = limit.max(1);
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut stmt = conn
             .prepare(
                 "SELECT date, focus_minutes, break_minutes, water_count, tasks_done, tasks_created, active_minutes, notes \

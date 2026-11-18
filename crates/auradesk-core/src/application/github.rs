@@ -259,7 +259,7 @@ impl<'a> GithubSyncService<'a> {
 
     /// Lê um vínculo por id.
     pub fn get_link(&self, id: &str) -> Result<Option<GithubIssueLink>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let link = conn
             .query_row(
                 "SELECT id, source, external_id, repo, issue_number, issue_url, title, \
@@ -275,7 +275,7 @@ impl<'a> GithubSyncService<'a> {
 
     /// Lista vínculos, opcionalmente filtrados por project do card.
     pub fn list_links(&self, project_id: Option<&str>) -> Result<Vec<GithubIssueLink>, CoreError> {
-        let conn = self.db.writer();
+        let conn = self.db.reader();
         let mut out = Vec::new();
         match project_id {
             Some(p) => {
@@ -404,7 +404,7 @@ impl<'a> GithubSyncService<'a> {
 
 /// Helper to list all github issue links from the db (used by DataIoService export).
 pub fn list_all_links(db: &Db) -> Result<Vec<GithubIssueLink>, CoreError> {
-    let conn = db.writer();
+    let conn = db.reader();
     let mut stmt = conn
         .prepare(
             "SELECT id, source, external_id, repo, issue_number, issue_url, title, \
