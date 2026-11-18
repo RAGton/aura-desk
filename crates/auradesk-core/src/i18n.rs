@@ -28,6 +28,15 @@ pub fn t(key: &str) -> String {
     translate(rust_i18n::locale().as_str(), key)
 }
 
+/// Translate a key using the active locale and interpolate `%{name}` placeholders.
+pub fn t_with(key: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = t(key);
+    for (name, val) in vars {
+        out = out.replace(&format!("%{{{name}}}"), val);
+    }
+    out
+}
+
 /// Translate a key in a specific locale, ignoring the active one.
 ///
 /// Useful when a caller needs a fixed language regardless of the global

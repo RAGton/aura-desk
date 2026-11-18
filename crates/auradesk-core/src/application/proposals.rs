@@ -97,6 +97,20 @@ impl Proposal {
     }
 }
 
+/// Audit log entry recorded in `ia_commands`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IaCommandEntry {
+    pub id: String,
+    pub source: String,
+    pub tool_name: String,
+    pub args_json: String,
+    pub result_status: String,
+    pub result_message: Option<String>,
+    pub proposal_id: Option<String>,
+    pub invoked_at: String,
+}
+
 /// Service for managing IA proposals (`ia_proposals`) and audit log (`ia_commands`).
 pub struct ProposalsService<'a> {
     pub db: &'a Db,
@@ -173,6 +187,61 @@ impl<'a> ProposalsService<'a> {
         let mut out = Vec::new();
         for r in rows {
             out.push(r.map_err(|e| CoreError::internal(format!("proposals row: {e}")))?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_recent(&self, limit: i64) -> Result<Vec<Proposal>, CoreError> {
+        let lim = limit.clamp(1, 200);
+        let conn = self.db.reader();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, source, kind, payload, summary, status, created_at, expires_at, \
+                 decided_at, decision_note, result_ref_id, decided_by, payload_hash \
+                 FROM ia_proposals ORDER BY created_at DESC LIMIT ?1",
+            )
+            .map_err(|e| CoreError::internal(format!("proposals list_recent prepare: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![lim], Self::map_row)
+            .map_err(|e| CoreError::internal(format!("proposals list_recent query: {e}")))?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| CoreError::internal(format!("proposals row: {e}")))?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_commands(&self, limit: i64) -> Result<Vec<IaCommandEntry>, CoreError> {
+        let lim = limit.clamp(1, 200);
+        let conn = self.db.reader();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, source, tool_name, args_json, result_status, result_message, \
+                 proposal_id, invoked_at \
+                 FROM ia_commands ORDER BY invoked_at DESC LIMIT ?1",
+            )
+            .map_err(|e| CoreError::internal(format!("ia_commands list prepare: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![lim], |row| {
+                Ok(IaCommandEntry {
+                    id: row.get(0)?,
+                    source: row.get(1)?,
+                    tool_name: row.get(2)?,
+                    args_json: row.get(3)?,
+                    result_status: row.get(4)?,
+                    result_message: row.get(5)?,
+                    proposal_id: row.get(6)?,
+                    invoked_at: row.get(7)?,
+                })
+            })
+            .map_err(|e| CoreError::internal(format!("ia_commands list query: {e}")))?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| CoreError::internal(format!("ia_commands row: {e}")))?);
         }
         Ok(out)
     }

@@ -6,6 +6,7 @@ pub mod alert_lock;
 pub mod audio;
 pub mod desktop;
 pub mod github;
+pub mod hermes;
 pub mod ipc;
 pub mod routines;
 pub mod runtime;

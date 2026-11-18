@@ -15,3 +15,11 @@ en:
     compact_title: AuraDesk Compact
   github:
     issue_label: Issue
+  hermes:
+    proposal_task_summary: "Create task: %{title}"
+    proposal_reminder_summary: "Create reminder: %{title}"
+    proposal_created_reply: "Created pending proposal \"%{summary}\". Review and approve it in the proposals queue below."
+    overview_reply: "Today: %{overdue} overdue, %{due_today} due today, %{in_progress} in progress, %{focus_min}m focus logged."
+    help_reply: "Offline Aura assistant ready. Try: \"create task <title>\", \"remind me <title>\", or \"summary\"."
+    cli_unavailable: "Hermes CLI binary was not found on this host; running in local offline proposal mode."
+    cli_failed: "Hermes CLI returned exit code %{code}."

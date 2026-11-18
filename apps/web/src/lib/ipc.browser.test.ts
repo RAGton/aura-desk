@@ -13,15 +13,18 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   advanceCalendarMonthIso,
   alertsApi,
+  audioApi,
   dashboardApi,
   dataIoApi,
   desktopApi,
   githubApi,
+  hermesApi,
   integrationApi,
   ipc,
   parseDailyPlanNotes,
   pomodoroApi,
   projectsApi,
+  proposalsApi,
   remindersApi,
   reportsApi,
   settingsApi,
@@ -608,6 +611,55 @@ describe("browser fallback (localStorage engine)", () => {
       expect(state.compactOpen).toBe(true);
       expect(state.autostartEnabled).toBe(true);
       expect(await desktopApi.applyMonitorPreference(false)).toContain("placed:");
+    });
+
+    it("supports Hermes offline proposals, edit-approve modifications, audit log, and WAV capture", async () => {
+      const status = await hermesApi.status();
+      expect(status.available).toBe(false);
+
+      const taskReply = await hermesApi.sendMessage("criar tarefa: Revisar arquitetura");
+      expect(taskReply.mode).toBe("local");
+      expect(taskReply.proposal?.kind).toBe("create_task");
+      expect(taskReply.proposal?.status).toBe("pending");
+
+      // Tasks table must remain untouched until user approves the proposal.
+      expect(await tasksApi.list()).toHaveLength(0);
+
+      const pendingBefore = await proposalsApi.listPending();
+      expect(pendingBefore).toHaveLength(1);
+
+      await proposalsApi.approve(pendingBefore[0].id, "Com prioridade ajustada", {
+        title: "Revisar arquitetura v2",
+        priority: "urgent",
+      });
+
+      expect(await proposalsApi.listPending()).toHaveLength(0);
+      const tasks = await tasksApi.list();
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].title).toBe("Revisar arquitetura v2");
+      expect(tasks[0].priority).toBe("urgent");
+
+      const reminderReply = await hermesApi.sendMessage("remind me: Stretch eyes");
+      expect(reminderReply.proposal?.kind).toBe("create_reminder");
+      await proposalsApi.reject(reminderReply.proposal!.id, "Not needed");
+
+      const recent = await proposalsApi.listRecent(10);
+      expect(recent).toHaveLength(2);
+      expect(recent.map((p) => p.status).sort()).toEqual(["approved", "rejected"]);
+
+      const summaryReply = await hermesApi.sendMessage("resumo");
+      expect(summaryReply.proposal).toBeNull();
+      expect(summaryReply.replyText.length).toBeGreaterThan(0);
+
+      const commands = await proposalsApi.listCommands(20);
+      expect(commands.some((c) => c.toolName === "propose_create_task")).toBe(true);
+      expect(commands.some((c) => c.toolName === "approve_proposal")).toBe(true);
+      expect(commands.some((c) => c.toolName === "reject_proposal")).toBe(true);
+      expect(commands.some((c) => c.toolName === "get_today_overview")).toBe(true);
+
+      const wavResult = await audioApi.saveVoiceCapture("UklGRg==", "../bad path/note");
+      expect(wavResult.bytes).toBeGreaterThan(0);
+      expect(wavResult.filePath).toContain(".wav");
     });
   });
 });

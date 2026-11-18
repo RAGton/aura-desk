@@ -26,6 +26,7 @@
     "pomodoro": "Pomodoro & Foco",
     "reminders": "Lembretes & Alertas",
     "reports": "Relatórios",
+    "hermes": "Hermes IA",
     "settings": "Configurações"
   },
   "dashboard": {
@@ -483,5 +484,66 @@
     "exceptionNoteRequired": "Justificativa obrigatória",
     "invalidEstimate": "Estimativa deve ser um número positivo de minutos.",
     "invalidDueDate": "Data de vencimento inválida."
+  },
+  "hermes": {
+    "title": "Hermes Agente & Auditoria",
+    "subtitle": "Converse com o assistente local, grave notas em WAV, aprove propostas da IA antes de aplicá-las e inspecione o registro de comandos.",
+    "cliOnline": "Hermes CLI detectado ({{path}})",
+    "cliOffline": "Hermes CLI offline — analisador local de propostas ativo",
+    "useCliLabel": "Transmitir via Hermes CLI",
+    "chatTitle": "Conversa & Propostas",
+    "chatEmpty": "Peça para o Hermes propor uma tarefa, agendar um lembrete ou resumir seu dia.",
+    "chatPlaceholder": "Ex: \"criar tarefa: Revisar sprint\" ou \"resumo\"",
+    "sendButton": "Enviar",
+    "sending": "Enviando...",
+    "userRole": "Você",
+    "assistantRole": "Hermes",
+    "quickActions": {
+      "createTask": "Propor tarefa",
+      "createReminder": "Propor lembrete",
+      "summary": "Resumo do dia"
+    },
+    "voice": {
+      "record": "Gravar Nota WAV",
+      "stopAndSave": "Parar & Salvar WAV",
+      "saving": "Salvando áudio...",
+      "saved": "Nota de voz salva ({{bytes}} bytes) -> {{path}}",
+      "unsupported": "Gravação de áudio não é suportada neste navegador.",
+      "failed": "Não foi possível capturar o áudio."
+    },
+    "proposals": {
+      "title": "Fila de Aprovação de Propostas",
+      "filterPending": "Pendentes ({{count}})",
+      "filterRecent": "Histórico ({{count}})",
+      "empty": "Nenhuma proposta nesta visualização.",
+      "approve": "Aprovar",
+      "editApprove": "Editar & Aprovar",
+      "reject": "Rejeitar",
+      "saveApprove": "Aplicar & Aprovar",
+      "cancelEdit": "Cancelar",
+      "titleLabel": "Título",
+      "priorityLabel": "Prioridade",
+      "noteLabel": "Nota da decisão (opcional)",
+      "notePlaceholder": "Adicione um contexto opcional para auditoria...",
+      "approvedSuccess": "Proposta aprovada e aplicada.",
+      "rejectedSuccess": "Proposta rejeitada."
+    },
+    "audit": {
+      "title": "Registro de Auditoria da IA",
+      "subtitle": "Toda ferramenta proposta ou aprovada fica registrada aqui.",
+      "empty": "Nenhum comando de IA registrado ainda.",
+      "columns": {
+        "time": "Quando",
+        "source": "Origem",
+        "tool": "Ferramenta",
+        "status": "Status",
+        "args": "Argumentos"
+      }
+    },
+    "proposalTaskSummary": "Criar tarefa: {{title}}",
+    "proposalReminderSummary": "Criar lembrete: {{title}}",
+    "proposalCreatedReply": "Proposta pendente criada: \"{{summary}}\". Revise e aprove na fila abaixo.",
+    "overviewReply": "Hoje: {{overdue}} atrasadas, {{due_today}} para hoje, {{in_progress}} em andamento, {{focus_min}}min focados.",
+    "helpReply": "Assistente offline Aura pronto. Tente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\"."
   }
 }

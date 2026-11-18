@@ -809,6 +809,54 @@ impl<'a> DataIoService<'a> {
     }
 }
 
+/// Decode a base64 WAV audio capture and save it safely inside `captures_dir`.
+pub fn save_voice_capture_base64(
+    captures_dir: &std::path::Path,
+    wav_base64: &str,
+    filename_hint: Option<&str>,
+) -> Result<(String, usize), CoreError> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(wav_base64.trim())
+        .map_err(|e| {
+            CoreError::validation("audio", format!("invalid base64 audio payload: {e}"))
+        })?;
+    if bytes.is_empty() {
+        return Err(CoreError::validation("audio", "empty audio payload"));
+    }
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err(CoreError::validation(
+            "audio",
+            "audio capture exceeds 25 MB limit",
+        ));
+    }
+
+    std::fs::create_dir_all(captures_dir)
+        .map_err(|e| CoreError::internal(format!("create voice captures dir: {e}")))?;
+
+    let raw_hint = filename_hint.unwrap_or("voice-note");
+    let sanitized: String = raw_hint
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = sanitized.trim_matches('-');
+    let stem = if stem.is_empty() { "voice-note" } else { stem };
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let unique = &uuid::Uuid::new_v4().to_string()[..8];
+    let file_name = format!("{stem}-{stamp}-{unique}.wav");
+    let dest = captures_dir.join(&file_name);
+
+    std::fs::write(&dest, &bytes)
+        .map_err(|e| CoreError::internal(format!("write voice capture: {e}")))?;
+    Ok((dest.display().to_string(), bytes.len()))
+}
+
 fn validate_hex_color(s: &str) -> bool {
     if s.len() != 7 || !s.starts_with('#') {
         return false;
