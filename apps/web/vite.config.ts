@@ -15,6 +15,17 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          i18n: ["i18next", "react-i18next", "i18next-browser-languagedetector"],
+          icons: ["lucide-react"],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: "jsdom",

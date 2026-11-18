@@ -77,6 +77,14 @@ fn try_acquire_instance_lock(data_dir: &std::path::Path) -> Option<std::fs::File
 }
 
 pub fn build() -> tauri::Builder<tauri::Wry> {
+    #[cfg(windows)]
+    if let Some(custom_data) = std::env::var_os("AURADESK_DATA_DIR") {
+        if !custom_data.is_empty() && std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+            let wv = std::path::PathBuf::from(custom_data).join("webview2");
+            std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", wv);
+        }
+    }
+
     tauri::Builder::default()
         .setup(|app| {
             // Open the database. The path is resolved relative to the

@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "auradesk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "auradesk-core",
  "chrono",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "auradesk-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "auradesk-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "auradesk-core",
