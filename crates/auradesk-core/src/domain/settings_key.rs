@@ -226,6 +226,22 @@ impl SettingsKey {
         })
     }
 
+    /// Keys whose value is a credential (API key, token, secret).
+    ///
+    /// These are never written to a backup export in plaintext. See
+    /// [`crate::application::data_io`] for the redaction rules.
+    ///
+    /// This const is the single source of truth for "which settings are
+    /// secrets" — callers must not compare raw key strings.
+    pub const SENSITIVE: &'static [SettingsKey] = &[Self::AiApiKey, Self::RaglightApiKey];
+
+    /// Whether this key holds a credential that must be redacted on export.
+    ///
+    /// Prefer [`Self::SENSITIVE`] when iterating over several keys.
+    pub fn is_sensitive(&self) -> bool {
+        Self::SENSITIVE.contains(self)
+    }
+
     /// All keys, in stable order. Used by `SettingsService::get_all` and
     /// by tooling that wants to enumerate the canonical set.
     pub const ALL: &'static [SettingsKey] = &[
