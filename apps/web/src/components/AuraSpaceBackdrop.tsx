@@ -2,6 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface AuraSpaceBackdropProps {
   immersive?: boolean;
+  /**
+   * Forces the backdrop into its own dark "galaxy" identity regardless of the
+   * global UI theme. Used by the cockpit so the cosmos never washes out to the
+   * light page background. Defaults to false to preserve the current
+   * theme-reactive behaviour outside the cockpit.
+   */
+  galaxyDark?: boolean;
 }
 
 interface StaticStar2D {
@@ -575,7 +582,10 @@ function renderFallback2D(ctx: CanvasRenderingContext2D, w: number, h: number, s
   }
 }
 
-export function AuraSpaceBackdrop({ immersive: immersiveProp }: AuraSpaceBackdropProps = {}) {
+export function AuraSpaceBackdrop({
+  immersive: immersiveProp,
+  galaxyDark = false,
+}: AuraSpaceBackdropProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isLightTheme, setIsLightTheme] = useState(false);
   const [detectedAuraScreen, setDetectedAuraScreen] = useState(false);
@@ -760,19 +770,27 @@ export function AuraSpaceBackdrop({ immersive: immersiveProp }: AuraSpaceBackdro
     };
   }, [starData, immersive]);
 
+  // In "galaxy dark" mode the backdrop keeps its deep-space identity and never
+  // fades out, whatever the global UI theme is.
+  const washedOut = isLightTheme && !galaxyDark;
+
   return (
     <div
       aria-hidden="true"
       data-testid="aura-space-backdrop"
       className="pointer-events-none fixed inset-0 -z-10 overflow-hidden select-none"
     >
-      <div className={isLightTheme ? "absolute inset-0 opacity-60" : "absolute inset-0 opacity-20"}>
-        <div className="aura-galaxy-nebula absolute inset-0" />
+      <div className={washedOut ? "absolute inset-0 opacity-60" : "absolute inset-0 opacity-20"}>
+        <div
+          className={`aura-galaxy-nebula absolute inset-0${
+            galaxyDark ? " aura-galaxy-nebula-dark" : ""
+          }`}
+        />
       </div>
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 h-full w-full transition-opacity duration-500 ${
-          isLightTheme ? "opacity-15" : "opacity-100"
+          washedOut ? "opacity-15" : "opacity-100"
         }`}
       />
     </div>

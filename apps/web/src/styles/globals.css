@@ -44,6 +44,13 @@ html[data-theme="dark"] {
   --shadow-surface: 0 12px 36px -12px rgba(2, 6, 23, 0.72);
   --shadow-elevated: 0 20px 44px -16px rgba(2, 6, 23, 0.85);
 
+  /* Galaxy identity: the cosmos keeps its own dark palette in BOTH themes.
+     Declared in every theme block on purpose — the galaxy never inherits the
+     global UI theme. */
+  --aura-galaxy-base: #030509;
+  --aura-galaxy-deep: #010206;
+  --aura-galaxy-mid: rgba(2, 4, 10, 0.78);
+
   /* Legacy Aura Surface Tokens */
   --aura-bg-base: rgb(var(--bg-canvas));
   --aura-bg-mesh:
@@ -114,6 +121,12 @@ html[data-theme="light"] {
 
   --shadow-surface: 0 12px 32px -12px rgba(15, 23, 42, 0.12);
   --shadow-elevated: 0 20px 44px -14px rgba(15, 23, 42, 0.18);
+
+  /* The galaxy keeps its own dark identity — it does NOT follow the light UI
+     theme. Same values as the dark theme on purpose. */
+  --aura-galaxy-base: #030509;
+  --aura-galaxy-deep: #010206;
+  --aura-galaxy-mid: rgba(2, 4, 10, 0.78);
 
   --aura-bg-base: #eef4fb;
   --aura-bg-mesh:
@@ -471,6 +484,25 @@ html[data-theme="light"] .aura-galaxy-nebula {
     );
   animation: none;
   opacity: 0.72;
+}
+
+/* Galaxy dark identity: the nebula keeps its own deep-space palette even when
+   the global UI theme is light. Used by the cockpit / pyramid galaxy. */
+.aura-galaxy-nebula-dark,
+html[data-theme="light"] .aura-galaxy-nebula-dark {
+  background-image:
+    radial-gradient(ellipse 90% 80% at 50% 45%, rgba(15, 23, 42, 0.22), rgba(2, 4, 10, 0.78) 72%, rgba(1, 2, 6, 0.96) 100%);
+  animation: none;
+  opacity: 1;
+}
+
+/* The galaxy container paints its own opaque, theme-independent background so
+   the cosmos never shows the light page background through the canvas. */
+.aura-galaxy-surface {
+  background-color: var(--aura-galaxy-base);
+  background-image:
+    radial-gradient(ellipse 90% 80% at 50% 45%, rgba(15, 23, 42, 0.22), var(--aura-galaxy-mid) 72%, var(--aura-galaxy-deep) 100%);
+  background-attachment: fixed;
 }
 
 .aura-starfield {

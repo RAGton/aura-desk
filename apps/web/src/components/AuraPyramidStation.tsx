@@ -58,6 +58,14 @@ export interface AuraPyramidStationProps {
   onOpenSettings?: () => void;
 }
 
+/**
+ * The galaxy owns its visual identity: it always renders in its deep-space
+ * palette, in BOTH the light and the dark UI theme. This is the single
+ * decision point every cosmic drawing routine reads — flipping it to `true`
+ * would make the whole cosmos follow the light palette again.
+ */
+const GALAXY_LIGHT = false;
+
 type Rgb = readonly [number, number, number];
 
 interface Vec3 {
@@ -975,15 +983,15 @@ function drawBackgroundStars(
   width: number,
   height: number,
   t: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
-  const starRgb: Rgb = isLight ? [14, 116, 144] : [186, 230, 253];
+  const starRgb: Rgb = galaxyLight ? [14, 116, 144] : [186, 230, 253];
   for (let i = 0; i < STAR_FIELD.length; i += 1) {
     const st = STAR_FIELD[i];
     const x = st.nx * width;
     const y = st.ny * height;
     const twinkle = 0.18 + 0.24 * Math.sin(t * 1.1 + st.phase);
-    ctx.fillStyle = rgba(starRgb, isLight ? twinkle * 0.4 : twinkle);
+    ctx.fillStyle = rgba(starRgb, galaxyLight ? twinkle * 0.4 : twinkle);
     ctx.beginPath();
     ctx.arc(x, y, st.size, 0, Math.PI * 2);
     ctx.fill();
@@ -1041,16 +1049,16 @@ function drawOrbitRingsPass(
   cx: number,
   cy: number,
   focal: number,
-  isLight: boolean,
+  galaxyLight: boolean,
   activityBoost: number,
   frontPass: boolean
 ) {
   const ringFade = 1 - expandSmooth * 0.72;
   if (ringFade <= 0.02) return;
 
-  const cyanRgb: Rgb = isLight ? [3, 105, 161] : CYAN_RGB;
-  const indigoRgb: Rgb = isLight ? [67, 56, 202] : INDIGO_RGB;
-  const emeraldRgb: Rgb = isLight ? [5, 150, 105] : EMERALD_RGB;
+  const cyanRgb: Rgb = galaxyLight ? [3, 105, 161] : CYAN_RGB;
+  const indigoRgb: Rgb = galaxyLight ? [67, 56, 202] : INDIGO_RGB;
+  const emeraldRgb: Rgb = galaxyLight ? [5, 150, 105] : EMERALD_RGB;
 
   for (let rIdx = 0; rIdx < hindsightRingIndices.length; rIdx += 1) {
     const idx = hindsightRingIndices[rIdx];
@@ -1058,8 +1066,8 @@ function drawOrbitRingsPass(
     const col = idx % 2 === 0 ? cyanRgb : indigoRgb;
     const alpha =
       (frontPass
-        ? (isLight ? 0.19 : 0.21) + activityBoost * 0.08
-        : isLight
+        ? (galaxyLight ? 0.19 : 0.21) + activityBoost * 0.08
+        : galaxyLight
           ? 0.07
           : 0.08) * ringFade;
     drawSingleRingPass(
@@ -1081,8 +1089,8 @@ function drawOrbitRingsPass(
   if (hasRaglightRing) {
     const ragAlpha =
       (frontPass
-        ? (isLight ? 0.24 : 0.26) + (ragActive ? 0.14 : 0) + activityBoost * 0.06
-        : isLight
+        ? (galaxyLight ? 0.24 : 0.26) + (ragActive ? 0.14 : 0) + activityBoost * 0.06
+        : galaxyLight
           ? 0.08
           : 0.1) * ringFade;
     drawSingleRingPass(
@@ -1112,10 +1120,10 @@ function drawListeningRipples(
   cx: number,
   cy: number,
   focal: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   if (listenLevel <= 0.02) return;
-  const rippleRgb: Rgb = isLight ? [2, 132, 199] : CYAN_RGB;
+  const rippleRgb: Rgb = galaxyLight ? [2, 132, 199] : CYAN_RGB;
   const segs = 48;
   const baseY = lerp(BASE_Y, -0.35, expandSmooth);
 
@@ -1159,15 +1167,15 @@ function drawVoiceAuraBloom(
   cx: number,
   cy: number,
   focal: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   const activity = Math.max(speakLevel, listenLevel * 0.55);
   const centerProj = projectView(rotateView({ x: 0, y: 0.12, z: 0 }, yaw, pitch), cx, cy, focal);
   if (!centerProj) return;
 
   const voiceHarmonic = 0.5 + 0.5 * (0.65 * Math.sin(t * 7.2) + 0.35 * Math.sin(t * 13.4));
-  const cyan: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
-  const brightCyan: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const cyan: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
+  const brightCyan: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
   const auraCol = speakLevel > 0.05 ? lerpRgb(cyan, brightCyan, 0.35 * voiceHarmonic) : cyan;
 
   const baseR = (76 + activity * (72 + 30 * voiceHarmonic) + expandSmooth * 34) * zoom;
@@ -1179,7 +1187,7 @@ function drawVoiceAuraBloom(
     centerProj.sy,
     baseR
   );
-  const peakAlpha = (isLight ? 0.15 : 0.2) + speakLevel * 0.32 + listenLevel * 0.12;
+  const peakAlpha = (galaxyLight ? 0.15 : 0.2) + speakLevel * 0.32 + listenLevel * 0.12;
   grad.addColorStop(0, rgba(auraCol, peakAlpha));
   grad.addColorStop(0.45, rgba(cyan, peakAlpha * 0.45));
   grad.addColorStop(1, rgba(cyan, 0));
@@ -1247,12 +1255,12 @@ function drawPyramidalVoiceAuraPass(
   alphaGain: number,
   lineWidth: number,
   frontPass: boolean,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   if (alphaGain <= 0.015) return;
   const { verts } = shell;
-  const cyan: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
-  const bright: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const cyan: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
+  const bright: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
 
   const faceIndices: readonly [number, number, number][] = [
     [0, 1, 2],
@@ -1400,10 +1408,10 @@ function drawPentachoron(
   focal: number,
   speakLevel: number,
   listenLevel: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
-  const cyan: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
-  const brightCyan: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const cyan: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
+  const brightCyan: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
   const boost = 1 + speakLevel * 0.65 + listenLevel * 0.4;
   const baseScale = dilation * (1 + expandSmooth * 0.35);
 
@@ -1959,7 +1967,7 @@ function drawBloomingPyramid(
   speakLevel: number,
   listenLevel: number,
   snap: SceneSnapshot,
-  isLight: boolean
+  galaxyLight: boolean
 ): {
   apexProj: ProjectedPoint | null;
   rightFacetProj: ProjectedPoint | null;
@@ -1979,10 +1987,10 @@ function drawBloomingPyramid(
   ];
 
   // Unified vivid cyber-cyan colors (single cohesive palette, high-contrast)
-  const cyan: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
-  const indigo: Rgb = isLight ? [2, 128, 198] : INDIGO_RGB;
-  const emerald: Rgb = isLight ? [6, 182, 212] : EMERALD_RGB;
-  const brightCyan: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const cyan: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
+  const indigo: Rgb = galaxyLight ? [2, 128, 198] : INDIGO_RGB;
+  const emerald: Rgb = galaxyLight ? [6, 182, 212] : EMERALD_RGB;
+  const brightCyan: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
 
   const speakEdgeRgb = lerpRgb(cyan, brightCyan, 0.35 + 0.45 * voiceHarmonic);
 
@@ -2138,11 +2146,11 @@ function drawBloomingPyramid(
 
     const alphaMult = petal.isBase ? 1 - expandSmooth * 0.72 : facetFade;
     if (isFront) {
-      const baseA = ((isLight ? 0.14 : 0.17) + petal.light * 0.15) * alphaMult;
+      const baseA = ((galaxyLight ? 0.14 : 0.17) + petal.light * 0.15) * alphaMult;
       grad.addColorStop(0, rgba(topCol, baseA + 0.06 * alphaMult));
       grad.addColorStop(1, rgba(botCol, baseA * 0.68));
     } else {
-      const backA = (isLight ? 0.05 : 0.08) * alphaMult;
+      const backA = (galaxyLight ? 0.05 : 0.08) * alphaMult;
       grad.addColorStop(0, rgba(topCol, backA));
       grad.addColorStop(1, rgba(botCol, backA * 0.65));
     }
@@ -2302,7 +2310,7 @@ function drawBloomingPyramid(
       focal,
       speakLevel,
       listenLevel,
-      isLight
+      GALAXY_LIGHT
     );
   }
 
@@ -2406,14 +2414,14 @@ function drawEmeraldCrystalNode(
   focal: number,
   isActive: boolean,
   ragActive: boolean,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   const { proj, world, radiusPx, alphaScale } = item;
   if (alphaScale <= 0.02) return;
   const depthFade = Math.max(0.48, Math.min(1, (CAM_DIST + 1.8 - proj.depth) / 3.6)) * alphaScale;
-  const emeraldCore: Rgb = isLight ? [0, 145, 215] : EMERALD_CORE_RGB;
-  const emeraldBright: Rgb = isLight ? EMERALD_CORE_RGB : EMERALD_RGB;
-  const emeraldEdge: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const emeraldCore: Rgb = galaxyLight ? [0, 145, 215] : EMERALD_CORE_RGB;
+  const emeraldBright: Rgb = galaxyLight ? EMERALD_CORE_RGB : EMERALD_RGB;
+  const emeraldEdge: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
 
   // Collapsed-mode emerald tether to right prism facet when hovered/active/running
   if (
@@ -2424,7 +2432,7 @@ function drawEmeraldCrystalNode(
   ) {
     const filamentActive = isActive || ragActive;
     const lineAlpha =
-      (filamentActive ? 0.56 : isLight ? 0.14 : 0.16) * depthFade * (1 - expandSmooth * 2.8);
+      (filamentActive ? 0.56 : galaxyLight ? 0.14 : 0.16) * depthFade * (1 - expandSmooth * 2.8);
     if (lineAlpha > 0.01) {
       ctx.strokeStyle = rgba(emeraldBright, lineAlpha);
       ctx.lineWidth = isActive ? 1.55 : filamentActive ? 1.15 : 0.75;
@@ -2563,7 +2571,7 @@ function drawNodesPass(
   activeNodeId: string | null,
   signalMap: Map<string, MemorySignalMode>,
   ragActive: boolean,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   for (let i = 0; i < nodes.length; i += 1) {
     const item = nodes[i];
@@ -2587,7 +2595,7 @@ function drawNodesPass(
         focal,
         isActive,
         ragActive,
-        isLight
+        GALAXY_LIGHT
       );
       continue;
     }
@@ -2598,7 +2606,7 @@ function drawNodesPass(
     // Collapsed-mode whisper tether to apex for front nodes
     if (expandSmooth < 0.35 && apexProj && (proj.view.z >= 0 || isActive) && node.kind !== "apex") {
       const tetherAlpha =
-        (isActive ? 0.68 : (isLight ? 0.13 : 0.15) * depthFade) * (1 - expandSmooth * 2.8);
+        (isActive ? 0.68 : (galaxyLight ? 0.13 : 0.15) * depthFade) * (1 - expandSmooth * 2.8);
       if (tetherAlpha > 0.01) {
         ctx.strokeStyle = rgba(rgb, tetherAlpha);
         ctx.lineWidth = isActive ? 1.5 : 0.8;
@@ -2704,7 +2712,7 @@ function drawNodesPass(
     }
 
     // Specular highlight dot
-    ctx.fillStyle = rgba([255, 255, 255], (isLight ? 0.68 : 0.85) * depthFade);
+    ctx.fillStyle = rgba([255, 255, 255], (galaxyLight ? 0.68 : 0.85) * depthFade);
     ctx.beginPath();
     ctx.arc(proj.sx - radiusPx * 0.28, proj.sy - radiusPx * 0.28, radiusPx * 0.3, 0, Math.PI * 2);
     ctx.fill();
@@ -2743,10 +2751,10 @@ function drawClusterSectors(
   cx: number,
   cy: number,
   focal: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   if (expandSmooth <= 0.12 || clusters.length === 0) return;
-  const colBase: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
+  const colBase: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
   const segs = 36;
 
   for (let c = 0; c < clusters.length; c += 1) {
@@ -2765,7 +2773,7 @@ function drawClusterSectors(
       centerProj.sy,
       Math.max(12, screenR)
     );
-    const fillAlpha = (isLight ? 0.055 : 0.075) * expandSmooth;
+    const fillAlpha = (galaxyLight ? 0.055 : 0.075) * expandSmooth;
     radialFill.addColorStop(0, rgba(cl.rgb, fillAlpha));
     radialFill.addColorStop(0.75, rgba(colBase, fillAlpha * 0.45));
     radialFill.addColorStop(1, rgba(colBase, 0));
@@ -2776,7 +2784,7 @@ function drawClusterSectors(
 
     // Tilted 3D circular boundary ring enclosing the sector's memories
     const r = cl.radius * (0.72 + 0.28 * expandSmooth);
-    ctx.strokeStyle = rgba(colBase, (isLight ? 0.24 : 0.3) * expandSmooth);
+    ctx.strokeStyle = rgba(colBase, (galaxyLight ? 0.24 : 0.3) * expandSmooth);
     ctx.lineWidth = 0.95;
     ctx.setLineDash([4, 6]);
     ctx.beginPath();
@@ -2935,7 +2943,7 @@ function drawGraphEdges(
   activeNodeId: string | null,
   signalMap: Map<string, MemorySignalMode>,
   activePulses: EnergyPulse[],
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   if (expandSmooth <= 0.02) return;
 
@@ -2976,7 +2984,7 @@ function drawGraphEdges(
     const alpha =
       (baseAlpha + (connectedToActive ? 0.44 : 0) + pulseBoost * 0.35) *
       expandSmooth *
-      (isLight ? 0.92 : 1);
+      (galaxyLight ? 0.92 : 1);
 
     ctx.strokeStyle = rgba(signaledEdge ? ICE_RGB : e.rgb, Math.min(0.95, alpha));
     ctx.lineWidth = lineWidth + (connectedToActive ? 0.75 : 0) + pulseBoost * 0.7;
@@ -3010,7 +3018,7 @@ function drawOpeningExplosion(
   cx: number,
   cy: number,
   focal: number,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   if (!explosion.active) return;
   const p = clamp(explosion.progress, 0, 1);
@@ -3018,8 +3026,8 @@ function drawOpeningExplosion(
   if (env <= 0.01) return;
 
   const centerProj = projectView(rotateView({ x: 0, y: 0.12, z: 0 }, yaw, pitch), cx, cy, focal);
-  const cyan: Rgb = isLight ? [0, 150, 220] : CYAN_RGB;
-  const ice: Rgb = isLight ? [2, 132, 199] : ICE_RGB;
+  const cyan: Rgb = galaxyLight ? [0, 150, 220] : CYAN_RGB;
+  const ice: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
 
   if (centerProj) {
     // Rapid expanding supernova plasma flash + 2 shockwave rings
@@ -3091,7 +3099,7 @@ function drawEnergyPulsesAndShockwaves(
   shockwaves: Shockwave[],
   preparedMap: Map<string, PreparedNode>,
   apexFallbackProj: ProjectedPoint | null,
-  isLight: boolean
+  galaxyLight: boolean
 ) {
   // Draw glowing energy packets + comet trails along edges
   for (let i = 0; i < pulses.length; i += 1) {
@@ -3111,7 +3119,7 @@ function drawEnergyPulsesAndShockwaves(
 
     const grad = ctx.createLinearGradient(tx, ty, hx, hy);
     grad.addColorStop(0, rgba(p.rgb, 0));
-    grad.addColorStop(1, rgba(p.rgb, isLight ? 0.88 : 0.96));
+    grad.addColorStop(1, rgba(p.rgb, galaxyLight ? 0.88 : 0.96));
     ctx.strokeStyle = grad;
     ctx.lineWidth = 2.4;
     ctx.beginPath();
@@ -3138,7 +3146,7 @@ function drawEnergyPulsesAndShockwaves(
     if (!pt) continue;
 
     const radius = lerp(6, 32, sw.progress);
-    const alpha = (1 - sw.progress) * (isLight ? 0.72 : 0.82);
+    const alpha = (1 - sw.progress) * (galaxyLight ? 0.72 : 0.82);
     ctx.strokeStyle = rgba(sw.rgb, alpha);
     ctx.lineWidth = 1.6 * (1 - sw.progress * 0.5);
     ctx.beginPath();
@@ -3346,6 +3354,7 @@ export function AuraPyramidStation({
   const didDragRef = useRef(false);
   const pointerLastRef = useRef({ x: 0, y: 0 });
   const reducedMotionRef = useRef(false);
+  const isLightThemeRef = useRef(false);
   const projectedHitsRef = useRef<ProjectedHit[]>([]);
   const pyramidCenterHitRef = useRef<{ sx: number; sy: number; radius: number } | null>(null);
 
@@ -3592,9 +3601,16 @@ export function AuraPyramidStation({
 
       const snap = snapshotRef.current;
       const { width, height, dpr } = sizeRef.current;
-      const isLight =
-        typeof document !== "undefined" &&
-        document.documentElement.dataset.theme === "light";
+
+      // Two distinct themes live here:
+      //  - `isLightTheme` is the GLOBAL UI theme (read via a MutationObserver
+      //    backed ref, never by hitting the DOM on every frame). It only drives
+      //    UI overlays such as node labels, which must stay legible.
+      //  - `GALAXY_LIGHT` is the GALAXY theme. The galaxy has its own visual
+      //    identity and always renders in its deep-space palette, so every
+      //    cosmic body (stars, orbits, globes, pulses) uses the dark branch
+      //    regardless of the global theme.
+      const isLightTheme = isLightThemeRef.current;
 
       // Smoothly lerp activity, zoom, and scroll-coupled expandProgress inside refs
       const rate = 1 - Math.exp(-Math.max(0.001, dt) * 6.0);
@@ -3791,7 +3807,7 @@ export function AuraPyramidStation({
       const baseFocal = Math.min(width * 0.72, height * 0.96);
       const focal = baseFocal * zoomRef.current;
 
-      drawBackgroundStars(ctx, width, height, t, isLight);
+      drawBackgroundStars(ctx, width, height, t, GALAXY_LIGHT);
 
       // Compute world & projected positions for all topology nodes
       const preparedNodes: PreparedNode[] = [];
@@ -3896,7 +3912,7 @@ export function AuraPyramidStation({
           cx,
           cy,
           focal,
-          isLight,
+          GALAXY_LIGHT,
           activityBoost,
           false
         );
@@ -3916,7 +3932,7 @@ export function AuraPyramidStation({
         snap.activeNodeId,
         activeSignals,
         ragActive,
-        isLight
+        GALAXY_LIGHT
       );
 
       // Pass 2: Listening ripples + Volumetric Voice Aura & Back 4D Tesseract Shell
@@ -3930,7 +3946,7 @@ export function AuraPyramidStation({
         cx,
         cy,
         focal,
-        isLight
+        GALAXY_LIGHT
       );
 
       drawVoiceAuraBloom(
@@ -3945,7 +3961,7 @@ export function AuraPyramidStation({
         cx,
         cy,
         focal,
-        isLight
+        GALAXY_LIGHT
       );
 
       // Pyramidal / triangular aura shell + expanding voice aura waves (zero cubes!)
@@ -4006,7 +4022,7 @@ export function AuraPyramidStation({
         auraEnvelopeAlpha,
         1.15 + speakLevelRef.current * 0.45,
         false,
-        isLight
+        GALAXY_LIGHT
       );
       for (let w = 0; w < waveShells.length; w += 1) {
         drawPyramidalVoiceAuraPass(
@@ -4015,7 +4031,7 @@ export function AuraPyramidStation({
           waveShells[w].alpha,
           1.3,
           false,
-          isLight
+          GALAXY_LIGHT
         );
       }
 
@@ -4033,7 +4049,7 @@ export function AuraPyramidStation({
         speakLevelRef.current,
         listenLevelRef.current,
         snap,
-        isLight
+        GALAXY_LIGHT
       );
 
       drawPyramidalVoiceAuraPass(
@@ -4042,7 +4058,7 @@ export function AuraPyramidStation({
         auraEnvelopeAlpha,
         1.15 + speakLevelRef.current * 0.45,
         true,
-        isLight
+        GALAXY_LIGHT
       );
       for (let w = 0; w < waveShells.length; w += 1) {
         drawPyramidalVoiceAuraPass(
@@ -4051,7 +4067,7 @@ export function AuraPyramidStation({
           waveShells[w].alpha,
           1.3,
           true,
-          isLight
+          GALAXY_LIGHT
         );
       }
 
@@ -4068,7 +4084,7 @@ export function AuraPyramidStation({
           cx,
           cy,
           focal,
-          isLight,
+          GALAXY_LIGHT,
           activityBoost,
           true
         );
@@ -4083,7 +4099,7 @@ export function AuraPyramidStation({
         cx,
         cy,
         focal,
-        isLight
+        GALAXY_LIGHT
       );
       drawGraphEdges(
         ctx,
@@ -4098,7 +4114,7 @@ export function AuraPyramidStation({
         snap.activeNodeId,
         activeSignals,
         pulsesRef.current,
-        isLight
+        GALAXY_LIGHT
       );
       drawNodesPass(
         ctx,
@@ -4115,7 +4131,7 @@ export function AuraPyramidStation({
         snap.activeNodeId,
         activeSignals,
         ragActive,
-        isLight
+        GALAXY_LIGHT
       );
 
       // Pass 5: Opening Supernova Explosion + Real-Time Energy Pulses + Radial Shockwaves
@@ -4127,7 +4143,7 @@ export function AuraPyramidStation({
         cx,
         cy,
         focal,
-        isLight
+        GALAXY_LIGHT
       );
       drawEnergyPulsesAndShockwaves(
         ctx,
@@ -4135,7 +4151,7 @@ export function AuraPyramidStation({
         shockwavesRef.current,
         preparedMap,
         apexProj,
-        isLight
+        GALAXY_LIGHT
       );
 
       // Pass 6: Sleek holographic mini-labels over segmented memory nodes
@@ -4148,7 +4164,7 @@ export function AuraPyramidStation({
         height,
         snap.activeNodeId,
         activeSignals,
-        isLight
+        isLightTheme
       );
 
       // Store hit-test caches
@@ -4170,6 +4186,31 @@ export function AuraPyramidStation({
     },
     [emitCameraOrbit, spawnOpeningExplosion, spawnPulseCascade, spawnShockwave]
   );
+
+  // Track the global UI theme without touching the DOM on every animation
+  // frame: a MutationObserver keeps `isLightThemeRef` up to date, and the
+  // render loop just reads the ref. The observer also repaints the galaxy so
+  // a theme switch is reflected immediately, even when the animation loop is
+  // paused (reduced motion).
+  const drawSceneRef = useRef<((dt: number) => void) | null>(null);
+  useEffect(() => {
+    drawSceneRef.current = drawScene;
+  }, [drawScene]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const syncTheme = () => {
+      const next = root.getAttribute("data-theme") === "light";
+      if (next === isLightThemeRef.current) return;
+      isLightThemeRef.current = next;
+      drawSceneRef.current?.(0);
+    };
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     emitCameraOrbit(true);
@@ -4642,7 +4683,7 @@ export function AuraPyramidStation({
       ref={viewportRef}
       aria-label={t("hermes.station.title")}
       data-testid="aura-pyramid-station"
-      className="relative flex-1 w-full h-full min-h-[520px] select-none overflow-hidden"
+      className="aura-galaxy-surface relative flex-1 w-full h-full min-h-[520px] select-none overflow-hidden"
     >
       {/* Fullscreen Open-Space 3D / 4D Canvas */}
       <canvas
