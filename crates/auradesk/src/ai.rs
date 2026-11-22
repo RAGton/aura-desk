@@ -11,7 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use auradesk_core::application::agents::AgentOrchestratorService;
 use auradesk_core::application::chat::{ChatService, DEFAULT_CHAT_SESSION};
+use auradesk_core::application::context_engine::ContextEngineService;
 use auradesk_core::application::pomodoros::PomodorosService;
 use auradesk_core::application::reminders::RemindersService;
 use auradesk_core::application::settings::SettingsService;
@@ -245,28 +247,36 @@ fn build_live_workspace_context(db: &Db) -> String {
 }
 
 /// Send a user message through the configured AI provider (HTTP OpenAI-compatible,
-/// Codex CLI, Hermes CLI, or Offline fallback), persisting turns into `chat_messages`.
+/// Codex CLI, Hermes CLI, or Offline fallback), persisting turns into `chat_messages`
+/// for the active session and orchestrating Context Engine compression.
 pub fn send_chat_prompt(
     app: &AppHandle,
     db: &Arc<Db>,
     prompt: &str,
     use_cli_hint: bool,
+    session_id: Option<&str>,
 ) -> Result<HermesChatReply, String> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
         return Err("prompt cannot be empty".to_string());
     }
+    let sid = session_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_CHAT_SESSION)
+        .to_string();
 
     let resolved = resolve_provider(db);
     let chat_svc = ChatService::new(db);
     let _ = chat_svc.append(NewChatMessage {
-        session_id: DEFAULT_CHAT_SESSION.to_string(),
+        session_id: sid.clone(),
         role: "user".to_string(),
         content: trimmed.to_string(),
         provider: None,
         model: None,
         area_id: None,
     });
+    let _ = AgentOrchestratorService::new(db).plan_goal(Some(&sid), trimmed);
 
     // HTTP OpenAI-compatible providers (OpenAI / Codex API, MiniMax, Ollama, OpenRouter, Custom)
     if resolved.active.is_http_openai_compatible() {
@@ -275,16 +285,33 @@ pub fn send_chat_prompt(
             _ => resolved.base_url.is_some() && resolved.api_key.is_some(),
         };
         if can_call {
-            return spawn_openai_compatible_chat(app, db, trimmed, resolved);
+            return spawn_openai_compatible_chat(app, db, trimmed, resolved, sid);
         }
     }
 
     // Codex CLI adapter
     if resolved.active == AiProviderKind::CodexCli {
         if let Some(bin) = resolved.codex_cli.clone() {
-            return spawn_codex_cli_chat(app, db, trimmed, bin, resolved);
+            return spawn_codex_cli_chat(app, db, trimmed, bin, resolved, sid);
         }
     }
+
+    // Retrieve & record context layers even in Hermes/Offline mode so Context Engine tracks session growth.
+    let recalled: Vec<(String, String, String)> = crate::hindsight::recall(db, trimmed, None, 6)
+        .into_iter()
+        .map(|m| (m.id, m.bank, m.content))
+        .collect();
+    let ws_ctx = build_live_workspace_context(db);
+    let base_sys =
+        build_aura_system_prompt(&resolved.locale, "", resolved.system_prompt.as_deref());
+    let _ = ContextEngineService::new(db).build_context(
+        Some(&sid),
+        trimmed,
+        &base_sys,
+        &ws_ctx,
+        &recalled,
+        &[],
+    );
 
     // Hermes CLI or deterministic offline fallback (preserves full existing proposal workflow)
     let prefer_hermes_cli =
@@ -292,7 +319,7 @@ pub fn send_chat_prompt(
     let reply = crate::hermes::handle_chat_prompt(app, db, trimmed, prefer_hermes_cli)?;
     if !reply.streaming && !reply.reply_text.trim().is_empty() {
         let _ = ChatService::new(db).append(NewChatMessage {
-            session_id: DEFAULT_CHAT_SESSION.to_string(),
+            session_id: sid,
             role: "assistant".to_string(),
             content: reply.reply_text.clone(),
             provider: Some(reply.mode.clone()),
@@ -308,6 +335,7 @@ fn spawn_openai_compatible_chat(
     db: &Arc<Db>,
     prompt: &str,
     resolved: ResolvedProvider,
+    session_id: String,
 ) -> Result<HermesChatReply, String> {
     let req_id = format!("aura-{}", AI_REQ_SEQ.fetch_add(1, Ordering::Relaxed));
     let app_clone = app.clone();
@@ -319,24 +347,52 @@ fn spawn_openai_compatible_chat(
 
     std::thread::spawn(move || {
         let mut live_ctx = build_live_workspace_context(&db_clone);
+        let mut tool_outputs = Vec::new();
         if let Some(rag_ctx) = crate::raglight::query_context_for_prompt(&db_clone, &prompt_owned) {
             live_ctx.push_str("\n\n");
             live_ctx.push_str(&rag_ctx);
+            tool_outputs.push(rag_ctx);
         }
+        let recalled_items = crate::hindsight::recall(&db_clone, &prompt_owned, None, 8);
+        let recalled_tuples: Vec<(String, String, String)> = recalled_items
+            .iter()
+            .map(|m| (m.id.clone(), m.bank.clone(), m.content.clone()))
+            .collect();
         if let Some(mem_ctx) = crate::hindsight::recall_context_for_prompt(&db_clone, &prompt_owned)
         {
             live_ctx.push_str("\n\n");
             live_ctx.push_str(&mem_ctx);
         }
-        let system_prompt = build_aura_system_prompt(
+
+        let base_sys = build_aura_system_prompt(
             &resolved.locale,
             &live_ctx,
             resolved.system_prompt.as_deref(),
         );
+        let ctx_pkg = ContextEngineService::new(&db_clone)
+            .build_context(
+                Some(&session_id),
+                &prompt_owned,
+                &base_sys,
+                &live_ctx,
+                &recalled_tuples,
+                &tool_outputs,
+            )
+            .ok();
 
-        let history = ChatService::new(&db_clone)
-            .list_recent(Some(DEFAULT_CHAT_SESSION), 14)
-            .unwrap_or_default();
+        let mut system_prompt = base_sys;
+        if let Some(ref pkg) = ctx_pkg {
+            if !pkg.session.semantic_summary.trim().is_empty() {
+                system_prompt.push_str("\n\nsession_compressed_summary:\n");
+                system_prompt.push_str(pkg.session.semantic_summary.trim());
+            }
+        }
+
+        let history = ctx_pkg.map(|p| p.recent_messages).unwrap_or_else(|| {
+            ChatService::new(&db_clone)
+                .list_recent(Some(&session_id), 14)
+                .unwrap_or_default()
+        });
 
         let mut messages = vec![serde_json::json!({
             "role": "system",
@@ -446,7 +502,7 @@ fn spawn_openai_compatible_chat(
                 }
 
                 let _ = ChatService::new(&db_clone).append(NewChatMessage {
-                    session_id: DEFAULT_CHAT_SESSION.to_string(),
+                    session_id: session_id.clone(),
                     role: "assistant".to_string(),
                     content: content.clone(),
                     provider: Some(provider_name),
@@ -489,6 +545,7 @@ fn spawn_codex_cli_chat(
     prompt: &str,
     bin: PathBuf,
     resolved: ResolvedProvider,
+    session_id: String,
 ) -> Result<HermesChatReply, String> {
     let req_id = format!("codex-{}", AI_REQ_SEQ.fetch_add(1, Ordering::Relaxed));
     let app_clone = app.clone();
@@ -518,7 +575,7 @@ fn spawn_codex_cli_chat(
                 let _ = proc.wait();
                 if !acc.trim().is_empty() {
                     let _ = ChatService::new(&db_clone).append(NewChatMessage {
-                        session_id: DEFAULT_CHAT_SESSION.to_string(),
+                        session_id,
                         role: "assistant".to_string(),
                         content: acc,
                         provider: Some("codex_cli".to_string()),

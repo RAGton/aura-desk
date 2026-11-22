@@ -213,19 +213,23 @@ pub fn ai_provider_status(state: State<'_, AppState>) -> crate::ai::AiProviderSt
 #[tauri::command]
 pub fn ai_chat_history(
     state: State<'_, AppState>,
+    session_id: Option<String>,
     limit: Option<usize>,
 ) -> Result<Vec<auradesk_core::domain::ai::ChatMessage>, String> {
     let db = db_from(&state);
     auradesk_core::application::chat::ChatService::new(&db)
-        .list_recent(None, limit.unwrap_or(50))
+        .list_recent(session_id.as_deref(), limit.unwrap_or(50))
         .map_err(|e| format!("ai_chat_history: {e}"))
 }
 
 #[tauri::command]
-pub fn ai_chat_clear(state: State<'_, AppState>) -> Result<usize, String> {
+pub fn ai_chat_clear(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+) -> Result<usize, String> {
     let db = db_from(&state);
     auradesk_core::application::chat::ChatService::new(&db)
-        .clear_session(None)
+        .clear_session(session_id.as_deref())
         .map_err(|e| format!("ai_chat_clear: {e}"))
 }
 
@@ -235,9 +239,16 @@ pub fn hermes_chat_send(
     state: State<'_, AppState>,
     prompt: String,
     use_cli: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<crate::hermes::HermesChatReply, String> {
     let db = db_from(&state);
-    crate::ai::send_chat_prompt(&app, &db, &prompt, use_cli.unwrap_or(false))
+    crate::ai::send_chat_prompt(
+        &app,
+        &db,
+        &prompt,
+        use_cli.unwrap_or(false),
+        session_id.as_deref(),
+    )
 }
 
 #[tauri::command]

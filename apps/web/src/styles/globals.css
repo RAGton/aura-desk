@@ -129,8 +129,12 @@ html[data-theme="light"] {
   --status-danger: 159 18 57;
   --status-info: 3 105 161;
 
-  --shadow-surface: 0 12px 32px -12px rgba(15, 23, 42, 0.12);
-  --shadow-elevated: 0 20px 44px -14px rgba(15, 23, 42, 0.18);
+  --shadow-surface:
+    0 20px 46px -14px rgba(2, 6, 23, 0.48),
+    0 0 24px -6px rgba(56, 189, 248, 0.16);
+  --shadow-elevated:
+    0 24px 54px -14px rgba(2, 6, 23, 0.58),
+    0 0 30px -6px rgba(56, 189, 248, 0.22);
 
   /* The galaxy keeps its own dark identity — it does NOT follow the light UI
      theme. Same values as the dark theme on purpose. */
@@ -146,16 +150,32 @@ html[data-theme="light"] {
   --aura-galaxy-text: rgb(224, 249, 255);
   --aura-galaxy-text-muted: rgb(148, 178, 199);
 
-  --aura-bg-base: #eef4fb;
+  --aura-bg-base: #040816;
   --aura-bg-mesh:
-    radial-gradient(ellipse 80% 55% at 10% -5%, rgba(56, 189, 248, 0.22), transparent 60%),
-    radial-gradient(ellipse 70% 55% at 92% 0%, rgba(129, 140, 248, 0.2), transparent 55%),
-    radial-gradient(ellipse 75% 60% at 50% 105%, rgba(16, 185, 129, 0.12), transparent 60%);
-  --aura-surface: rgba(255, 255, 255, 0.72);
-  --aura-surface-elevated: rgba(255, 255, 255, 0.88);
-  --aura-surface-muted: rgba(241, 245, 249, 0.8);
-  --aura-border: rgba(148, 163, 184, 0.35);
-  --aura-specular: rgba(255, 255, 255, 0.9);
+    radial-gradient(ellipse 80% 55% at 10% -5%, rgba(56, 189, 248, 0.20), transparent 62%),
+    radial-gradient(ellipse 70% 55% at 92% 0%, rgba(129, 140, 248, 0.18), transparent 58%),
+    radial-gradient(ellipse 75% 60% at 50% 105%, rgba(16, 185, 129, 0.12), transparent 62%);
+  --aura-surface: rgba(244, 249, 255, 0.64);
+  --aura-surface-elevated: rgba(250, 253, 255, 0.78);
+  --aura-surface-muted: rgba(235, 244, 255, 0.58);
+  --aura-border: rgba(255, 255, 255, 0.62);
+  --aura-specular: rgba(255, 255, 255, 0.94);
+  --aura-liquid-gradient: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.74) 0%,
+    rgba(240, 249, 255, 0.58) 50%,
+    rgba(224, 242, 254, 0.66) 100%
+  );
+  --aura-liquid-gradient-elevated: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.84) 0%,
+    rgba(240, 249, 255, 0.70) 52%,
+    rgba(224, 242, 254, 0.78) 100%
+  );
+  --aura-liquid-rim:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1.5px 0 rgba(56, 189, 248, 0.26),
+    inset 1px 0 1px 0 rgba(255, 255, 255, 0.45);
   --aura-shadow: var(--shadow-surface);
   --aura-text-primary: rgb(var(--text-primary));
   --aura-text-muted: rgb(var(--text-muted));
@@ -163,26 +183,26 @@ html[data-theme="light"] {
 
 html[data-theme="light"][data-preset="obsidian"] {
   --bg-canvas: 241 245 249;
-  --aura-bg-base: #f1f5f9;
+  --aura-bg-base: #030612;
   --aura-bg-mesh:
-    radial-gradient(ellipse 70% 50% at 15% 0%, rgba(100, 116, 139, 0.12), transparent 60%),
-    radial-gradient(ellipse 60% 45% at 85% 10%, rgba(56, 189, 248, 0.1), transparent 60%);
+    radial-gradient(ellipse 70% 50% at 15% 0%, rgba(148, 163, 184, 0.16), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 85% 10%, rgba(56, 189, 248, 0.14), transparent 60%);
 }
 
 html[data-theme="light"][data-preset="emerald"] {
   --bg-canvas: 236 253 245;
-  --aura-bg-base: #ecfdf5;
+  --aura-bg-base: #020c0a;
   --aura-bg-mesh:
-    radial-gradient(ellipse 80% 55% at 12% -5%, rgba(16, 185, 129, 0.18), transparent 60%),
-    radial-gradient(ellipse 65% 50% at 88% 8%, rgba(20, 184, 166, 0.14), transparent 55%);
+    radial-gradient(ellipse 80% 55% at 12% -5%, rgba(16, 185, 129, 0.22), transparent 60%),
+    radial-gradient(ellipse 65% 50% at 88% 8%, rgba(20, 184, 166, 0.16), transparent 55%);
 }
 
 html[data-theme="light"][data-preset="sunset"] {
   --bg-canvas: 255 241 242;
-  --aura-bg-base: #fff1f2;
+  --aura-bg-base: #0d0611;
   --aura-bg-mesh:
-    radial-gradient(ellipse 80% 55% at 15% -5%, rgba(244, 63, 94, 0.14), transparent 60%),
-    radial-gradient(ellipse 65% 50% at 85% 5%, rgba(245, 158, 11, 0.14), transparent 55%);
+    radial-gradient(ellipse 80% 55% at 15% -5%, rgba(244, 63, 94, 0.18), transparent 60%),
+    radial-gradient(ellipse 65% 50% at 85% 5%, rgba(245, 158, 11, 0.16), transparent 55%);
 }
 
 @media (pointer: fine) {
@@ -216,6 +236,11 @@ body {
   background-attachment: fixed;
 }
 
+html[data-theme="light"] .aura-bg {
+  background-color: transparent;
+  background-image: var(--aura-bg-mesh);
+}
+
 .aura-glass {
   background: var(--aura-surface);
   backdrop-filter: blur(var(--aura-blur, 20px)) saturate(170%);
@@ -246,6 +271,41 @@ body {
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
+html[data-theme="light"] .aura-glass {
+  background-color: var(--aura-surface);
+  background-image: var(--aura-liquid-gradient);
+  backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(220%) contrast(104%) brightness(1.05);
+  -webkit-backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(220%) contrast(104%) brightness(1.05);
+  border: 1px solid var(--aura-border);
+  box-shadow: var(--aura-liquid-rim), var(--shadow-surface);
+}
+
+html[data-theme="light"] .aura-glass:hover {
+  border-color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    var(--aura-liquid-rim),
+    0 22px 48px -12px rgba(2, 6, 23, 0.54),
+    0 0 28px -4px rgba(var(--aura-accent-rgb, 3 105 161), 0.24);
+}
+
+html[data-theme="light"] .aura-glass-elevated {
+  background-color: var(--aura-surface-elevated);
+  background-image: var(--aura-liquid-gradient-elevated);
+  backdrop-filter: blur(calc(var(--aura-blur, 20px) + 10px)) saturate(230%) contrast(105%) brightness(1.06);
+  -webkit-backdrop-filter: blur(calc(var(--aura-blur, 20px) + 10px)) saturate(230%) contrast(105%) brightness(1.06);
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  box-shadow: var(--aura-liquid-rim), var(--shadow-elevated);
+}
+
+html[data-theme="light"] .aura-glass-pill {
+  background-color: var(--aura-surface-muted);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(224, 242, 254, 0.52));
+  backdrop-filter: blur(16px) saturate(190%);
+  -webkit-backdrop-filter: blur(16px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+}
+
 .aura-accent-text {
   color: rgb(var(--aura-accent-rgb));
 }
@@ -272,8 +332,14 @@ html[data-theme="light"] .bg-slate-950\/95,
 html[data-theme="light"] .bg-slate-950\/90,
 html[data-theme="light"] .bg-slate-950\/80,
 html[data-theme="light"] .bg-slate-950\/70,
-html[data-theme="light"] .bg-slate-950\/60 {
-  background-color: rgb(var(--bg-overlay) / 0.88);
+html[data-theme="light"] .bg-slate-950\/60,
+html[data-theme="light"] .bg-slate-950\/55,
+html[data-theme="light"] .bg-slate-950\/50,
+html[data-theme="light"] .bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/30 {
+  background-color: rgb(var(--bg-overlay) / 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   color: rgb(var(--text-primary));
 }
 
@@ -283,10 +349,13 @@ html[data-theme="light"] .bg-slate-900\/90,
 html[data-theme="light"] .bg-slate-900\/80,
 html[data-theme="light"] .bg-slate-900\/60,
 html[data-theme="light"] .bg-slate-900\/50,
-html[data-theme="light"] .bg-slate-900\/30 {
-  background-color: rgb(var(--bg-surface) / 0.78);
-  backdrop-filter: blur(var(--aura-blur, 18px)) saturate(165%);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.9), var(--shadow-surface);
+html[data-theme="light"] .bg-slate-900\/30,
+html[data-theme="light"] .shadow-aura-surface {
+  background-color: var(--aura-surface);
+  background-image: var(--aura-liquid-gradient);
+  backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(215%);
+  -webkit-backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(215%);
+  box-shadow: var(--aura-liquid-rim), var(--shadow-surface);
 }
 
 html[data-theme="light"] .bg-slate-800,
@@ -314,6 +383,113 @@ html[data-theme="light"] .text-slate-50,
 html[data-theme="light"] .text-slate-100,
 html[data-theme="light"] .text-slate-200 {
   color: rgb(var(--text-primary));
+}
+
+/* The galaxy chrome is dark-on-light in BOTH themes, so the readability
+   remap above must not touch it — otherwise the prompt dock's input and
+   labels turn near-black on the black cosmos. */
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-50,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-100,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-200,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-50,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-100,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-200 {
+  color: rgb(241, 245, 249);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-300,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-400,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-slate-500,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-300,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-400,
+html[data-theme="light"] .aura-galaxy-surface .text-slate-500 {
+  color: rgb(186, 210, 232);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/95,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/90,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/80,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/75,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/70,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/65,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/60,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/55,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/50,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/40,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-950\/30,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/95,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/90,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/80,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/75,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/70,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/65,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/60,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/55,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/50,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/40,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-950\/30 {
+  background-color: rgba(6, 12, 26, 0.82);
+  color: rgb(241, 245, 249);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-900,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-900\/95,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-900\/90,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-900\/80,
+html[data-theme="light"] .aura-galaxy-chrome-scope .bg-slate-900\/60,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-900,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-900\/95,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-900\/90,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-900\/80,
+html[data-theme="light"] .aura-galaxy-surface .bg-slate-900\/60 {
+  background-color: rgba(12, 20, 38, 0.84);
+  box-shadow: inset 0 1px 0 0 rgba(125, 211, 252, 0.14), 0 12px 32px -12px rgba(2, 6, 23, 0.72);
+  color: rgb(241, 245, 249);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-sky-200,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-sky-300,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-sky-400,
+html[data-theme="light"] .aura-galaxy-surface .text-sky-200,
+html[data-theme="light"] .aura-galaxy-surface .text-sky-300,
+html[data-theme="light"] .aura-galaxy-surface .text-sky-400 {
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-indigo-200,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-indigo-300,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-indigo-400,
+html[data-theme="light"] .aura-galaxy-surface .text-indigo-200,
+html[data-theme="light"] .aura-galaxy-surface .text-indigo-300,
+html[data-theme="light"] .aura-galaxy-surface .text-indigo-400 {
+  color: rgb(165, 180, 252);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-emerald-200,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-emerald-300,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-emerald-400,
+html[data-theme="light"] .aura-galaxy-surface .text-emerald-200,
+html[data-theme="light"] .aura-galaxy-surface .text-emerald-300,
+html[data-theme="light"] .aura-galaxy-surface .text-emerald-400 {
+  color: rgb(110, 231, 183);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-amber-200,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-amber-300,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-amber-400,
+html[data-theme="light"] .aura-galaxy-surface .text-amber-200,
+html[data-theme="light"] .aura-galaxy-surface .text-amber-300,
+html[data-theme="light"] .aura-galaxy-surface .text-amber-400 {
+  color: rgb(252, 211, 77);
+}
+
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-rose-200,
+html[data-theme="light"] .aura-galaxy-chrome-scope .text-rose-300,
+html[data-theme="light"] .aura-galaxy-surface .text-rose-200,
+html[data-theme="light"] .aura-galaxy-surface .text-rose-300 {
+  color: rgb(253, 164, 175);
 }
 
 html[data-theme="light"] .text-slate-300,
@@ -452,6 +628,16 @@ html[data-theme="light"] .ring-slate-700 {
   border-color: rgba(var(--aura-accent-rgb, 56 189 248), 0.26);
 }
 
+html[data-theme="light"] .aura-hero-gradient {
+  background-image: linear-gradient(
+    125deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(224, 242, 254, 0.62) 48%,
+    rgba(238, 242, 255, 0.72) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
 /* Space Station + Realistic Galaxy Backdrop */
 @keyframes aura-nebula-drift {
   0%, 100% {
@@ -538,15 +724,22 @@ html[data-theme="light"] .aura-galaxy-nebula-dark {
      be re-mapped here too — otherwise `text-aura-primary` and
      `bg-aura-surface` keep the light theme's dark-on-white values and the
      floating chrome loses contrast against the black cosmos. */
+  --bg-canvas: 3 5 9;
   --bg-surface: 8 14 28;
-  --bg-elevated: 10 17 34;
+  --bg-elevated: 15 23 42;
   --bg-overlay: 4 8 18;
-  --bg-muted: 12 20 38;
-  --text-primary: 224 249 255;
-  --text-secondary: 186 226 240;
-  --text-muted: 148 178 199;
+  --bg-muted: 20 30 52;
+  --text-primary: 241 245 249;
+  --text-secondary: 203 213 225;
+  --text-muted: 148 163 184;
   --border-subtle: 148 163 184;
   --border-strong: 203 213 225;
+  --accent-primary: 56 189 248;
+  --accent-secondary: 129 140 248;
+  --status-success: 52 211 153;
+  --status-warning: 251 191 36;
+  --status-danger: 251 113 133;
+  --status-info: 56 189 248;
 }
 
 /* Chrome that floats on top of the galaxy canvas. The cosmos stays
@@ -568,13 +761,59 @@ html[data-theme="light"] .aura-galaxy-nebula-dark {
   color: var(--aura-galaxy-text-muted);
 }
 
+/* Scopes the galaxy's light-on-dark tokens to a subtree that floats over
+   the canvas but lives outside .aura-galaxy-surface (the prompt dock).
+   The Tailwind utilities resolve to the raw --text-* and --bg-* tokens, so
+   those are re-mapped here. */
+.aura-galaxy-chrome-scope {
+  --aura-surface: var(--aura-galaxy-surface);
+  --aura-surface-elevated: var(--aura-galaxy-surface-elevated);
+  --aura-border: var(--aura-galaxy-border);
+  --aura-text-primary: var(--aura-galaxy-text);
+  --aura-text-muted: var(--aura-galaxy-text-muted);
+
+  --bg-canvas: 3 5 9;
+  --bg-surface: 8 14 28;
+  --bg-elevated: 15 23 42;
+  --bg-overlay: 4 8 18;
+  --bg-muted: 20 30 52;
+  --text-primary: 241 245 249;
+  --text-secondary: 203 213 225;
+  --text-muted: 148 163 184;
+  --border-subtle: 148 163 184;
+  --border-strong: 203 213 225;
+  --accent-primary: 56 189 248;
+  --accent-secondary: 129 140 248;
+  --status-success: 52 211 153;
+  --status-warning: 251 191 36;
+  --status-danger: 251 113 133;
+  --status-info: 56 189 248;
+}
+
+/* The quick-action chips that float over the galaxy. The shared Button
+   `outline` variant sets `bg-transparent`, and two competing
+   `background-color` utilities are resolved by Tailwind by class order —
+   not by the order they appear in the class attribute — so the variant
+   silently wins. A dedicated class sidesteps that entirely and keeps the
+   chip readable on the black cosmos in both themes. */
+.aura-galaxy-chip {
+  background-color: rgba(8, 14, 28, 0.6);
+  border-color: rgba(56, 189, 248, 0.25);
+  color: rgb(241, 245, 249);
+}
+
+.aura-galaxy-chip:hover {
+  background-color: rgba(56, 189, 248, 0.2);
+  color: rgb(255, 255, 255);
+}
+
 .aura-starfield {
   opacity: 0.88;
   transition: opacity 250ms ease;
 }
 
 html[data-theme="light"] .aura-starfield {
-  opacity: 0.14;
+  opacity: 0.78;
 }
 
 .aura-starfield-twinkle {
@@ -587,13 +826,6 @@ html[data-theme="light"] .aura-starfield {
 
 .aura-starfield-twinkle-slow {
   animation: aura-star-twinkle 8.2s ease-in-out 0.8s infinite;
-}
-
-html[data-theme="light"] .aura-starfield-twinkle,
-html[data-theme="light"] .aura-starfield-twinkle-alt,
-html[data-theme="light"] .aura-starfield-twinkle-slow {
-  animation: none;
-  opacity: 0.45;
 }
 
 .aura-station-arc {

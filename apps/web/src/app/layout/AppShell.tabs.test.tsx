@@ -271,6 +271,181 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
       openLogsDir: vi.fn(async () => "C:\\logs"),
       getLogsTail: vi.fn(async () => []),
     },
+    hindsightExploreApi: {
+      banksList: vi.fn(async () => []),
+      bankStats: vi.fn(async () => ({
+        bankId: "aura-main",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+        nodesByFactType: {},
+        linksByLinkType: {},
+        pendingOperations: 0,
+        failedOperations: 0,
+        pendingConsolidation: 0,
+        failedConsolidation: 0,
+      })),
+      memoriesList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      memoryGet: vi.fn(async () => null),
+      memoryHistory: vi.fn(async () => empty),
+      documentsList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      documentGet: vi.fn(async () => null),
+      entitiesList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      entityGet: vi.fn(async () => null),
+      graph: vi.fn(async () => ({ nodes: empty, edges: empty, totalUnits: 0 })),
+      mentalModels: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      globalSearch: vi.fn(async () => empty),
+      galaxySnapshot: vi.fn(async () => ({
+        online: false,
+        banks: empty,
+        globes: empty,
+        links: empty,
+        totalRealNodes: 0,
+      })),
+      bankCreate: vi.fn(async () => ({
+        id: "new-bank",
+        name: "New Bank",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+      })),
+      memoryRetain: vi.fn(async () => true),
+      mentalModelCreate: vi.fn(async () => null),
+      mentalModelRefresh: vi.fn(async () => true),
+      mentalModelDelete: vi.fn(async () => true),
+      directivesList: vi.fn(async () => empty),
+      directiveCreate: vi.fn(async () => null),
+      directiveDelete: vi.fn(async () => true),
+      operationsList: vi.fn(async () => empty),
+      bankConsolidate: vi.fn(async () => true),
+    },
+    knowledgeApi: {
+      overview: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        baseUrl: "http://127.0.0.1:9621",
+        documentsCount: 0,
+        entitiesCount: 0,
+        relationsCount: 0,
+        configuredFolders: empty,
+        localFileCount: 0,
+        statusCounts: {},
+        diagnosticMessage: "offline",
+      })),
+      documentsList: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        documents: empty,
+        diagnosticMessage: "offline",
+      })),
+      documentGet: vi.fn(async () => null),
+      graph: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        entities: empty,
+        relations: empty,
+        diagnosticMessage: "offline",
+      })),
+      search: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        answer: "",
+        sources: empty,
+        matchingDocuments: empty,
+        matchingEntities: empty,
+        matchingRelations: empty,
+        diagnosticMessage: "offline",
+      })),
+    },
+    sessionsApi: {
+      list: vi.fn(async () => [
+        {
+          id: "default",
+          title: "sessions.defaultTitle",
+          status: "active",
+          semanticSummary: "",
+          contextState: "healthy",
+          compressionState: "none",
+          compressionCount: 0,
+          estimatedTokens: 0,
+          tokenBudget: 8192,
+          model: "offline",
+          provider: "offline",
+          associatedMemories: empty,
+          toolsUsed: empty,
+          messageCount: 0,
+          lastMessagePreview: null,
+          createdAt: "2026-11-22T10:00:00Z",
+          updatedAt: "2026-11-22T10:00:00Z",
+          lastActivityAt: "2026-11-22T10:00:00Z",
+        },
+      ]),
+      create: vi.fn(async () => ({
+        id: "sess-1",
+        title: "sessions.untitledSession",
+        status: "active",
+        semanticSummary: "",
+        contextState: "healthy",
+        compressionState: "none",
+        compressionCount: 0,
+        estimatedTokens: 0,
+        tokenBudget: 8192,
+        model: "offline",
+        provider: "offline",
+        associatedMemories: empty,
+        toolsUsed: empty,
+        messageCount: 0,
+        lastMessagePreview: null,
+        createdAt: "2026-11-22T10:00:00Z",
+        updatedAt: "2026-11-22T10:00:00Z",
+        lastActivityAt: "2026-11-22T10:00:00Z",
+      })),
+      get: vi.fn(async () => null),
+      rename: vi.fn(async () => null),
+      setStatus: vi.fn(async () => null),
+      delete: vi.fn(async () => undefined),
+    },
+    contextEngineApi: {
+      inspect: vi.fn(async () => ({
+        session: {
+          id: "default",
+          title: "sessions.defaultTitle",
+          status: "active",
+          semanticSummary: "",
+          contextState: "healthy",
+          compressionState: "none",
+          compressionCount: 0,
+          estimatedTokens: 120,
+          tokenBudget: 8192,
+          model: "offline",
+          provider: "offline",
+          associatedMemories: empty,
+          toolsUsed: empty,
+          messageCount: 0,
+          lastMessagePreview: null,
+          createdAt: "2026-11-22T10:00:00Z",
+          updatedAt: "2026-11-22T10:00:00Z",
+          lastActivityAt: "2026-11-22T10:00:00Z",
+        },
+        layers: empty,
+        totalTokens: 120,
+        tokenBudget: 8192,
+        usagePct: 1,
+        totalHistoryMessages: 0,
+        events: empty,
+      })),
+      compress: vi.fn(async () => null),
+    },
+    agentsApi: {
+      overview: vi.fn(async () => ({
+        agents: empty,
+        tools: empty,
+        runs: empty,
+        pendingProposals: 0,
+      })),
+      setToolPolicy: vi.fn(async () => null),
+      planPreview: vi.fn(async () => null),
+    },
   };
 });
 
@@ -623,6 +798,36 @@ describe("AppShell tabs", () => {
     await user.click(screen.getByRole("button", { name: /Atualizar e Reiniciar/i }));
     await waitFor(() => {
       expect(mockedUpdater.installNow).toHaveBeenCalled();
+    });
+  });
+
+  it("navigates across Sessions, Hindsight, LightRAG, and Agents tabs", async () => {
+    render(<AppShell />);
+
+    await openTab(/Conversas & Contexto/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Centro de Conversas & Context Engine/i)
+      ).toBeInTheDocument();
+    });
+
+    await openTab(/^Hindsight$/i);
+    await waitFor(() => {
+      expect(screen.getByText(/Hindsight Memory Explorer/i)).toBeInTheDocument();
+    });
+
+    await openTab(/^LightRAG$/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/LightRAG & RAGLight Knowledge Explorer/i)
+      ).toBeInTheDocument();
+    });
+
+    await openTab(/^Agentes$/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Arquitetura de Agentes & Tool Registry/i)
+      ).toBeInTheDocument();
     });
   });
 });

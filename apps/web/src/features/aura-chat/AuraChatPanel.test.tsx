@@ -304,6 +304,25 @@ describe("AuraChatPanel", () => {
       ragQuerySpy.mockRestore();
     }
   });
+
+  it("creates a dedicated new chat session when clicking + New chat session", async () => {
+    renderPanel();
+
+    const newBtn = await screen.findByTestId("aura-new-session-btn");
+    fireEvent.click(newBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Session:/i)).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+    fireEvent.change(input, { target: { value: "summary" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Today:/i)).toBeInTheDocument();
+    });
+  });
 });
 
 describe("AuraMonitoringPanel", () => {

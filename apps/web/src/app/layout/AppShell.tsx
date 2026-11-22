@@ -3,10 +3,14 @@ import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bell,
+  BookOpen,
   Bot,
+  Brain,
+  Cpu,
   Download,
   Kanban,
   LayoutDashboard,
+  MessageSquareText,
   Moon,
   PanelLeft,
   PanelTop,
@@ -77,6 +81,10 @@ import { PomodoroPage } from "../../pages/PomodoroPage";
 import { RemindersPage } from "../../pages/RemindersPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { SettingsPage } from "../../pages/SettingsPage";
+import { SessionsCenterPage } from "../../pages/SessionsCenterPage";
+import { HindsightPanelPage } from "../../pages/HindsightPanelPage";
+import { LightRagExplorerPage } from "../../pages/LightRagExplorerPage";
+import { AgentsHubPage } from "../../pages/AgentsHubPage";
 
 type TabKey =
   | "dashboard"
@@ -85,6 +93,10 @@ type TabKey =
   | "reminders"
   | "reports"
   | "hermes"
+  | "sessions"
+  | "hindsight"
+  | "knowledge"
+  | "agents"
   | "settings";
 
 const LAYOUT_STORAGE_KEY = "auradesk_dashboard_layout_v1";
@@ -114,6 +126,10 @@ function initialTabFromLocation(): TabKey {
   if (path === "alerts" || path === "reminders") return "reminders";
   if (path === "pomodoro") return "pomodoro";
   if (path === "reports") return "reports";
+  if (path === "sessions") return "sessions";
+  if (path === "hindsight") return "hindsight";
+  if (path === "knowledge") return "knowledge";
+  if (path === "agents") return "agents";
   if (path === "settings") return "settings";
   return "hermes";
 }
@@ -130,6 +146,14 @@ function tabToPath(tab: TabKey): string {
       return "/pomodoro";
     case "reports":
       return "/reports";
+    case "sessions":
+      return "/sessions";
+    case "hindsight":
+      return "/hindsight";
+    case "knowledge":
+      return "/knowledge";
+    case "agents":
+      return "/agents";
     case "settings":
       return "/settings";
     case "hermes":
@@ -147,6 +171,12 @@ function formatClock(secs: number): string {
 export function AppShell() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTabFromLocation);
+  const [activeSessionId, setActiveSessionId] = useState<string>("default");
+  const [galaxyFocusMemory, setGalaxyFocusMemory] = useState<{
+    bankId: string;
+    memoryId: string;
+  } | null>(null);
+  const [hindsightInitialBank, setHindsightInitialBank] = useState<string | null>(null);
   const [currentLang, setCurrentLang] = useState<string>(i18n.language || "pt-BR");
   const [inTauri] = useState<boolean>(() => isTauriRuntime());
   const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
@@ -505,6 +535,10 @@ export function AppShell() {
               target === "reminders" ||
               target === "reports" ||
               target === "hermes" ||
+              target === "sessions" ||
+              target === "hindsight" ||
+              target === "knowledge" ||
+              target === "agents" ||
               target === "settings"
             ) {
               selectTab(target);
@@ -685,6 +719,30 @@ export function AppShell() {
       badge: proposals.length > 0 ? proposals.length : undefined,
     },
     {
+      key: "sessions" as const,
+      label: t("nav.sessions"),
+      icon: MessageSquareText,
+      badge: undefined,
+    },
+    {
+      key: "hindsight" as const,
+      label: t("nav.hindsight"),
+      icon: Brain,
+      badge: undefined,
+    },
+    {
+      key: "knowledge" as const,
+      label: t("nav.knowledge"),
+      icon: BookOpen,
+      badge: undefined,
+    },
+    {
+      key: "agents" as const,
+      label: t("nav.agents"),
+      icon: Cpu,
+      badge: undefined,
+    },
+    {
       key: "dashboard" as const,
       label: t("nav.dashboard"),
       icon: LayoutDashboard,
@@ -728,14 +786,14 @@ export function AppShell() {
       className={
         isSidebar
           ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
-          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
+          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
       }
     >
       <div
         className={
           isSidebar
-            ? "flex md:flex-col gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
-            : "flex items-center gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
+            ? "flex md:flex-col gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
+            : "flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
         }
       >
         {navItems.map(({ key, label, icon: Icon, badge }) => {
@@ -959,9 +1017,55 @@ export function AppShell() {
       {activeTab === "hermes" && (
         <div className="aura-panel-enter flex-1 flex flex-col min-h-0">
           <AuraChatPanel
+            sessionId={activeSessionId}
+            onSessionChange={setActiveSessionId}
+            focusMemory={galaxyFocusMemory}
+            onFocusMemoryHandled={() => setGalaxyFocusMemory(null)}
+            onOpenSessions={() => selectTab("sessions")}
+            onOpenHindsightBank={(bankId) => {
+              setHindsightInitialBank(bankId);
+              selectTab("hindsight");
+            }}
             onProposalApplied={() => void refreshAll()}
             onOpenSettings={() => selectTab("settings")}
           />
+        </div>
+      )}
+
+      {activeTab === "sessions" && (
+        <div className="aura-panel-enter">
+          <SessionsCenterPage
+            activeSessionId={activeSessionId}
+            onContinueSession={(sid) => {
+              setActiveSessionId(sid);
+              selectTab("hermes");
+            }}
+            onActiveSessionDeleted={() => setActiveSessionId("default")}
+          />
+        </div>
+      )}
+
+      {activeTab === "hindsight" && (
+        <div className="aura-panel-enter">
+          <HindsightPanelPage
+            initialBank={hindsightInitialBank}
+            onOpenInGalaxy={(bankId, memoryId) => {
+              setGalaxyFocusMemory({ bankId, memoryId });
+              selectTab("hermes");
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === "knowledge" && (
+        <div className="aura-panel-enter">
+          <LightRagExplorerPage onOpenSettings={() => selectTab("settings")} />
+        </div>
+      )}
+
+      {activeTab === "agents" && (
+        <div className="aura-panel-enter">
+          <AgentsHubPage activeSessionId={activeSessionId} />
         </div>
       )}
 
@@ -992,7 +1096,7 @@ export function AppShell() {
         isAuraCockpit ? "h-screen overflow-hidden" : "min-h-screen"
       }`}
     >
-      <AuraSpaceBackdrop galaxyDark={isAuraCockpit} />
+      {!isAuraCockpit && <AuraSpaceBackdrop galaxyDark={false} />}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-aura-accent focus:px-4 focus:py-2 focus:text-xs focus:font-semibold focus:text-aura-inverse focus:shadow-lg"

@@ -116,6 +116,30 @@ pub struct NewChatMessage {
     pub area_id: Option<String>,
 }
 
+/// Persistent conversation session with Context Engine telemetry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSession {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub semantic_summary: String,
+    pub context_state: String,
+    pub compression_state: String,
+    pub compression_count: i64,
+    pub estimated_tokens: i64,
+    pub token_budget: i64,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub associated_memories: Vec<String>,
+    pub tools_used: Vec<String>,
+    pub message_count: i64,
+    pub last_message_preview: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_activity_at: String,
+}
+
 /// Build the system prompt for Aura grounded in live workspace state and optional user persona.
 pub fn build_aura_system_prompt(
     locale: &str,

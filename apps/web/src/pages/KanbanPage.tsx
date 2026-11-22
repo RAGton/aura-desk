@@ -124,7 +124,7 @@ export function KanbanPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl aura-glass-elevated ring-1 ring-aura-accent/30">
             <FolderKanban className="h-5 w-5 text-aura-accent" aria-hidden="true" />

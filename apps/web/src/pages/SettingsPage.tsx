@@ -517,7 +517,7 @@ export function SettingsPage({
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto aura-scrollbar pr-1">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
             <Settings className="h-5 w-5 text-aura-accent" aria-hidden="true" />
@@ -605,7 +605,9 @@ export function SettingsPage({
         aria-labelledby={`settings-tab-${activeSection}`}
         className="space-y-4 aura-panel-enter"
       >
-        <p className="text-xs text-slate-400">{t(activeSectionDef.descriptionKey)}</p>
+        <p className="rounded-xl aura-glass-pill px-3.5 py-2 text-xs text-slate-400">
+          {t(activeSectionDef.descriptionKey)}
+        </p>
 
         {activeSectionDef.groups.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

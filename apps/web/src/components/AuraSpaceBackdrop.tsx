@@ -9,6 +9,13 @@ export interface AuraSpaceBackdropProps {
    * theme-reactive behaviour outside the cockpit.
    */
   galaxyDark?: boolean;
+  /**
+   * When true, renders positioned as an absolute layer inside the host container
+   * (`absolute inset-0 z-0`) rather than `fixed inset-0 -z-10`. Required when
+   * hosted directly inside `.aura-galaxy-surface` so opaque surface backgrounds
+   * do not occlude the WebGL canvas.
+   */
+  contained?: boolean;
 }
 
 interface StaticStar2D {
@@ -585,6 +592,7 @@ function renderFallback2D(ctx: CanvasRenderingContext2D, w: number, h: number, s
 export function AuraSpaceBackdrop({
   immersive: immersiveProp,
   galaxyDark = false,
+  contained = false,
 }: AuraSpaceBackdropProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isLightTheme, setIsLightTheme] = useState(false);
@@ -778,9 +786,13 @@ export function AuraSpaceBackdrop({
     <div
       aria-hidden="true"
       data-testid="aura-space-backdrop"
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden select-none"
+      className={
+        contained
+          ? "pointer-events-none absolute inset-0 z-0 overflow-hidden select-none"
+          : "pointer-events-none fixed inset-0 -z-10 overflow-hidden select-none"
+      }
     >
-      <div className={washedOut ? "absolute inset-0 opacity-60" : "absolute inset-0 opacity-20"}>
+      <div className={washedOut ? "absolute inset-0 opacity-30" : "absolute inset-0 opacity-20"}>
         <div
           className={`aura-galaxy-nebula absolute inset-0${
             galaxyDark ? " aura-galaxy-nebula-dark" : ""
@@ -790,7 +802,7 @@ export function AuraSpaceBackdrop({
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 h-full w-full transition-opacity duration-500 ${
-          washedOut ? "opacity-15" : "opacity-100"
+          washedOut ? "opacity-90" : "opacity-100"
         }`}
       />
     </div>

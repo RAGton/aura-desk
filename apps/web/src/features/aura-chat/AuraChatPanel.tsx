@@ -3,8 +3,10 @@ import { useTranslation } from "react-i18next";
 import {
   AudioLines,
   ChevronDown,
+  Layers,
   MessageSquare,
   Mic,
+  Plus,
   Radio,
   Send,
   Sparkles,
@@ -17,13 +19,18 @@ import { Badge, Button, Input, Switch } from "../../components/ui";
 import {
   aiApi,
   audioApi,
+  contextEngineApi,
   hermesApi,
   hindsightApi,
+  hindsightExploreApi,
   isTauriRuntime,
   raglightApi,
+  sessionsApi,
   type AiProviderStatus,
+  type ContextInspection,
   type HermesStatus,
   type HermesStreamEvent,
+  type HindsightGalaxySnapshot,
   type HindsightRecallItem,
   type HindsightStatus,
   type PersistedChatMessage,
@@ -42,6 +49,12 @@ export interface AuraChatMessage {
 }
 
 export interface AuraChatPanelProps {
+  sessionId?: string;
+  onSessionChange?: (sessionId: string) => void;
+  focusMemory?: { bankId: string; memoryId: string } | null;
+  onFocusMemoryHandled?: () => void;
+  onOpenSessions?: () => void;
+  onOpenHindsightBank?: (bankId: string) => void;
   onProposalApplied?: () => void;
   onOpenSettings?: () => void;
 }
@@ -102,11 +115,21 @@ function getAudioCaptureApis() {
 }
 
 export function AuraChatPanel({
+  sessionId: sessionIdProp,
+  onSessionChange,
+  focusMemory = null,
+  onFocusMemoryHandled,
+  onOpenSessions,
+  onOpenHindsightBank,
   onProposalApplied: _onProposalApplied,
   onOpenSettings,
 }: AuraChatPanelProps) {
   const { t, i18n } = useTranslation();
   const mountedRef = useRef(true);
+
+  const [internalSessionId, setInternalSessionId] = useState<string>("default");
+  const activeSessionId = sessionIdProp ?? internalSessionId;
+  const loadedSessionRef = useRef<string>(activeSessionId);
 
   const [status, setStatus] = useState<HermesStatus>({
     available: false,
@@ -115,6 +138,9 @@ export function AuraChatPanel({
   const [aiStatus, setAiStatus] = useState<AiProviderStatus | null>(null);
   const [hindsightStatus, setHindsightStatus] = useState<HindsightStatus | null>(null);
   const [hindsightMemories, setHindsightMemories] = useState<HindsightRecallItem[]>([]);
+  const [galaxySnapshot, setGalaxySnapshot] = useState<HindsightGalaxySnapshot | null>(null);
+  const [contextInspection, setContextInspection] = useState<ContextInspection | null>(null);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [raglightStatus, setRaglightStatus] = useState<RaglightStatus | null>(null);
   const historyLoadedRef = useRef(false);
   const [useCli, setUseCli] = useState(false);
@@ -230,8 +256,17 @@ export function AuraChatPanel({
     speakReplyRef.current = speakReply;
   }, [speakReply]);
 
+  useEffect(() => {
+    if (loadedSessionRef.current !== activeSessionId) {
+      loadedSessionRef.current = activeSessionId;
+      historyLoadedRef.current = false;
+      setMessages([]);
+    }
+  }, [activeSessionId]);
+
   const loadData = useCallback(async () => {
     try {
+      const targetSession = activeSessionId || "default";
       const [
         hermesInfo,
         providerInfo,
@@ -239,6 +274,8 @@ export function AuraChatPanel({
         memoriesInfo,
         raglightInfo,
         persistedHistory,
+        snapshotInfo,
+        ctxInfo,
       ] = await Promise.all([
         hermesApi.status().catch(() => ({ available: false, binaryPath: null })),
         aiApi?.providerStatus?.()?.catch(() => null) ?? Promise.resolve(null),
@@ -247,8 +284,12 @@ export function AuraChatPanel({
           Promise.resolve([] as HindsightRecallItem[]),
         raglightApi?.status?.()?.catch(() => null) ?? Promise.resolve(null),
         !historyLoadedRef.current && aiApi?.chatHistory
-          ? aiApi.chatHistory(50).catch(() => [] as PersistedChatMessage[])
+          ? aiApi.chatHistory(50, targetSession).catch(() => [] as PersistedChatMessage[])
           : Promise.resolve(null),
+        hindsightExploreApi?.galaxySnapshot?.(null, 14)?.catch(() => null) ??
+          Promise.resolve(null),
+        contextEngineApi?.inspect?.(targetSession)?.catch(() => null) ??
+          Promise.resolve(null),
       ]);
       if (!mountedRef.current) return;
       setStatus(hermesInfo);
@@ -258,28 +299,59 @@ export function AuraChatPanel({
         setHindsightMemories([...memoriesInfo]);
       }
       setRaglightStatus(raglightInfo ?? null);
+      if (snapshotInfo) {
+        setGalaxySnapshot(snapshotInfo);
+      }
+      if (ctxInfo) {
+        setContextInspection(ctxInfo);
+      }
       if (persistedHistory !== null) {
         historyLoadedRef.current = true;
-        if (Array.isArray(persistedHistory) && persistedHistory.length > 0) {
-          setMessages((prev) =>
-            prev.length > 0
-              ? prev
-              : persistedHistory
-                  .filter((m) => m.role === "user" || m.role === "assistant")
-                  .map((m) => ({
-                    id: m.id,
-                    role: m.role as "user" | "assistant",
-                    text: m.content,
-                    createdAt: m.createdAt,
-                  }))
-          );
+        if (Array.isArray(persistedHistory)) {
+          const mapped = persistedHistory
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              text: m.content,
+              createdAt: m.createdAt,
+            }));
+          if (mapped.length > 0) {
+            setMessages((prev) => (prev.length > 0 ? prev : mapped));
+          }
         }
       }
     } catch (err) {
       if (!mountedRef.current) return;
       setErrorMsg(String(err));
     }
-  }, []);
+  }, [activeSessionId]);
+
+  const handleNewSession = useCallback(async () => {
+    if (creatingSession || !sessionsApi?.create) return;
+    setCreatingSession(true);
+    setErrorMsg(null);
+    try {
+      const created = await sessionsApi.create();
+      if (!mountedRef.current) return;
+      historyLoadedRef.current = true;
+      loadedSessionRef.current = created.id;
+      setInternalSessionId(created.id);
+      onSessionChange?.(created.id);
+      setMessages([]);
+      setFeedback(t("hermes.sessionBadge", { title: t(created.title, { defaultValue: created.title }) }));
+      const ctx = await contextEngineApi?.inspect?.(created.id)?.catch(() => null);
+      if (mountedRef.current && ctx) {
+        setContextInspection(ctx);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setErrorMsg(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (mountedRef.current) setCreatingSession(false);
+    }
+  }, [creatingSession, onSessionChange, t]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -393,7 +465,11 @@ export function AuraChatPanel({
       if (!textOverride) setPrompt("");
 
       try {
-        const reply = await hermesApi.sendMessage(raw, status.available && useCli);
+        const reply = await hermesApi.sendMessage(
+          raw,
+          status.available && useCli,
+          activeSessionId
+        );
         if (!mountedRef.current) return;
         setMessages((prev) => [
           ...prev,
@@ -419,7 +495,15 @@ export function AuraChatPanel({
         if (mountedRef.current) setSending(false);
       }
     },
-    [loadData, prompt, raglightStatus?.enabled, speakReply, status.available, useCli]
+    [
+      activeSessionId,
+      loadData,
+      prompt,
+      raglightStatus?.enabled,
+      speakReply,
+      status.available,
+      useCli,
+    ]
   );
 
   useEffect(() => {
@@ -709,6 +793,10 @@ export function AuraChatPanel({
           hindsightStatus={hindsightStatus}
           raglightStatus={raglightStatus}
           memories={hindsightMemories}
+          galaxySnapshot={galaxySnapshot}
+          focusedMemoryId={focusMemory?.memoryId ?? null}
+          onFocusedMemoryHandled={onFocusMemoryHandled}
+          onOpenHindsightBank={onOpenHindsightBank}
           activePulseTick={pulseTick}
           speaking={sending || liveSpeaking || messages.some((m) => m.streaming)}
           listening={prompt.trim().length > 0 || recording || liveMode || transcribing}
@@ -719,10 +807,35 @@ export function AuraChatPanel({
       </div>
 
       {/* Bottom Floating Prompt Dock */}
-      <div className="pointer-events-none absolute bottom-4 inset-x-0 z-20 flex flex-col items-center px-4">
+      <div className="aura-galaxy-chrome-scope pointer-events-none absolute bottom-4 inset-x-0 z-20 flex flex-col items-center px-4">
         <div className="pointer-events-auto w-full max-w-3xl space-y-2">
-          {/* Status / CLI / Transcript Toggle Row integrated cleanly along dock edge */}
+          {/* Status / Session / Context / Transcript Row integrated cleanly along dock edge */}
           <div className="flex flex-wrap items-center justify-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              data-testid="aura-new-session-btn"
+              disabled={creatingSession}
+              onClick={() => void handleNewSession()}
+              className="h-6 rounded-full border border-sky-400/35 bg-slate-950/75 backdrop-blur-md px-2.5 text-[11px] text-sky-200 hover:bg-sky-500/20"
+            >
+              <Plus className="h-3 w-3" aria-hidden="true" />
+              {t("hermes.newSession")}
+            </Button>
+
+            {contextInspection && (
+              <button
+                type="button"
+                data-testid="aura-context-pill"
+                onClick={() => onOpenSessions?.()}
+                className="inline-flex items-center gap-1 rounded-full border border-sky-400/25 bg-slate-950/70 backdrop-blur-md px-2.5 py-0.5 text-[11px] text-sky-200 hover:border-sky-400/60 cursor-pointer"
+              >
+                <Layers className="h-3 w-3 text-sky-400" aria-hidden="true" />
+                <span>{t("hermes.contextPill", { pct: contextInspection.usagePct })}</span>
+              </button>
+            )}
+
             {aiStatus && (
               <Badge
                 variant={aiStatus.ready ? "info" : "warning"}
@@ -815,7 +928,7 @@ export function AuraChatPanel({
                     variant="ghost"
                     onClick={() => {
                       setMessages([]);
-                      void aiApi?.chatClear?.().catch(() => {});
+                      void aiApi?.chatClear?.(activeSessionId).catch(() => {});
                     }}
                     className="h-7 px-2.5 text-[11px] text-slate-300 hover:text-white rounded-full"
                   >
@@ -864,7 +977,7 @@ export function AuraChatPanel({
               size="sm"
               variant="outline"
               onClick={() => setPrompt(`${t("hermes.quickActions.createTask")}: `)}
-              className="h-7 rounded-full border-sky-400/25 bg-slate-950/60 backdrop-blur-md px-3 text-xs text-slate-100 hover:bg-sky-500/20"
+              className="aura-galaxy-chip h-7 rounded-full backdrop-blur-md px-3 text-xs"
             >
               {t("hermes.quickActions.createTask")}
             </Button>
@@ -873,7 +986,7 @@ export function AuraChatPanel({
               size="sm"
               variant="outline"
               onClick={() => setPrompt(`${t("hermes.quickActions.createReminder")}: `)}
-              className="h-7 rounded-full border-sky-400/25 bg-slate-950/60 backdrop-blur-md px-3 text-xs text-slate-100 hover:bg-sky-500/20"
+              className="aura-galaxy-chip h-7 rounded-full backdrop-blur-md px-3 text-xs"
             >
               {t("hermes.quickActions.createReminder")}
             </Button>
@@ -882,7 +995,7 @@ export function AuraChatPanel({
               size="sm"
               variant="outline"
               onClick={() => void sendPrompt("summary")}
-              className="h-7 rounded-full border-sky-400/25 bg-slate-950/60 backdrop-blur-md px-3 text-xs text-slate-100 hover:bg-sky-500/20"
+              className="aura-galaxy-chip h-7 rounded-full backdrop-blur-md px-3 text-xs"
             >
               {t("hermes.quickActions.summary")}
             </Button>

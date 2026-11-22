@@ -71,7 +71,7 @@ export function ReportsPage({ initialReport = null }: ReportsPageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-50 flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-sky-400" />

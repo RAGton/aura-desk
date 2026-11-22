@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod github;
 pub mod hermes;
 pub mod hindsight;
+pub mod hindsight_explore;
 pub mod idle;
 pub mod ipc;
 pub mod logging;

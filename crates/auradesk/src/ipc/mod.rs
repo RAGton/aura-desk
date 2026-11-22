@@ -5,6 +5,7 @@
 //! desktop, updater, and logs) to the frontend.
 
 pub mod alerts;
+pub mod aura;
 pub mod dashboard;
 pub mod desktop;
 pub mod integrations;
@@ -12,6 +13,7 @@ pub mod tasks;
 pub mod time;
 
 pub use alerts::*;
+pub use aura::*;
 pub use dashboard::*;
 pub use desktop::*;
 pub use integrations::*;

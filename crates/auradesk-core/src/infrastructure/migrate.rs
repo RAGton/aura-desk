@@ -21,6 +21,8 @@ const V009: &str = include_str!("../../migrations/V009__idle_detection_settings.
 const V010: &str = include_str!("../../migrations/V010__ai_providers_and_chat.sql");
 const V011: &str = include_str!("../../migrations/V011__raglight_settings.sql");
 const V012: &str = include_str!("../../migrations/V012__hindsight_settings.sql");
+const V013: &str = include_str!("../../migrations/V013__sessions_context_agents.sql");
+const V014: &str = include_str!("../../migrations/V014__agents_skills_mcp_bots.sql");
 
 /// Run every embedded migration on the given connection idempotently.
 pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
@@ -44,6 +46,8 @@ pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
     apply_if_missing(conn, "V010__ai_providers_and_chat", V010)?;
     apply_if_missing(conn, "V011__raglight_settings", V011)?;
     apply_if_missing(conn, "V012__hindsight_settings", V012)?;
+    apply_if_missing(conn, "V013__sessions_context_agents", V013)?;
+    apply_if_missing(conn, "V014__agents_skills_mcp_bots", V014)?;
     Ok(())
 }
 

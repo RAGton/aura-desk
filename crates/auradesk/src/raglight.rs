@@ -114,6 +114,103 @@ pub struct RaglightQueryResult {
     pub sources: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDocumentEntry {
+    pub id: String,
+    pub title: String,
+    pub source_path: Option<String>,
+    pub status: String,
+    pub content_preview: String,
+    pub content_length: usize,
+    pub chunks_count: u64,
+    pub entities: Vec<String>,
+    pub updated_at: Option<String>,
+    pub origin: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDocumentDetail {
+    pub id: String,
+    pub title: String,
+    pub source_path: Option<String>,
+    pub content: String,
+    pub status: String,
+    pub entities: Vec<String>,
+    pub relations: Vec<KnowledgeRelationEntry>,
+    pub origin: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEntityEntry {
+    pub id: String,
+    pub name: String,
+    pub entity_type: String,
+    pub description: String,
+    pub source_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeRelationEntry {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub description: String,
+    pub keywords: Vec<String>,
+    pub weight: f64,
+    pub source_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeExplorerOverview {
+    pub service_kind: String,
+    pub online: bool,
+    pub base_url: String,
+    pub documents_count: usize,
+    pub entities_count: usize,
+    pub relations_count: usize,
+    pub configured_folders: Vec<String>,
+    pub local_file_count: usize,
+    pub status_counts: std::collections::BTreeMap<String, u64>,
+    pub diagnostic_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeDocumentsResult {
+    pub service_kind: String,
+    pub online: bool,
+    pub documents: Vec<KnowledgeDocumentEntry>,
+    pub diagnostic_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeGraphPayload {
+    pub service_kind: String,
+    pub online: bool,
+    pub entities: Vec<KnowledgeEntityEntry>,
+    pub relations: Vec<KnowledgeRelationEntry>,
+    pub diagnostic_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSearchResult {
+    pub service_kind: String,
+    pub online: bool,
+    pub answer: String,
+    pub sources: Vec<String>,
+    pub matching_documents: Vec<KnowledgeDocumentEntry>,
+    pub matching_entities: Vec<KnowledgeEntityEntry>,
+    pub matching_relations: Vec<KnowledgeRelationEntry>,
+    pub diagnostic_message: Option<String>,
+}
+
 fn read_str(settings: &SettingsService, key: SettingsKey, default: &str) -> String {
     settings
         .get(key)
@@ -606,6 +703,786 @@ pub fn query_context_for_prompt(db: &Db, prompt: &str) -> Option<String> {
     Some(out)
 }
 
+const MAX_LISTED_LOCAL_FILES: usize = 120;
+const MAX_DOC_READ_BYTES: usize = 64 * 1024;
+const SKIP_DIRS: [&str; 6] = [
+    ".git",
+    "node_modules",
+    "target",
+    ".venv",
+    "__pycache__",
+    "dist",
+];
+
+fn knowledge_http_client(timeout_secs: u64) -> Option<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .ok()
+}
+
+fn authed_get(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    api_key: &str,
+) -> Result<serde_json::Value, String> {
+    let mut req = client.get(url);
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+    let resp = req.send().map_err(|e| format!("connection_error: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("http_{}", status.as_u16()));
+    }
+    resp.json::<serde_json::Value>()
+        .map_err(|e| format!("invalid_json: {e}"))
+}
+
+fn detect_knowledge_service(cfg: &RaglightConfig) -> (&'static str, bool, Option<String>) {
+    let Some(client) = knowledge_http_client(2) else {
+        return (
+            "offline",
+            false,
+            Some("http_client_unavailable".to_string()),
+        );
+    };
+    let trimmed = cfg.base_url.trim_end_matches('/');
+
+    // Try LightRAG /health or /documents/status_counts vs AuraDesk managed /health
+    if let Ok(val) = authed_get(&client, &format!("{trimmed}/health"), &cfg.api_key) {
+        if val.get("core_version").is_some()
+            || val.get("configuration").is_some()
+            || val.get("pipeline_busy").is_some()
+        {
+            return ("lightrag", true, None);
+        }
+        return ("raglight_managed", true, None);
+    }
+
+    // Fallback check against official LightRAG status endpoint directly.
+    if authed_get(
+        &client,
+        &format!("{trimmed}/documents/status_counts"),
+        &cfg.api_key,
+    )
+    .is_ok()
+    {
+        return ("lightrag", true, None);
+    }
+
+    let reason = if cfg.folders.is_empty() {
+        format!("service_offline ({})", cfg.base_url)
+    } else {
+        format!(
+            "service_offline ({}; showing authorized local folders)",
+            cfg.base_url
+        )
+    };
+    ("offline", false, Some(reason))
+}
+
+fn is_text_or_doc_extension(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "md" | "txt"
+            | "rs"
+            | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "json"
+            | "toml"
+            | "yaml"
+            | "yml"
+            | "sql"
+            | "csv"
+            | "log"
+            | "html"
+            | "css"
+            | "pdf"
+            | "docx"
+    )
+}
+
+fn walk_authorized_dir(dir: &Path, out: &mut Vec<PathBuf>, max_items: usize, depth: usize) {
+    if out.len() >= max_items || depth > 5 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if out.len() >= max_items {
+            break;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if SKIP_DIRS.contains(&name) || name.starts_with('.') {
+                    continue;
+                }
+            }
+            walk_authorized_dir(&path, out, max_items, depth + 1);
+        } else if path.is_file() && is_text_or_doc_extension(&path) {
+            out.push(path);
+        }
+    }
+}
+
+fn enumerate_authorized_files(folders: &[String]) -> Vec<KnowledgeDocumentEntry> {
+    let mut paths = Vec::new();
+    for folder in folders {
+        let p = PathBuf::from(folder);
+        if p.is_dir() {
+            walk_authorized_dir(&p, &mut paths, MAX_LISTED_LOCAL_FILES, 0);
+        }
+    }
+    paths
+        .into_iter()
+        .map(|p| {
+            let full_str = p.display().to_string();
+            let title = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&full_str)
+                .to_string();
+            let meta = fs::metadata(&p).ok();
+            let len = meta.as_ref().map(|m| m.len() as usize).unwrap_or(0);
+            let updated_at = meta
+                .and_then(|m| m.modified().ok())
+                .map(|st| chrono::DateTime::<chrono::Utc>::from(st).to_rfc3339());
+            let preview = read_bounded_preview(&p, 200);
+            KnowledgeDocumentEntry {
+                id: format!("local:{full_str}"),
+                title,
+                source_path: Some(full_str),
+                status: "authorized_folder".to_string(),
+                content_preview: preview,
+                content_length: len,
+                chunks_count: 0,
+                entities: Vec::new(),
+                updated_at,
+                origin: "local_folder".to_string(),
+            }
+        })
+        .collect()
+}
+
+fn read_bounded_preview(path: &Path, max_chars: usize) -> String {
+    let Ok(bytes) = fs::read(path) else {
+        return String::new();
+    };
+    let slice = if bytes.len() > 2048 {
+        &bytes[..2048]
+    } else {
+        &bytes[..]
+    };
+    let lossy = String::from_utf8_lossy(slice);
+    let collapsed = lossy.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(max_chars).collect()
+}
+
+/// Read an authorized file strictly constrained within `folders` (prevents path traversal).
+pub fn read_authorized_file(folders: &[String], requested_path: &str) -> Result<String, String> {
+    let target =
+        fs::canonicalize(Path::new(requested_path)).map_err(|e| format!("file_not_found: {e}"))?;
+    let mut allowed = false;
+    for root_raw in folders {
+        if let Ok(root_canon) = fs::canonicalize(Path::new(root_raw)) {
+            if target.starts_with(&root_canon) {
+                allowed = true;
+                break;
+            }
+        }
+    }
+    if !allowed {
+        return Err("access_denied: path outside authorized raglight folders".to_string());
+    }
+    let bytes = fs::read(&target).map_err(|e| format!("read_error: {e}"))?;
+    let capped = if bytes.len() > MAX_DOC_READ_BYTES {
+        &bytes[..MAX_DOC_READ_BYTES]
+    } else {
+        &bytes[..]
+    };
+    Ok(String::from_utf8_lossy(capped).to_string())
+}
+
+fn parse_lightrag_documents(val: &serde_json::Value) -> Vec<KnowledgeDocumentEntry> {
+    let mut out = Vec::new();
+    // LightRAG /documents can return { statuses: { processed: [...], ... } } or { documents: [...] } or an array.
+    if let Some(statuses) = val.get("statuses").and_then(|v| v.as_object()) {
+        for (status_name, arr_val) in statuses {
+            if let Some(items) = arr_val.as_array() {
+                for item in items {
+                    if let Some(doc) = normalize_remote_doc(item, status_name, "lightrag") {
+                        out.push(doc);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    let arr = val
+        .get("documents")
+        .or_else(|| val.get("items"))
+        .and_then(|v| v.as_array())
+        .or_else(|| val.as_array());
+    if let Some(items) = arr {
+        for item in items {
+            if let Some(doc) = normalize_remote_doc(item, "indexed", "remote") {
+                out.push(doc);
+            }
+        }
+    }
+    out
+}
+
+fn normalize_remote_doc(
+    item: &serde_json::Value,
+    default_status: &str,
+    default_origin: &str,
+) -> Option<KnowledgeDocumentEntry> {
+    let id = item
+        .get("id")
+        .or_else(|| item.get("doc_id"))
+        .or_else(|| item.get("file_path"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let source_path = item
+        .get("file_path")
+        .or_else(|| item.get("source"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let title = item
+        .get("title")
+        .or_else(|| item.get("file_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| {
+            Path::new(s)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(s)
+                .to_string()
+        })
+        .unwrap_or_else(|| id.clone());
+    let summary = item
+        .get("content_summary")
+        .or_else(|| item.get("content_preview"))
+        .or_else(|| item.get("content"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let content_length = item
+        .get("content_length")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(summary.len() as u64) as usize;
+    let chunks_count = item
+        .get("chunks_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let status = item
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or(default_status)
+        .to_string();
+    let updated_at = item
+        .get("updated_at")
+        .or_else(|| item.get("created_at"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let entities = item
+        .get("entities")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(KnowledgeDocumentEntry {
+        id,
+        title,
+        source_path,
+        status,
+        content_preview: summary.chars().take(220).collect(),
+        content_length,
+        chunks_count,
+        entities,
+        updated_at,
+        origin: default_origin.to_string(),
+    })
+}
+
+fn parse_remote_graph(
+    val: &serde_json::Value,
+) -> (Vec<KnowledgeEntityEntry>, Vec<KnowledgeRelationEntry>) {
+    let mut entities = Vec::new();
+    let mut relations = Vec::new();
+
+    if let Some(nodes) = val.get("nodes").and_then(|v| v.as_array()) {
+        for node in nodes {
+            let props = node.get("properties").unwrap_or(node);
+            let id = node
+                .get("id")
+                .or_else(|| props.get("entity_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if id.is_empty() {
+                continue;
+            }
+            let name = node
+                .get("labels")
+                .and_then(|l| l.as_array())
+                .and_then(|a| a.first())
+                .and_then(|s| s.as_str())
+                .or_else(|| node.get("label").and_then(|v| v.as_str()))
+                .or_else(|| props.get("entity_id").and_then(|v| v.as_str()))
+                .unwrap_or(&id)
+                .to_string();
+            let entity_type = props
+                .get("entity_type")
+                .or_else(|| node.get("entity_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("concept")
+                .to_string();
+            let description = props
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let source_id = props
+                .get("source_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            entities.push(KnowledgeEntityEntry {
+                id,
+                name,
+                entity_type,
+                description,
+                source_id,
+            });
+        }
+    }
+
+    if let Some(edges) = val.get("edges").and_then(|v| v.as_array()) {
+        for (idx, edge) in edges.iter().enumerate() {
+            let props = edge.get("properties").unwrap_or(edge);
+            let source = edge
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let target = edge
+                .get("target")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if source.is_empty() || target.is_empty() {
+                continue;
+            }
+            let id = edge
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("rel-{idx}"));
+            let description = props
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let keywords = props
+                .get("keywords")
+                .and_then(|v| v.as_str())
+                .map(|s| {
+                    s.split(',')
+                        .map(str::trim)
+                        .filter(|k| !k.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .or_else(|| {
+                    props.get("keywords").and_then(|v| v.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.as_str().map(str::to_string))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
+            let weight = props.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let source_id = props
+                .get("source_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+
+            relations.push(KnowledgeRelationEntry {
+                id,
+                source,
+                target,
+                description,
+                keywords,
+                weight,
+                source_id,
+            });
+        }
+    }
+
+    (entities, relations)
+}
+
+/// Real status & statistics overview for LightRAG / RAGLight (no fake rows when offline).
+pub fn knowledge_overview(
+    db: &Db,
+    _data_dir: &Path,
+    _manager: &RaglightManager,
+) -> KnowledgeExplorerOverview {
+    let cfg = load_config(db);
+    let (service_kind, online, diagnostic_message) = detect_knowledge_service(&cfg);
+    let local_files = enumerate_authorized_files(&cfg.folders);
+
+    let mut status_counts = std::collections::BTreeMap::new();
+    let mut documents_count = local_files.len();
+    let mut entities_count = 0usize;
+    let mut relations_count = 0usize;
+
+    if online {
+        if let Some(client) = knowledge_http_client(4) {
+            let trimmed = cfg.base_url.trim_end_matches('/');
+            if service_kind == "lightrag" {
+                if let Ok(sc) = authed_get(
+                    &client,
+                    &format!("{trimmed}/documents/status_counts"),
+                    &cfg.api_key,
+                ) {
+                    if let Some(obj) = sc.get("status_counts").and_then(|v| v.as_object()) {
+                        let mut remote_total = 0u64;
+                        for (k, v) in obj {
+                            let c = v.as_u64().unwrap_or(0);
+                            status_counts.insert(k.clone(), c);
+                            if k != "all" {
+                                remote_total += c;
+                            }
+                        }
+                        documents_count =
+                            sc.pointer("/status_counts/all")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(remote_total) as usize;
+                    }
+                }
+                if let Ok(gr) = authed_get(
+                    &client,
+                    &format!("{trimmed}/graphs?label=*&max_depth=2"),
+                    &cfg.api_key,
+                ) {
+                    let (ents, rels) = parse_remote_graph(&gr);
+                    entities_count = ents.len();
+                    relations_count = rels.len();
+                }
+            } else {
+                if let Ok(docs_val) =
+                    authed_get(&client, &format!("{trimmed}/documents"), &cfg.api_key)
+                {
+                    let docs = parse_lightrag_documents(&docs_val);
+                    if !docs.is_empty() {
+                        documents_count = docs.len();
+                    }
+                }
+                if let Ok(gr) = authed_get(&client, &format!("{trimmed}/graph"), &cfg.api_key) {
+                    let (ents, rels) = parse_remote_graph(&gr);
+                    entities_count = ents.len();
+                    relations_count = rels.len();
+                }
+            }
+        }
+    }
+
+    KnowledgeExplorerOverview {
+        service_kind: service_kind.to_string(),
+        online,
+        base_url: cfg.base_url,
+        documents_count,
+        entities_count,
+        relations_count,
+        configured_folders: cfg.folders,
+        local_file_count: local_files.len(),
+        status_counts,
+        diagnostic_message,
+    }
+}
+
+/// List real documents indexed by LightRAG/RAGLight plus files inside configured local folders.
+pub fn knowledge_documents_list(
+    db: &Db,
+    query: Option<&str>,
+    limit: Option<usize>,
+) -> KnowledgeDocumentsResult {
+    let cfg = load_config(db);
+    let (service_kind, online, diagnostic_message) = detect_knowledge_service(&cfg);
+    let max_items = limit.unwrap_or(80).clamp(1, 200);
+    let q = query
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_ascii_lowercase());
+
+    let mut documents = Vec::new();
+    if online {
+        if let Some(client) = knowledge_http_client(5) {
+            let trimmed = cfg.base_url.trim_end_matches('/');
+            if let Ok(val) = authed_get(&client, &format!("{trimmed}/documents"), &cfg.api_key) {
+                documents.extend(parse_lightrag_documents(&val));
+            }
+        }
+    }
+
+    let mut seen_paths: std::collections::HashSet<String> = documents
+        .iter()
+        .filter_map(|d| d.source_path.clone())
+        .collect();
+    for local_doc in enumerate_authorized_files(&cfg.folders) {
+        if let Some(ref sp) = local_doc.source_path {
+            if seen_paths.contains(sp) {
+                continue;
+            }
+            seen_paths.insert(sp.clone());
+        }
+        documents.push(local_doc);
+    }
+
+    if let Some(ref needle) = q {
+        documents.retain(|d| {
+            d.title.to_ascii_lowercase().contains(needle)
+                || d.id.to_ascii_lowercase().contains(needle)
+                || d.content_preview.to_ascii_lowercase().contains(needle)
+                || d.source_path
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+                    .contains(needle)
+        });
+    }
+    documents.truncate(max_items);
+
+    KnowledgeDocumentsResult {
+        service_kind: service_kind.to_string(),
+        online,
+        documents,
+        diagnostic_message,
+    }
+}
+
+/// Inspect one real LightRAG/RAGLight document or authorized file content safely.
+pub fn knowledge_document_get(db: &Db, doc_id: &str) -> Result<KnowledgeDocumentDetail, String> {
+    let cfg = load_config(db);
+    let clean_id = doc_id.trim();
+    if clean_id.is_empty() {
+        return Err("doc_id cannot be empty".to_string());
+    }
+
+    if let Some(raw_path) = clean_id.strip_prefix("local:") {
+        let content = read_authorized_file(&cfg.folders, raw_path)?;
+        let title = Path::new(raw_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(raw_path)
+            .to_string();
+        return Ok(KnowledgeDocumentDetail {
+            id: clean_id.to_string(),
+            title,
+            source_path: Some(raw_path.to_string()),
+            content,
+            status: "authorized_folder".to_string(),
+            entities: Vec::new(),
+            relations: Vec::new(),
+            origin: "local_folder".to_string(),
+        });
+    }
+
+    let (service_kind, online, diag) = detect_knowledge_service(&cfg);
+    if online {
+        if let Some(client) = knowledge_http_client(6) {
+            let trimmed = cfg.base_url.trim_end_matches('/');
+            let docs = authed_get(&client, &format!("{trimmed}/documents"), &cfg.api_key)
+                .map(|v| parse_lightrag_documents(&v))
+                .unwrap_or_default();
+            let graph = knowledge_graph(db, None, None, Some(150));
+            if let Some(found) = docs.iter().find(|d| d.id == clean_id) {
+                let mut content = found.content_preview.clone();
+                if service_kind == "raglight_managed" {
+                    if let Ok(detail_val) = authed_get(
+                        &client,
+                        &format!("{trimmed}/documents/{}", clean_id),
+                        &cfg.api_key,
+                    ) {
+                        if let Some(full) = detail_val.get("content").and_then(|v| v.as_str()) {
+                            content = full.to_string();
+                        }
+                    }
+                } else if let Some(ref sp) = found.source_path {
+                    if let Ok(local_text) = read_authorized_file(&cfg.folders, sp) {
+                        content = local_text;
+                    }
+                }
+                let matched_entities: Vec<String> = graph
+                    .entities
+                    .iter()
+                    .filter(|e| {
+                        e.source_id.as_deref() == Some(clean_id) || content.contains(&e.name)
+                    })
+                    .map(|e| e.name.clone())
+                    .take(30)
+                    .collect();
+                let matched_relations: Vec<KnowledgeRelationEntry> = graph
+                    .relations
+                    .into_iter()
+                    .filter(|r| {
+                        r.source_id.as_deref() == Some(clean_id)
+                            || matched_entities.contains(&r.source)
+                            || matched_entities.contains(&r.target)
+                    })
+                    .take(30)
+                    .collect();
+
+                return Ok(KnowledgeDocumentDetail {
+                    id: found.id.clone(),
+                    title: found.title.clone(),
+                    source_path: found.source_path.clone(),
+                    content,
+                    status: found.status.clone(),
+                    entities: matched_entities,
+                    relations: matched_relations,
+                    origin: found.origin.clone(),
+                });
+            }
+        }
+    }
+
+    Err(diag.unwrap_or_else(|| format!("document_not_found: {clean_id}")))
+}
+
+/// Fetch real knowledge entities and relations from LightRAG `/graphs` or RAGLight `/graph`.
+pub fn knowledge_graph(
+    db: &Db,
+    label: Option<&str>,
+    query: Option<&str>,
+    limit: Option<usize>,
+) -> KnowledgeGraphPayload {
+    let cfg = load_config(db);
+    let (service_kind, online, diagnostic_message) = detect_knowledge_service(&cfg);
+    let max_items = limit.unwrap_or(120).clamp(1, 300);
+    let needle = query
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_ascii_lowercase());
+
+    if !online {
+        return KnowledgeGraphPayload {
+            service_kind: service_kind.to_string(),
+            online: false,
+            entities: Vec::new(),
+            relations: Vec::new(),
+            diagnostic_message,
+        };
+    }
+
+    let Some(client) = knowledge_http_client(6) else {
+        return KnowledgeGraphPayload {
+            service_kind: service_kind.to_string(),
+            online: false,
+            entities: Vec::new(),
+            relations: Vec::new(),
+            diagnostic_message: Some("http_client_unavailable".to_string()),
+        };
+    };
+
+    let trimmed = cfg.base_url.trim_end_matches('/');
+    let url = if service_kind == "lightrag" {
+        let lbl = label
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("*");
+        format!("{trimmed}/graphs?label={lbl}&max_depth=2")
+    } else {
+        format!("{trimmed}/graph")
+    };
+
+    let (mut entities, mut relations) = match authed_get(&client, &url, &cfg.api_key) {
+        Ok(val) => parse_remote_graph(&val),
+        Err(err) => {
+            return KnowledgeGraphPayload {
+                service_kind: service_kind.to_string(),
+                online: false,
+                entities: Vec::new(),
+                relations: Vec::new(),
+                diagnostic_message: Some(err),
+            };
+        }
+    };
+
+    if let Some(ref q) = needle {
+        entities.retain(|e| {
+            e.name.to_ascii_lowercase().contains(q)
+                || e.description.to_ascii_lowercase().contains(q)
+                || e.entity_type.to_ascii_lowercase().contains(q)
+        });
+        relations.retain(|r| {
+            r.source.to_ascii_lowercase().contains(q)
+                || r.target.to_ascii_lowercase().contains(q)
+                || r.description.to_ascii_lowercase().contains(q)
+                || r.keywords
+                    .iter()
+                    .any(|k| k.to_ascii_lowercase().contains(q))
+        });
+    }
+
+    entities.truncate(max_items);
+    relations.truncate(max_items);
+
+    KnowledgeGraphPayload {
+        service_kind: service_kind.to_string(),
+        online: true,
+        entities,
+        relations,
+        diagnostic_message: None,
+    }
+}
+
+/// Global search across documents, entities, relations, and semantic query response.
+pub fn knowledge_search(db: &Db, query_text: &str, top_k: usize) -> KnowledgeSearchResult {
+    let cfg = load_config(db);
+    let (service_kind, online, diagnostic_message) = detect_knowledge_service(&cfg);
+    let docs_res = knowledge_documents_list(db, Some(query_text), Some(top_k.max(10)));
+    let graph_res = knowledge_graph(db, None, Some(query_text), Some(40));
+
+    let mut answer = String::new();
+    let mut sources = Vec::new();
+    if online && !query_text.trim().is_empty() {
+        if let Ok(qres) = query(db, query_text, top_k) {
+            answer = qres.answer;
+            sources = qres.sources;
+        }
+    }
+
+    KnowledgeSearchResult {
+        service_kind: service_kind.to_string(),
+        online,
+        answer,
+        sources,
+        matching_documents: docs_res.documents,
+        matching_entities: graph_res.entities,
+        matching_relations: graph_res.relations,
+        diagnostic_message,
+    }
+}
+
 fn extract_port(url: &str) -> Option<u16> {
     let without_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
     let host_port = without_scheme.split('/').next()?;
@@ -721,6 +1598,33 @@ def health():
     return {"status": "ok", "config": load_cfg()}
 
 
+@app.get("/documents")
+def list_documents():
+    cfg = load_cfg()
+    docs = []
+    for folder in cfg.get("folders") or []:
+        p = Path(folder)
+        if not p.is_dir():
+            continue
+        for file_path in p.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in {".md", ".txt", ".py", ".rs", ".ts", ".tsx", ".json", ".pdf"}:
+                docs.append({
+                    "id": str(file_path),
+                    "title": file_path.name,
+                    "file_path": str(file_path),
+                    "status": "indexed",
+                    "content_length": file_path.stat().st_size,
+                })
+                if len(docs) >= 120:
+                    break
+    return {"documents": docs}
+
+
+@app.get("/graph")
+def graph():
+    return {"nodes": [], "edges": []}
+
+
 @app.post("/ingest")
 def ingest(req: IngestRequest):
     from raglight.models import FolderSource
@@ -781,5 +1685,62 @@ mod tests {
         assert!(root.join("raglight_config.json").is_file());
         assert!(root.join("server.py").is_file());
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn normalizes_lightrag_documents_and_graph_payloads() {
+        let docs_val = serde_json::json!({
+            "statuses": {
+                "processed": [{
+                    "id": "doc-1",
+                    "file_path": "/estudos/fortinet.md",
+                    "content_summary": "fortinet_nse1_ztna_notes",
+                    "content_length": 420,
+                    "chunks_count": 3,
+                    "status": "processed"
+                }]
+            }
+        });
+        let docs = parse_lightrag_documents(&docs_val);
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].title, "fortinet.md");
+        assert_eq!(docs[0].chunks_count, 3);
+
+        let graph_val = serde_json::json!({
+            "nodes": [{ "id": "ent-1", "labels": ["ZTNA"], "properties": { "entity_type": "security", "description": "zero_trust_network_access", "source_id": "doc-1" } }],
+            "edges": [{ "id": "rel-1", "source": "ZTNA", "target": "FortiGate", "properties": { "description": "enforces", "keywords": "policy, firewall", "weight": 0.9 } }]
+        });
+        let (entities, relations) = parse_remote_graph(&graph_val);
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "ZTNA");
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].keywords, vec!["policy", "firewall"]);
+    }
+
+    #[test]
+    fn enumerates_authorized_folders_and_blocks_path_traversal() {
+        let base = std::env::temp_dir().join(format!("auradesk_rag_fs_{}", std::process::id()));
+        let allowed_dir = base.join("allowed");
+        let outside_file = base.join("secret.txt");
+        fs::create_dir_all(&allowed_dir).unwrap();
+        fs::write(allowed_dir.join("notes.md"), "aura_desktop_knowledge").unwrap();
+        fs::write(&outside_file, "forbidden").unwrap();
+
+        let folders = vec![allowed_dir.display().to_string()];
+        let docs = enumerate_authorized_files(&folders);
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].title, "notes.md");
+
+        let ok_content = read_authorized_file(
+            &folders,
+            &allowed_dir.join("notes.md").display().to_string(),
+        )
+        .unwrap();
+        assert_eq!(ok_content, "aura_desktop_knowledge");
+
+        let denied = read_authorized_file(&folders, &outside_file.display().to_string());
+        assert!(denied.is_err());
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

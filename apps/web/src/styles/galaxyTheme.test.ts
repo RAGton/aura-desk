@@ -127,4 +127,56 @@ describe("galaxy theme identity (CSS)", () => {
     const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
     expect(luminance).toBeGreaterThan(0.5);
   });
+
+  it("exempts the galaxy chrome scope from the light-theme slate remap", () => {
+    // The project remaps the slate utilities to the light theme's tokens so
+    // dark-on-white text stays readable. The galaxy chrome is dark-on-light
+    // in BOTH themes, so that remap must not reach it — otherwise the
+    // prompt dock's input turns near-black on the black cosmos.
+    const scopeRules = globalsCss.match(
+      /html\[data-theme="light"\]\s+\.aura-galaxy-chrome-scope[^{]*\{[^}]*\}/g,
+    );
+    expect(scopeRules).not.toBeNull();
+    expect(scopeRules!.length).toBeGreaterThan(0);
+    // The exemption must re-assert a light colour, not the theme token.
+    expect(scopeRules!.join("\n")).not.toContain("rgb(var(--text-primary))");
+  });
+
+  it("gives the quick-action chips a dedicated galaxy class", () => {
+    const chip = ruleBody(globalsCss, ".aura-galaxy-chip");
+    const rgb = chip.match(/background-color:\s*rgba?\(([^)]+)\)/)![1];
+    const parts = rgb.split(",").map((p) => Number(p.trim()));
+    const luminance =
+      (0.299 * parts[0] + 0.587 * parts[1] + 0.114 * parts[2]) / 255;
+    expect(luminance).toBeLessThan(0.25);
+  });
+
+  it("remaps status and elevated surface tokens inside both galaxy scopes", () => {
+    const surface = ruleBody(globalsCss, ".aura-galaxy-surface");
+    const scope = ruleBody(globalsCss, ".aura-galaxy-chrome-scope");
+    for (const token of ["--bg-elevated", "--status-info", "--status-success", "--accent-primary"]) {
+      expect(surface).toContain(`${token}:`);
+      expect(scope).toContain(`${token}:`);
+    }
+    expect(globalsCss).toContain('.aura-galaxy-chrome-scope .bg-slate-950\\/75');
+    expect(globalsCss).toContain('.aura-galaxy-surface .text-sky-300');
+  });
+
+  it("applies Liquid Glass Cosmic tokens and keeps the background transparent over the 3D universe in the light theme", () => {
+    const light = ruleBody(globalsCss, LIGHT_THEME_RULE);
+    const lightBgBase = cssVar(light, "--aura-bg-base");
+    expect(lightBgBase).toMatch(/^#[0-9a-fA-F]{3,8}$/);
+    expect(hexLuminance(lightBgBase)).toBeLessThan(0.25);
+
+    expect(light).toContain("--aura-liquid-gradient:");
+    expect(light).toContain("--aura-liquid-gradient-elevated:");
+    expect(light).toContain("--aura-liquid-rim:");
+
+    const lightAuraBg = ruleBody(globalsCss, 'html[data-theme="light"] .aura-bg');
+    expect(lightAuraBg).toContain("background-color: transparent");
+
+    const lightAuraGlass = ruleBody(globalsCss, 'html[data-theme="light"] .aura-glass');
+    expect(lightAuraGlass).toContain("var(--aura-liquid-gradient)");
+    expect(lightAuraGlass).toContain("var(--aura-liquid-rim)");
+  });
 });

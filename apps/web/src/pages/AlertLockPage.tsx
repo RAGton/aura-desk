@@ -191,37 +191,39 @@ export function AlertLockPage({ popupWindow = false, forceBackdrop = false }: Al
         data-testid="alert-lock-backdrop"
         className="flex min-h-screen w-screen flex-col items-center justify-center gap-3 aura-bg p-6 text-center select-none overflow-hidden"
       >
-        <div className="rounded-2xl aura-glass bg-rose-500/15 p-4 ring-1 ring-rose-500/40 shadow-lg shadow-rose-500/10">
-          <ShieldAlert className="h-8 w-8 text-rose-400" />
-        </div>
-        <h1 className="text-lg font-bold text-rose-100">{t("reminders.lockBackdropTitle")}</h1>
-        <p className="max-w-md text-xs text-rose-200/80">
-          {t("reminders.lockBackdropSubtitle")}
-        </p>
-        {actionError && (
-          <div
-            role="alert"
-            data-testid="alert-lock-ipc-error"
-            className="mt-2 flex max-w-md items-center gap-2 rounded-xl bg-rose-950/70 px-3 py-2 text-xs text-rose-200 ring-1 ring-rose-500/40"
-          >
-            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" />
-            <span>{actionError}</span>
+        <div className="flex flex-col items-center gap-3 rounded-2xl aura-glass-elevated px-6 py-5 text-center shadow-2xl">
+          <div className="rounded-2xl aura-glass bg-rose-500/15 p-4 ring-1 ring-rose-500/40 shadow-lg shadow-rose-500/10">
+            <ShieldAlert className="h-8 w-8 text-rose-400" />
           </div>
-        )}
-        <div className="mt-2 flex flex-col items-center gap-1.5">
-          <button
-            type="button"
-            data-testid="emergency-unlock-btn"
-            disabled={unlocking}
-            onClick={() => void handleEmergencyUnlock()}
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-400/40 hover:bg-rose-500/30 disabled:opacity-50 cursor-pointer"
-          >
-            <Unlock className="h-3.5 w-3.5" />
-            {t("alertLock.emergencyUnlock")}
-          </button>
-          <span className="text-[11px] text-rose-200/60">
-            {t("alertLock.emergencyUnlockHint")}
-          </span>
+          <h1 className="text-lg font-bold text-rose-100">{t("reminders.lockBackdropTitle")}</h1>
+          <p className="max-w-md text-xs text-rose-200/80">
+            {t("reminders.lockBackdropSubtitle")}
+          </p>
+          {actionError && (
+            <div
+              role="alert"
+              data-testid="alert-lock-ipc-error"
+              className="mt-2 flex max-w-md items-center gap-2 rounded-xl bg-rose-950/70 px-3 py-2 text-xs text-rose-200 ring-1 ring-rose-500/40"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" />
+              <span>{actionError}</span>
+            </div>
+          )}
+          <div className="mt-2 flex flex-col items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="emergency-unlock-btn"
+              disabled={unlocking}
+              onClick={() => void handleEmergencyUnlock()}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-400/40 hover:bg-rose-500/30 disabled:opacity-50 cursor-pointer"
+            >
+              <Unlock className="h-3.5 w-3.5" />
+              {t("alertLock.emergencyUnlock")}
+            </button>
+            <span className="text-[11px] text-rose-200/60">
+              {t("alertLock.emergencyUnlockHint")}
+            </span>
+          </div>
         </div>
       </div>
     );

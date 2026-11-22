@@ -55,13 +55,13 @@ pub struct HindsightMaintenanceResult {
 }
 
 #[derive(Debug, Clone)]
-struct HindsightConfig {
-    enabled: bool,
-    base_url: String,
-    default_bank: String,
-    auto_create_banks: bool,
-    daily_maintenance: bool,
-    last_maintenance_date: String,
+pub(crate) struct HindsightConfig {
+    pub(crate) enabled: bool,
+    pub(crate) base_url: String,
+    pub(crate) default_bank: String,
+    pub(crate) auto_create_banks: bool,
+    pub(crate) daily_maintenance: bool,
+    pub(crate) last_maintenance_date: String,
 }
 
 fn read_bool(settings: &SettingsService, key: SettingsKey, default: bool) -> bool {
@@ -94,7 +94,7 @@ fn read_raw_str(settings: &SettingsService, key: SettingsKey) -> String {
         .unwrap_or_default()
 }
 
-fn load_config(db: &Db) -> HindsightConfig {
+pub(crate) fn load_config(db: &Db) -> HindsightConfig {
     let settings = SettingsService::new(db);
     HindsightConfig {
         enabled: read_bool(&settings, SettingsKey::HindsightEnabled, true),
@@ -106,11 +106,11 @@ fn load_config(db: &Db) -> HindsightConfig {
     }
 }
 
-fn build_client(timeout: Duration) -> Option<Client> {
+pub(crate) fn build_client(timeout: Duration) -> Option<Client> {
     Client::builder().timeout(timeout).build().ok()
 }
 
-fn encode_path_segment(s: &str) -> String {
+pub(crate) fn encode_path_segment(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.as_bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -122,7 +122,7 @@ fn encode_path_segment(s: &str) -> String {
     out
 }
 
-fn endpoint_url(base_url: &str, path: &str) -> String {
+pub(crate) fn endpoint_url(base_url: &str, path: &str) -> String {
     format!("{}{}", base_url.trim_end_matches('/'), path)
 }
 
@@ -404,6 +404,69 @@ pub fn status(db: &Db) -> HindsightStatus {
     }
 }
 
+fn fetch_remote_recent(
+    cfg: &HindsightConfig,
+    target_bank: &str,
+    limit: usize,
+) -> Vec<HindsightRecallItem> {
+    let Some(client) = build_client(HTTP_TIMEOUT_SHORT) else {
+        return Vec::new();
+    };
+    let path = format!(
+        "/v1/default/banks/{}/memories/list?limit={}&offset=0",
+        encode_path_segment(target_bank),
+        limit.clamp(1, 50)
+    );
+    let Ok(resp) = client.get(endpoint_url(&cfg.base_url, &path)).send() else {
+        return Vec::new();
+    };
+    if !resp.status().is_success() {
+        return Vec::new();
+    }
+    let Ok(val) = resp.json::<serde_json::Value>() else {
+        return Vec::new();
+    };
+    let Some(items) = val.get("items").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, item)| {
+            let content = item
+                .get("text")
+                .or_else(|| item.get("content"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())?
+                .to_string();
+            let id = item
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("hs-{target_bank}-{idx}"));
+            let source = item
+                .get("fact_type")
+                .or_else(|| item.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("world")
+                .to_string();
+            let created_at = item
+                .get("date")
+                .or_else(|| item.get("mentioned_at"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            Some(HindsightRecallItem {
+                id,
+                bank: target_bank.to_string(),
+                content,
+                source,
+                created_at,
+            })
+        })
+        .collect()
+}
+
 /// Recall relevant memories from Hindsight, merging and falling back cleanly to SQLite.
 pub fn recall(db: &Db, query: &str, bank: Option<&str>, limit: usize) -> Vec<HindsightRecallItem> {
     let cfg = load_config(db);
@@ -415,11 +478,30 @@ pub fn recall(db: &Db, query: &str, bank: Option<&str>, limit: usize) -> Vec<Hin
     let mut merged = Vec::new();
     let mut seen_contents = HashSet::new();
 
-    if cfg.enabled && !clean_query.is_empty() {
-        for item in fetch_remote_recall(&cfg, target_bank, clean_query) {
-            let key = item.content.to_ascii_lowercase();
-            if seen_contents.insert(key) {
-                merged.push(item);
+    if cfg.enabled {
+        if !clean_query.is_empty() {
+            for item in fetch_remote_recall(&cfg, target_bank, clean_query) {
+                let key = item.content.to_ascii_lowercase();
+                if seen_contents.insert(key) {
+                    merged.push(item);
+                }
+            }
+        } else if check_health(&cfg.base_url) {
+            let banks_to_pull: Vec<String> = match explicit_bank {
+                Some(b) => vec![b.to_string()],
+                None => fetch_remote_banks(&cfg.base_url)
+                    .into_iter()
+                    .take(8)
+                    .collect(),
+            };
+            let per_bank = (lim / banks_to_pull.len().max(1)).clamp(2, 12);
+            for b in banks_to_pull {
+                for item in fetch_remote_recent(&cfg, &b, per_bank) {
+                    let key = item.content.to_ascii_lowercase();
+                    if seen_contents.insert(key) {
+                        merged.push(item);
+                    }
+                }
             }
         }
     }

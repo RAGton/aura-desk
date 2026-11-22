@@ -37,10 +37,15 @@ import {
   hindsightApi,
   raglightApi,
   type AiProviderStatus,
+  type HindsightGalaxyGlobe,
+  type HindsightGalaxyLink,
+  type HindsightGalaxySnapshot,
   type HindsightRecallItem,
   type HindsightStatus,
   type RaglightStatus,
 } from "../lib/ipc";
+import { AuraSpaceBackdrop } from "./AuraSpaceBackdrop";
+import { MemoryGlobeInspector, type ConnectedGalaxyGlobe } from "./MemoryGlobeInspector";
 import { Badge, Button } from "./ui";
 
 export interface AuraPyramidStationProps {
@@ -48,6 +53,10 @@ export interface AuraPyramidStationProps {
   hindsightStatus: HindsightStatus | null;
   raglightStatus: RaglightStatus | null;
   memories?: HindsightRecallItem[];
+  galaxySnapshot?: HindsightGalaxySnapshot | null;
+  focusedMemoryId?: string | null;
+  onFocusedMemoryHandled?: () => void;
+  onOpenHindsightBank?: (bankId: string) => void;
   creatingMemoryIds?: string[];
   activeMemoryIds?: string[];
   activePulseTick?: number;
@@ -131,9 +140,16 @@ type GraphNode =
       id: string;
       bank: string;
       bankHubId: string;
+      title?: string;
       content: string;
       source: string;
       createdAt?: string | null;
+      factType?: string | null;
+      context?: string | null;
+      documentId?: string | null;
+      entities?: string[];
+      tags?: string[];
+      degree?: number;
       isFallback: boolean;
       orbitRingIndex: number;
       orbitPhase: number;
@@ -533,7 +549,9 @@ function buildGraphTopology(
   banks: string[],
   ragFolders: string[],
   ragEnabled: boolean,
-  ragRunning: boolean
+  ragRunning: boolean,
+  globeMetaMap?: Map<string, HindsightGalaxyGlobe>,
+  snapshotLinks?: HindsightGalaxyLink[]
 ): GraphTopology {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
@@ -831,46 +849,91 @@ function buildGraphTopology(
           basis.v.z * Math.sin(ang) * spread,
       };
 
+      const meta = m.id ? globeMetaMap?.get(m.id) : undefined;
+      const factType = meta?.factType ?? null;
+      const baseRgb =
+        factType === "observation"
+          ? lerpRgb(palette.rgb, EMERALD_RGB, 0.35)
+          : factType === "experience"
+            ? lerpRgb(palette.rgb, [192, 132, 252], 0.35)
+            : palette.rgb;
+
       const node: Extract<GraphNode, { kind: "memory" }> = {
         kind: "memory",
         id: m.id || `mem-${idx}`,
         bank,
         bankHubId,
-        content: m.content,
+        title: meta?.title,
+        content: meta?.content || m.content,
         source: m.source,
-        createdAt: m.createdAt ?? null,
+        createdAt: meta?.date ?? m.createdAt ?? null,
+        factType,
+        context: meta?.context ?? null,
+        documentId: meta?.documentId ?? null,
+        entities: meta?.entities ?? [],
+        tags: meta?.tags ?? [],
+        degree: 0,
         isFallback: false,
         orbitRingIndex: ringIndex,
         orbitPhase: (slot / totalInRing) * Math.PI * 2 + ringIndex * 1.15,
         bobOffset: idx * 0.85,
         graphPos,
-        rgb: palette.rgb,
+        rgb: baseRgb,
         pillClass: palette.pillClass,
-        radiusBase: 5.2,
+        radiusBase: Math.min(
+          7.6,
+          5.0 + (meta?.entities.length ? Math.min(2.2, meta.entities.length * 0.38) : 0)
+        ),
         showInCollapsed: true,
       };
 
       nodes.push(node);
-      memoryNodes.push({ ...node, kw: extractKeywords(m.content || "") });
+      memoryNodes.push({ ...node, kw: extractKeywords(node.content || "") });
 
       edges.push({
         key: `${bankHubId}->${node.id}`,
         fromId: bankHubId,
         toId: node.id,
         kind: "hub-leaf",
-        rgb: palette.rgb,
+        rgb: baseRgb,
       });
     });
 
-    // Cross-links between Hindsight memories sharing source or keywords
-    let crossCount = 0;
+    // Real Hindsight graph links first, then keyword cross-links
+    const memNodeMap = new Map(memoryNodes.map((n) => [n.id, n]));
+    const addedCrossKeys = new Set<string>();
     const perNodeCross = new Map<string, number>();
-    for (let i = 0; i < memoryNodes.length && crossCount < 28; i += 1) {
+
+    if (snapshotLinks && snapshotLinks.length > 0) {
+      for (const gl of snapshotLinks) {
+        const a = memNodeMap.get(gl.source);
+        const b = memNodeMap.get(gl.target);
+        if (!a || !b || a.id === b.id) continue;
+        const pairKey = a.id < b.id ? `${a.id}<->${b.id}` : `${b.id}<->${a.id}`;
+        if (addedCrossKeys.has(pairKey)) continue;
+        addedCrossKeys.add(pairKey);
+        edges.push({
+          key: `cross:${pairKey}`,
+          fromId: a.id,
+          toId: b.id,
+          kind: "cross-link",
+          rgb: lerpRgb(a.rgb, b.rgb, 0.5),
+        });
+        perNodeCross.set(a.id, (perNodeCross.get(a.id) ?? 0) + 1);
+        perNodeCross.set(b.id, (perNodeCross.get(b.id) ?? 0) + 1);
+      }
+    }
+
+    // Cross-links between Hindsight memories sharing source or keywords
+    let crossCount = addedCrossKeys.size;
+    for (let i = 0; i < memoryNodes.length && crossCount < 42; i += 1) {
       const a = memoryNodes[i];
       if ((perNodeCross.get(a.id) ?? 0) >= 2) continue;
-      for (let j = i + 1; j < memoryNodes.length && crossCount < 28; j += 1) {
+      for (let j = i + 1; j < memoryNodes.length && crossCount < 42; j += 1) {
         const b = memoryNodes[j];
         if ((perNodeCross.get(b.id) ?? 0) >= 2) continue;
+        const pairKey = a.id < b.id ? `${a.id}<->${b.id}` : `${b.id}<->${a.id}`;
+        if (addedCrossKeys.has(pairKey)) continue;
         const sameSource = Boolean(a.source && b.source && a.source === b.source);
         let sharedKw = false;
         if (!sameSource && a.kw.size > 0 && b.kw.size > 0) {
@@ -882,8 +945,9 @@ function buildGraphTopology(
           }
         }
         if (sameSource || sharedKw) {
+          addedCrossKeys.add(pairKey);
           edges.push({
-            key: `cross:${a.id}<->${b.id}`,
+            key: `cross:${pairKey}`,
             fromId: a.id,
             toId: b.id,
             kind: "cross-link",
@@ -3188,6 +3252,10 @@ export function AuraPyramidStation({
   hindsightStatus,
   raglightStatus,
   memories = [],
+  galaxySnapshot = null,
+  focusedMemoryId = null,
+  onFocusedMemoryHandled,
+  onOpenHindsightBank,
   creatingMemoryIds = [],
   activeMemoryIds = [],
   activePulseTick = 0,
@@ -3214,6 +3282,7 @@ export function AuraPyramidStation({
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [galaxySearch, setGalaxySearch] = useState("");
   const [enable4d, setEnable4d] = useState(true);
   const [pulseLit, setPulseLit] = useState(false);
 
@@ -3247,11 +3316,14 @@ export function AuraPyramidStation({
       : (aiStatus?.activeProvider ?? t("settings.items.aiProvider.offline"))
     : t("settings.items.aiProvider.offline");
 
-  const hindsightOnline = Boolean(hindsightStatus?.online);
-  const hindsightBanks = useMemo(
-    () => (Array.isArray(hindsightStatus?.banks) ? hindsightStatus.banks : []),
-    [hindsightStatus?.banks]
-  );
+  const hindsightOnline = Boolean(hindsightStatus?.online || galaxySnapshot?.online);
+  const hindsightBanks = useMemo(() => {
+    const set = new Set<string>(Array.isArray(hindsightStatus?.banks) ? hindsightStatus.banks : []);
+    (galaxySnapshot?.banks ?? []).forEach((b) => {
+      if (b.id.trim()) set.add(b.id.trim());
+    });
+    return Array.from(set);
+  }, [hindsightStatus?.banks, galaxySnapshot?.banks]);
   const hindsightBanksCount = hindsightBanks.length;
   const hindsightLocalCount =
     typeof hindsightStatus?.localCount === "number" ? hindsightStatus.localCount : 0;
@@ -3273,23 +3345,39 @@ export function AuraPyramidStation({
       ? t("hermes.station.raglightReady", { folders: ragFoldersCount })
       : t("hermes.station.raglightIdle");
 
+  const globeMetaMap = useMemo(() => {
+    const map = new Map<string, HindsightGalaxyGlobe>();
+    for (const g of galaxySnapshot?.globes ?? []) {
+      if (g.id) map.set(g.id, g);
+    }
+    return map;
+  }, [galaxySnapshot?.globes]);
+
   const combinedMemories = useMemo(() => {
     const merged: HindsightRecallItem[] = [];
     const seen = new Set<string>();
     const appendUnique = (items: HindsightRecallItem[]) => {
       for (let i = 0; i < items.length; i += 1) {
         const item = items[i];
-        const key = `${item.bank || ""}::${item.id || ""}::${item.content}`;
+        const key = item.id ? `id:${item.id}` : `${item.bank || ""}::${item.content}`;
         if (!seen.has(key)) {
           seen.add(key);
           merged.push(item);
         }
       }
     };
+    const snapshotRecall: HindsightRecallItem[] = (galaxySnapshot?.globes ?? []).map((g) => ({
+      id: g.id,
+      bank: g.bankId,
+      content: g.content,
+      source: g.factType || "hindsight_http",
+      createdAt: g.date ?? null,
+    }));
+    appendUnique(snapshotRecall);
     appendUnique(memories);
     appendUnique(bankQueriedMemories);
     return merged;
-  }, [memories, bankQueriedMemories]);
+  }, [galaxySnapshot?.globes, memories, bankQueriedMemories]);
 
   const explorerBanks = useMemo(() => {
     const set = new Set<string>();
@@ -3315,9 +3403,19 @@ export function AuraPyramidStation({
         hindsightBanks,
         ragFolders,
         ragEnabled,
-        ragRunning
+        ragRunning,
+        globeMetaMap,
+        galaxySnapshot?.links
       ),
-    [combinedMemories, hindsightBanks, ragFolders, ragEnabled, ragRunning]
+    [
+      combinedMemories,
+      hindsightBanks,
+      ragFolders,
+      ragEnabled,
+      ragRunning,
+      globeMetaMap,
+      galaxySnapshot?.links,
+    ]
   );
 
   const orbitMemoryCount = Math.min(combinedMemories.length, MAX_ORBIT_MEMORIES);
@@ -3350,6 +3448,7 @@ export function AuraPyramidStation({
   const speakLevelRef = useRef(0);
   const listenLevelRef = useRef(0);
   const resettingRef = useRef(false);
+  const flyTargetRef = useRef<{ yaw: number; pitch: number; zoom: number } | null>(null);
   const draggingRef = useRef(false);
   const didDragRef = useRef(false);
   const pointerLastRef = useRef({ x: 0, y: 0 });
@@ -3739,7 +3838,23 @@ export function AuraPyramidStation({
 
       // Update camera orientation
       if (!draggingRef.current) {
-        if (resettingRef.current) {
+        if (flyTargetRef.current) {
+          const ft = flyTargetRef.current;
+          const yawDiff = Math.atan2(
+            Math.sin(ft.yaw - yawRef.current),
+            Math.cos(ft.yaw - yawRef.current)
+          );
+          const pitchDiff = ft.pitch - pitchRef.current;
+          const ease = 1 - Math.exp(-Math.max(0.016, dt) * 7.2);
+          yawRef.current += yawDiff * ease;
+          pitchRef.current += pitchDiff * ease;
+          lookYawRef.current += -lookYawRef.current * ease;
+          lookPitchRef.current += -lookPitchRef.current * ease;
+          targetZoomRef.current = ft.zoom;
+          if (Math.abs(yawDiff) < 0.008 && Math.abs(pitchDiff) < 0.008) {
+            flyTargetRef.current = null;
+          }
+        } else if (resettingRef.current) {
           const yawDiff = Math.atan2(
             Math.sin(DEFAULT_YAW - yawRef.current),
             Math.cos(DEFAULT_YAW - yawRef.current)
@@ -4377,6 +4492,7 @@ export function AuraPyramidStation({
   const handlePointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     resettingRef.current = false;
+    flyTargetRef.current = null;
     draggingRef.current = true;
     didDragRef.current = false;
     velYawRef.current = 0;
@@ -4493,14 +4609,104 @@ export function AuraPyramidStation({
 
   const focusNodeIn3d = useCallback(
     (nodeId: string) => {
+      resettingRef.current = false;
+      setBankExplorerOpen(false);
       setSelectedNodeId(nodeId);
+      setExpandedState(true);
       const node = topology.nodeMap.get(nodeId);
       if (node) {
         spawnNodeBurst(topology, node);
+        const pos = node.graphPos;
+        const targetYaw = -Math.atan2(pos.x, pos.z);
+        const targetPitch = clamp(
+          Math.atan2(pos.y, Math.hypot(pos.x, pos.z) || 1),
+          MIN_PITCH,
+          MAX_PITCH
+        );
+        const targetZoom = 1.72;
+        flyTargetRef.current = { yaw: targetYaw, pitch: targetPitch, zoom: targetZoom };
+        targetZoomRef.current = targetZoom;
+        if (reducedMotionRef.current) {
+          yawRef.current = targetYaw;
+          pitchRef.current = targetPitch;
+          zoomRef.current = targetZoom;
+          expandProgressRef.current = 1;
+          flyTargetRef.current = null;
+          drawScene(0);
+        }
       }
     },
-    [spawnNodeBurst, topology]
+    [drawScene, setExpandedState, spawnNodeBurst, topology]
   );
+
+  useEffect(() => {
+    if (!focusedMemoryId) return;
+    if (topology.nodeMap.has(focusedMemoryId)) {
+      focusNodeIn3d(focusedMemoryId);
+      onFocusedMemoryHandled?.();
+    }
+  }, [focusedMemoryId, focusNodeIn3d, onFocusedMemoryHandled, topology.nodeMap]);
+
+  const connectedGlobes = useMemo<ConnectedGalaxyGlobe[]>(() => {
+    if (!selectedGraphNode || selectedGraphNode.kind !== "memory") return [];
+    const adjEdges = topology.adjacency.get(selectedGraphNode.id) ?? [];
+    const result: ConnectedGalaxyGlobe[] = [];
+    const seen = new Set<string>();
+    for (const edge of adjEdges) {
+      const peerId = edge.fromId === selectedGraphNode.id ? edge.toId : edge.fromId;
+      if (seen.has(peerId)) continue;
+      const peer = topology.nodeMap.get(peerId);
+      if (!peer || peer.kind !== "memory") continue;
+      seen.add(peerId);
+      result.push({
+        id: peer.id,
+        bankId: peer.bank,
+        title: peer.title || peer.context || peer.content.slice(0, 48),
+        linkType: edge.kind,
+        entityName: peer.entities?.[0] ?? null,
+      });
+    }
+    return result;
+  }, [selectedGraphNode, topology.adjacency, topology.nodeMap]);
+
+  const galaxySearchResults = useMemo(() => {
+    const q = galaxySearch.trim().toLowerCase();
+    if (!q) return [];
+    return topology.nodes
+      .filter((n): n is Extract<GraphNode, { kind: "memory" }> => n.kind === "memory")
+      .filter((n) => {
+        const hay = [
+          n.title ?? "",
+          n.content,
+          n.bank,
+          n.context ?? "",
+          n.factType ?? "",
+          ...(n.entities ?? []),
+          ...(n.tags ?? []),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      })
+      .slice(0, 8);
+  }, [galaxySearch, topology.nodes]);
+
+  const handleBackToGalaxy = useCallback(() => {
+    flyTargetRef.current = null;
+    setSelectedNodeId(null);
+    setHoveredNodeId(null);
+    setBankExplorerOpen(false);
+    targetZoomRef.current = isExpanded ? 1.24 : DEFAULT_ZOOM;
+    if (reducedMotionRef.current) {
+      yawRef.current = DEFAULT_YAW;
+      pitchRef.current = DEFAULT_PITCH;
+      zoomRef.current = targetZoomRef.current;
+      emitCameraOrbit(false);
+      drawScene(0);
+    } else {
+      resettingRef.current = true;
+    }
+  }, [drawScene, emitCameraOrbit, isExpanded]);
 
   const toggleMemoryExpanded = useCallback((id: string) => {
     setExpandedMemoryIds((prev) => {
@@ -4591,6 +4797,7 @@ export function AuraPyramidStation({
 
   const toggleExpandView = useCallback(() => {
     resettingRef.current = false;
+    flyTargetRef.current = null;
     const next = !isExpanded;
     setExpandedState(next);
     targetZoomRef.current = next
@@ -4618,6 +4825,8 @@ export function AuraPyramidStation({
         if (node?.kind === "bank") {
           setSelectedNodeId(hitId);
           openBankExplorer(node.bank, "all");
+        } else if (node?.kind === "memory") {
+          focusNodeIn3d(hitId);
         } else {
           setSelectedNodeId((prev) => (prev === hitId ? null : hitId));
         }
@@ -4632,6 +4841,7 @@ export function AuraPyramidStation({
 
   const handleZoomDelta = (delta: number) => {
     resettingRef.current = false;
+    flyTargetRef.current = null;
     const nextZoom = clamp(targetZoomRef.current + delta, MIN_ZOOM, MAX_ZOOM);
     targetZoomRef.current = nextZoom;
     if (delta > 0 && nextZoom >= 1.16) {
@@ -4647,6 +4857,7 @@ export function AuraPyramidStation({
   };
 
   const handleResetView = () => {
+    flyTargetRef.current = null;
     velYawRef.current = 0;
     velPitchRef.current = 0;
     targetZoomRef.current = isExpanded ? 1.32 : DEFAULT_ZOOM;
@@ -4685,7 +4896,7 @@ export function AuraPyramidStation({
       data-testid="aura-pyramid-station"
       className="aura-galaxy-surface relative flex-1 w-full h-full min-h-[520px] select-none overflow-hidden"
     >
-      {/* Fullscreen Open-Space 3D / 4D Canvas */}
+      {/* Fullscreen Open-Space 3D / 4D Canvas (kept first in DOM for pixel assertions, layered at z-10 above WebGL backdrop) */}
       <canvas
         ref={canvasRef}
         role="img"
@@ -4699,11 +4910,14 @@ export function AuraPyramidStation({
           finishPointerDrag(e, false);
         }}
         onDoubleClick={handleResetView}
-        className="absolute inset-0 block h-full w-full touch-none cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 z-10 block h-full w-full touch-none cursor-grab active:cursor-grabbing"
       />
 
+      {/* Deep-Space WebGL Galaxy Shader (z-0 inside .aura-galaxy-surface so it stays visible in both themes) */}
+      <AuraSpaceBackdrop contained immersive galaxyDark />
+
       {/* Top-Left Floating Minimal Telemetry Pills + Node Inspector / Bank Explorer Drawer */}
-      <div className="pointer-events-none absolute top-3 left-3 bottom-28 z-10 flex flex-col items-start gap-2 max-w-[calc(100%-1.5rem)] lg:max-w-[58%]">
+      <div className="pointer-events-none absolute top-3 left-3 bottom-28 z-20 flex flex-col items-start gap-2 max-w-[calc(100%-1.5rem)] lg:max-w-[58%]">
         <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 shrink-0">
           {/* AI Core Pill */}
           <button
@@ -4801,6 +5015,66 @@ export function AuraPyramidStation({
             />
             <span>{liveStateLabel}</span>
           </Badge>
+        </div>
+
+        {/* Global Galaxy 3D Search */}
+        <div className="aura-galaxy-chrome-scope pointer-events-auto relative w-[min(360px,100%)] shrink-0">
+          <div className="flex items-center gap-1.5 rounded-full border border-sky-400/25 bg-slate-950/70 backdrop-blur-md px-3 py-1 shadow-md">
+            <Search className="h-3.5 w-3.5 text-sky-300 shrink-0" aria-hidden="true" />
+            <input
+              type="search"
+              data-testid="galaxy-search-input"
+              value={galaxySearch}
+              onChange={(e) => setGalaxySearch(e.target.value)}
+              placeholder={t("hermes.galaxy.searchPlaceholder")}
+              aria-label={t("hermes.galaxy.searchPlaceholder")}
+              className="w-full bg-transparent text-[11px] text-slate-100 placeholder:text-slate-400 focus:outline-none"
+            />
+            {galaxySearch && (
+              <button
+                type="button"
+                aria-label={t("sessions.cancel")}
+                onClick={() => setGalaxySearch("")}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {galaxySearch.trim().length > 0 && (
+            <div className="mt-1 rounded-xl border border-sky-400/30 bg-slate-950/90 backdrop-blur-xl p-1.5 shadow-2xl space-y-1 max-h-56 overflow-y-auto">
+              {galaxySearchResults.length === 0 ? (
+                <div className="px-2.5 py-2 text-[11px] text-slate-400">
+                  {t("hermes.galaxy.searchEmpty")}
+                </div>
+              ) : (
+                galaxySearchResults.map((hit) => (
+                  <button
+                    key={hit.id}
+                    type="button"
+                    onClick={() => {
+                      setGalaxySearch("");
+                      focusNodeIn3d(hit.id);
+                    }}
+                    className="w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] text-slate-100 hover:bg-sky-500/20 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">
+                        {hit.title || hit.context || hit.content.slice(0, 56)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {hit.bank} · {hit.factType || hit.source}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[10px] text-sky-300 font-medium">
+                      {t("hermes.galaxy.flyTo")}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Interactive Hindsight Bank & Files Explorer OR Compact Hover/Selected Preview */}
@@ -5160,6 +5434,31 @@ export function AuraPyramidStation({
                 )}
             </div>
           </div>
+        ) : selectedGraphNode?.kind === "memory" ? (
+          <MemoryGlobeInspector
+            globe={{
+              id: selectedGraphNode.id,
+              bankId: selectedGraphNode.bank,
+              bankName: selectedGraphNode.bank,
+              title:
+                selectedGraphNode.title ||
+                selectedGraphNode.context ||
+                selectedGraphNode.content.slice(0, 64),
+              content: selectedGraphNode.isFallback
+                ? t("hermes.station.noMemories")
+                : selectedGraphNode.content,
+              factType: selectedGraphNode.factType ?? selectedGraphNode.source,
+              date: selectedGraphNode.createdAt,
+              context: selectedGraphNode.context,
+              documentId: selectedGraphNode.documentId,
+              entities: selectedGraphNode.entities ?? [],
+              tags: selectedGraphNode.tags ?? [],
+            }}
+            connectedGlobes={connectedGlobes}
+            onSelectGlobe={(id) => focusNodeIn3d(id)}
+            onBackToGalaxy={handleBackToGalaxy}
+            onOpenHindsightBank={onOpenHindsightBank}
+          />
         ) : activeGraphNode ? (
           <div className="pointer-events-auto max-w-sm rounded-aura-md backdrop-blur-xl bg-aura-surface/65 border border-aura-border/40 px-3.5 py-2.5 shadow-lg space-y-1">
             {activeGraphNode.kind === "apex" && (
@@ -5306,7 +5605,7 @@ export function AuraPyramidStation({
       </div>
 
       {/* Top-Right Floating Translucent Controls (Expand Universe, 4D Layer, Zoom -/+, Reset, Settings) */}
-      <div className="pointer-events-auto absolute top-3 right-3 z-10 flex flex-wrap items-center justify-end gap-1.5">
+      <div className="pointer-events-auto absolute top-3 right-3 z-20 flex flex-wrap items-center justify-end gap-1.5">
         <Button
           type="button"
           size="sm"
