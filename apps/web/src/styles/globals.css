@@ -51,6 +51,16 @@ html[data-theme="dark"] {
   --aura-galaxy-deep: #010206;
   --aura-galaxy-mid: rgba(2, 4, 10, 0.78);
 
+  /* Floating UI that sits ON TOP of the galaxy canvas. The galaxy is always
+     deep-black, so this chrome must stay light-on-dark in BOTH themes —
+     otherwise the panels and pills vanish against the cosmos in light mode.
+     Declared identically in every theme block on purpose. */
+  --aura-galaxy-surface: rgba(8, 14, 28, 0.72);
+  --aura-galaxy-surface-elevated: rgba(10, 17, 34, 0.86);
+  --aura-galaxy-border: rgba(148, 163, 184, 0.28);
+  --aura-galaxy-text: rgb(224, 249, 255);
+  --aura-galaxy-text-muted: rgb(148, 178, 199);
+
   /* Legacy Aura Surface Tokens */
   --aura-bg-base: rgb(var(--bg-canvas));
   --aura-bg-mesh:
@@ -127,6 +137,14 @@ html[data-theme="light"] {
   --aura-galaxy-base: #030509;
   --aura-galaxy-deep: #010206;
   --aura-galaxy-mid: rgba(2, 4, 10, 0.78);
+
+  /* Chrome floating on the galaxy stays light-on-dark in the light theme too,
+     because the cosmos under it never turns white. */
+  --aura-galaxy-surface: rgba(8, 14, 28, 0.72);
+  --aura-galaxy-surface-elevated: rgba(10, 17, 34, 0.86);
+  --aura-galaxy-border: rgba(148, 163, 184, 0.28);
+  --aura-galaxy-text: rgb(224, 249, 255);
+  --aura-galaxy-text-muted: rgb(148, 178, 199);
 
   --aura-bg-base: #eef4fb;
   --aura-bg-mesh:
@@ -497,12 +515,57 @@ html[data-theme="light"] .aura-galaxy-nebula-dark {
 }
 
 /* The galaxy container paints its own opaque, theme-independent background so
-   the cosmos never shows the light page background through the canvas. */
+   the cosmos never shows the light page background through the canvas.
+
+   It also re-maps the Aura surface/text tokens for its subtree. The chrome
+   that floats on the canvas (pills, drawers, inputs) must stay light-on-dark
+   in both themes, because the cosmos underneath never turns white. Scoping the
+   tokens here fixes every floating element at once, instead of restyling each
+   of them individually. */
 .aura-galaxy-surface {
   background-color: var(--aura-galaxy-base);
   background-image:
     radial-gradient(ellipse 90% 80% at 50% 45%, rgba(15, 23, 42, 0.22), var(--aura-galaxy-mid) 72%, var(--aura-galaxy-deep) 100%);
   background-attachment: fixed;
+
+  --aura-surface: var(--aura-galaxy-surface);
+  --aura-surface-elevated: var(--aura-galaxy-surface-elevated);
+  --aura-border: var(--aura-galaxy-border);
+  --aura-text-primary: var(--aura-galaxy-text);
+  --aura-text-muted: var(--aura-galaxy-text-muted);
+
+  /* The Tailwind color utilities resolve to these raw tokens, so they have to
+     be re-mapped here too — otherwise `text-aura-primary` and
+     `bg-aura-surface` keep the light theme's dark-on-white values and the
+     floating chrome loses contrast against the black cosmos. */
+  --bg-surface: 8 14 28;
+  --bg-elevated: 10 17 34;
+  --bg-overlay: 4 8 18;
+  --bg-muted: 12 20 38;
+  --text-primary: 224 249 255;
+  --text-secondary: 186 226 240;
+  --text-muted: 148 178 199;
+  --border-subtle: 148 163 184;
+  --border-strong: 203 213 225;
+}
+
+/* Chrome that floats on top of the galaxy canvas. The cosmos stays
+   deep-black in both themes, so these surfaces and labels keep their own
+   light-on-dark palette regardless of the global UI theme. */
+.aura-galaxy-chrome {
+  background-color: var(--aura-galaxy-surface);
+  border-color: var(--aura-galaxy-border);
+  color: var(--aura-galaxy-text);
+}
+
+.aura-galaxy-chrome-elevated {
+  background-color: var(--aura-galaxy-surface-elevated);
+  border-color: var(--aura-galaxy-border);
+  color: var(--aura-galaxy-text);
+}
+
+.aura-galaxy-chrome-muted {
+  color: var(--aura-galaxy-text-muted);
 }
 
 .aura-starfield {

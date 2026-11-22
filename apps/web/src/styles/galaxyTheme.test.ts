@@ -87,4 +87,44 @@ describe("galaxy theme identity (CSS)", () => {
     const darkGradient = dark.match(/background-image:([^;]+);/)![1].trim();
     expect(forced).toContain(darkGradient);
   });
+
+  it("declares a galaxy chrome palette that stays light-on-dark", () => {
+    const dark = ruleBody(globalsCss, DARK_THEME_RULE);
+    const light = ruleBody(globalsCss, LIGHT_THEME_RULE);
+
+    for (const name of [
+      "--aura-galaxy-surface",
+      "--aura-galaxy-border",
+      "--aura-galaxy-text",
+      "--aura-galaxy-text-muted",
+    ]) {
+      expect(cssVar(dark, name)).toBe(cssVar(light, name));
+    }
+  });
+
+  it("re-maps the raw Tailwind tokens inside the galaxy subtree", () => {
+    const surface = ruleBody(globalsCss, ".aura-galaxy-surface");
+    // The floating chrome (pills, drawers, inputs) uses the Tailwind
+    // `aura-*` utilities, which resolve to the raw --text-* / --bg-* tokens.
+    // Those have to be re-scoped here, or the chrome keeps the light
+    // theme's dark-on-white values and becomes unreadable on the black
+    // cosmos.
+    for (const name of [
+      "--text-primary",
+      "--text-secondary",
+      "--text-muted",
+      "--bg-surface",
+      "--bg-elevated",
+      "--border-subtle",
+    ]) {
+      expect(surface).toContain(`${name}:`);
+    }
+  });
+
+  it("keeps the galaxy chrome text bright enough to read on black", () => {
+    const value = cssVar(ruleBody(globalsCss, DARK_THEME_RULE), "--aura-galaxy-text");
+    const rgb = value.match(/\d+/g)!.map(Number);
+    const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+    expect(luminance).toBeGreaterThan(0.5);
+  });
 });
