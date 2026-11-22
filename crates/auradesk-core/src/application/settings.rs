@@ -99,7 +99,23 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::MonitorPreferred
         | SettingsKey::MonitorFallbackStrategy
         | SettingsKey::RoutineDailyPlanningTime
-        | SettingsKey::GithubRepo => value.is_string(),
+        | SettingsKey::GithubRepo
+        | SettingsKey::AiProvider
+        | SettingsKey::AiBaseUrl
+        | SettingsKey::AiModel
+        | SettingsKey::AiApiKey
+        | SettingsKey::AiSystemPrompt
+        | SettingsKey::RaglightMode
+        | SettingsKey::RaglightBaseUrl
+        | SettingsKey::RaglightApiKey
+        | SettingsKey::RaglightProvider
+        | SettingsKey::RaglightEmbeddingModel
+        | SettingsKey::RaglightLlmModel
+        | SettingsKey::RaglightVectorStore
+        | SettingsKey::RaglightFolders
+        | SettingsKey::HindsightBaseUrl
+        | SettingsKey::HindsightDefaultBank
+        | SettingsKey::HindsightLastMaintenanceDate => value.is_string(),
         SettingsKey::DashboardRefreshSec
         | SettingsKey::PomodoroFocusMin
         | SettingsKey::PomodoroShortMin
@@ -108,7 +124,8 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::RoutineWaterIntervalMin
         | SettingsKey::RoutineBreakIntervalMin
         | SettingsKey::AlertsMaxQueueSize
-        | SettingsKey::ProposalsTtlHours => {
+        | SettingsKey::ProposalsTtlHours
+        | SettingsKey::DesktopIdleThresholdMin => {
             value.is_number() && value.as_u64().is_some_and(|n| n > 0)
         }
         SettingsKey::AppAutostart
@@ -116,7 +133,13 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::RemindersSound
         | SettingsKey::RemindersBlockScreen
         | SettingsKey::GithubAutoSync
-        | SettingsKey::UpdatesAutoUpdate => value.is_boolean(),
+        | SettingsKey::UpdatesAutoUpdate
+        | SettingsKey::DesktopIdleAutoPausePomodoro
+        | SettingsKey::DesktopIdleSuppressRoutines
+        | SettingsKey::RaglightEnabled
+        | SettingsKey::HindsightEnabled
+        | SettingsKey::HindsightAutoCreateBanks
+        | SettingsKey::HindsightDailyMaintenance => value.is_boolean(),
         SettingsKey::RemindersPausedUntil | SettingsKey::GithubProjectId => {
             value.is_null() || value.is_string()
         }

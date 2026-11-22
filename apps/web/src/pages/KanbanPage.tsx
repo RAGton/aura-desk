@@ -124,16 +124,20 @@ export function KanbanPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl aura-glass-elevated ring-1 ring-aura-accent/30">
             <FolderKanban className="h-5 w-5 text-aura-accent" aria-hidden="true" />
-            <h2 className="text-xl font-bold text-slate-50">{t("kanban.title")}</h2>
-            <Badge variant="info" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
-              {t("kanban.showingCount", { shown: filteredTasks.length, total: tasks.length })}
-            </Badge>
+          </span>
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="text-xl font-bold text-slate-50">{t("kanban.title")}</h2>
+              <Badge variant="info" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
+                {t("kanban.showingCount", { shown: filteredTasks.length, total: tasks.length })}
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-400">{t("kanban.subtitle")}</p>
           </div>
-          <p className="text-xs text-slate-400">{t("kanban.subtitle")}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -165,10 +169,10 @@ export function KanbanPage({
       </div>
 
       {/* Unified Filter Toolbar */}
-      <div className="rounded-2xl aura-glass p-3 flex flex-wrap items-center gap-2.5">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="rounded-2xl aura-glass aura-card-interactive p-3.5 flex flex-wrap items-center gap-2.5">
+        <div className="relative flex-1 min-w-[220px]">
           <Search
-            className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-2.5 z-10 pointer-events-none"
+            className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 z-10 pointer-events-none"
             aria-hidden="true"
           />
           <Input
@@ -177,15 +181,15 @@ export function KanbanPage({
             value={search}
             onChange={(e) => onChangeSearch(e.target.value)}
             placeholder={t("kanban.searchPlaceholder")}
-            className="pl-8 pr-3 py-1.5 text-xs"
+            className="h-9 pl-8 pr-3 py-1.5 text-xs"
           />
         </div>
         <Select
-          containerClassName="w-auto min-w-[150px]"
+          containerClassName="w-full sm:w-auto sm:min-w-[160px]"
           aria-label={t("kanban.priorityFilterLabel")}
           value={priorityFilter}
           onChange={(e) => onChangePriorityFilter(e.target.value)}
-          className="rounded-xl py-1.5 text-xs"
+          className="h-9 rounded-xl py-1.5 text-xs"
         >
           <option value="all">{t("kanban.allPriorities")}</option>
           <option value="urgent">{t("kanban.priority.urgent")}</option>
@@ -195,11 +199,11 @@ export function KanbanPage({
         </Select>
         {onChangeProjectFilter && (
           <Select
-            containerClassName="w-auto min-w-[150px]"
+            containerClassName="w-full sm:w-auto sm:min-w-[160px]"
             aria-label={t("kanban.projectFilterLabel")}
             value={projectFilter}
             onChange={(e) => onChangeProjectFilter(e.target.value)}
-            className="rounded-xl py-1.5 text-xs"
+            className="h-9 rounded-xl py-1.5 text-xs"
           >
             <option value="all">{t("kanban.allProjects")}</option>
             <option value="none">{t("kanban.noProject")}</option>
@@ -219,7 +223,7 @@ export function KanbanPage({
               onChangePriorityFilter("all");
               onChangeProjectFilter?.("all");
             }}
-            className="rounded-xl text-xs font-medium text-slate-300 hover:text-amber-300"
+            className="h-9 rounded-xl text-xs font-medium text-slate-300 hover:text-amber-300"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             {t("kanban.clearFilters")}
@@ -230,7 +234,7 @@ export function KanbanPage({
       {showNewProject && onCreateProject && (
         <form
           onSubmit={(e) => void handleProjectSubmit(e)}
-          className="rounded-xl aura-glass p-3 flex flex-wrap items-center gap-2"
+          className="rounded-2xl aura-glass aura-card-interactive p-3.5 flex flex-wrap items-center gap-2.5"
         >
           <Input
             containerClassName="flex-1 min-w-[200px]"
@@ -239,9 +243,9 @@ export function KanbanPage({
             value={projectNameInput}
             onChange={(e) => setProjectNameInput(e.target.value)}
             placeholder={t("kanban.projectNamePlaceholder")}
-            className="py-1.5 text-xs"
+            className="h-9 py-1.5 text-xs"
           />
-          <Button type="submit" size="sm" variant="primary" className="rounded-xl text-xs font-semibold">
+          <Button type="submit" size="sm" variant="primary" className="h-9 rounded-xl text-xs font-semibold">
             {t("kanban.createProject")}
           </Button>
         </form>
@@ -249,7 +253,7 @@ export function KanbanPage({
 
       <form
         onSubmit={(e) => void onCreateTask(e)}
-        className="rounded-2xl aura-glass p-4 space-y-3"
+        className="rounded-2xl aura-glass-elevated aura-card-interactive border-t-2 border-t-aura-accent/55 p-4 space-y-3"
       >
         <div className="flex flex-wrap items-center gap-2.5">
           <Input
@@ -259,7 +263,7 @@ export function KanbanPage({
             value={newTaskTitle}
             onChange={(e) => onChangeNewTitle(e.target.value)}
             placeholder={t("kanban.newTaskPlaceholder")}
-            className="px-3.5 py-2 text-sm"
+            className="h-9 px-3.5 py-1.5 text-sm"
           />
           <Input
             containerClassName="w-24"
@@ -270,14 +274,14 @@ export function KanbanPage({
             value={newTaskEstimate}
             onChange={(e) => onChangeNewEstimate(e.target.value)}
             placeholder={t("kanban.estimatePlaceholder")}
-            className="px-2.5 py-2 text-sm"
+            className="h-9 px-2.5 py-1.5 text-sm"
           />
           <Select
-            containerClassName="w-auto min-w-[120px]"
+            containerClassName="w-auto min-w-[130px]"
             aria-label={t("kanban.priorityLabel")}
             value={newTaskPriority}
             onChange={(e) => onChangeNewPriority(e.target.value as TaskPriority)}
-            className="rounded-xl py-2 text-xs"
+            className="h-9 rounded-xl py-1.5 text-xs"
           >
             <option value="low">{t("kanban.priority.low")}</option>
             <option value="normal">{t("kanban.priority.normal")}</option>
@@ -288,7 +292,7 @@ export function KanbanPage({
             type="submit"
             size="md"
             variant="primary"
-            className="rounded-xl text-xs font-semibold shadow-sm"
+            className="h-9 rounded-xl text-xs font-semibold shadow-sm"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {t("kanban.create")}
@@ -296,14 +300,14 @@ export function KanbanPage({
         </div>
 
         {(onChangeNewTags || onChangeNewDueAt || onChangeNewProjectId) && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2.5 pt-2.5 border-t border-aura-border/25 text-xs">
             {onChangeNewProjectId && (
               <Select
-                containerClassName="w-auto min-w-[140px]"
+                containerClassName="w-full sm:w-auto sm:flex-1 min-w-[150px]"
                 aria-label={t("kanban.projectLabel")}
                 value={newTaskProjectId}
                 onChange={(e) => onChangeNewProjectId(e.target.value)}
-                className="rounded-xl py-1.5 text-xs"
+                className="h-8 rounded-xl py-1 text-xs"
               >
                 <option value="">{t("kanban.noProject")}</option>
                 {projects.map((p) => (
@@ -315,23 +319,23 @@ export function KanbanPage({
             )}
             {onChangeNewTags && (
               <Input
-                containerClassName="flex-1 min-w-[160px]"
+                containerClassName="w-full sm:w-auto sm:flex-[1.5] min-w-[180px]"
                 type="text"
                 aria-label={t("kanban.tagsLabel")}
                 value={newTaskTags}
                 onChange={(e) => onChangeNewTags(e.target.value)}
                 placeholder={t("kanban.tagsPlaceholder")}
-                className="py-1.5 text-xs"
+                className="h-8 py-1 text-xs"
               />
             )}
             {onChangeNewDueAt && (
-              <label className="inline-flex items-center gap-1.5 text-slate-400">
-                <span>{t("kanban.dueAtLabel")}</span>
+              <label className="inline-flex items-center justify-between sm:justify-end gap-2 text-slate-400 shrink-0 w-full sm:w-auto">
+                <span className="shrink-0">{t("kanban.dueAtLabel")}</span>
                 <Input
                   type="date"
                   value={newTaskDueAt}
                   onChange={(e) => onChangeNewDueAt(e.target.value)}
-                  className="rounded-xl px-2.5 py-1 text-xs w-auto"
+                  className="h-8 rounded-xl px-2.5 py-1 text-xs w-auto"
                 />
               </label>
             )}

@@ -187,18 +187,24 @@ body {
 
 .aura-glass {
   background: var(--aura-surface);
-  backdrop-filter: blur(var(--aura-blur, 20px)) saturate(165%);
-  -webkit-backdrop-filter: blur(var(--aura-blur, 20px)) saturate(165%);
+  backdrop-filter: blur(var(--aura-blur, 20px)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--aura-blur, 20px)) saturate(170%);
   border: 1px solid var(--aura-border);
   box-shadow: inset 0 1px 0 0 var(--aura-specular), var(--aura-shadow);
+  transition: border-color 200ms ease, box-shadow 220ms ease, background-color 200ms ease;
+}
+
+.aura-glass:hover {
+  border-color: rgba(var(--aura-accent-rgb, 56 189 248), 0.28);
 }
 
 .aura-glass-elevated {
   background: var(--aura-surface-elevated);
-  backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(180%);
-  -webkit-backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(180%);
+  backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(185%);
+  -webkit-backdrop-filter: blur(calc(var(--aura-blur, 20px) + 6px)) saturate(185%);
   border: 1px solid var(--aura-border);
   box-shadow: inset 0 1px 0 0 var(--aura-specular), var(--aura-shadow);
+  transition: border-color 200ms ease, box-shadow 220ms ease;
 }
 
 .aura-glass-pill {
@@ -335,15 +341,207 @@ html[data-theme="light"] .ring-slate-700 {
 }
 
 .aura-card-interactive {
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 180ms ease,
-    border-color 180ms ease;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms ease,
+    border-color 200ms ease;
 }
 
 .aura-card-interactive:hover {
   transform: translateY(-2px);
+  border-color: rgba(var(--aura-accent-rgb, 56 189 248), 0.42);
   box-shadow: inset 0 1px 0 0 var(--aura-specular),
-    0 16px 36px -14px var(--aura-accent-glow, rgba(56, 189, 248, 0.25));
+    0 18px 38px -14px var(--aura-accent-glow, rgba(56, 189, 248, 0.28));
+}
+
+@keyframes aura-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes aura-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes aura-orbit-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes aura-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.aura-breathe {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aura-breathe 4.4s ease-in-out infinite;
+}
+
+.aura-orbit-slow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aura-orbit 22s linear infinite;
+}
+
+.aura-orbit-reverse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aura-orbit-reverse 28s linear infinite;
+}
+
+.aura-panel-enter {
+  animation: aura-fade-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.aura-hero-gradient {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(var(--aura-accent-rgb, 56 189 248), 0.26);
+}
+
+/* Space Station + Realistic Galaxy Backdrop */
+@keyframes aura-nebula-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: translate3d(-1.5%, 1%, 0) scale(1.03);
+    opacity: 1;
+  }
+}
+
+@keyframes aura-star-twinkle {
+  0%, 100% {
+    opacity: 0.38;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes aura-beam-flow {
+  from {
+    stroke-dashoffset: 48;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.aura-galaxy-nebula {
+  background-image:
+    radial-gradient(ellipse 90% 80% at 50% 45%, rgba(15, 23, 42, 0.22), rgba(2, 4, 10, 0.78) 72%, rgba(1, 2, 6, 0.96) 100%);
+  will-change: opacity;
+}
+
+html[data-theme="light"] .aura-galaxy-nebula {
+  background-image:
+    radial-gradient(ellipse 68% 44% at 18% 12%, rgba(56, 189, 248, 0.16), transparent 64%),
+    radial-gradient(ellipse 62% 44% at 84% 18%, rgba(129, 140, 248, 0.14), transparent 62%),
+    radial-gradient(ellipse 58% 42% at 50% 92%, rgba(16, 185, 129, 0.09), transparent 64%),
+    linear-gradient(
+      142deg,
+      transparent 20%,
+      rgba(56, 189, 248, 0.07) 48%,
+      rgba(99, 102, 241, 0.06) 62%,
+      transparent 86%
+    );
+  animation: none;
+  opacity: 0.72;
+}
+
+.aura-starfield {
+  opacity: 0.88;
+  transition: opacity 250ms ease;
+}
+
+html[data-theme="light"] .aura-starfield {
+  opacity: 0.14;
+}
+
+.aura-starfield-twinkle {
+  animation: aura-star-twinkle 4.8s ease-in-out infinite;
+}
+
+.aura-starfield-twinkle-alt {
+  animation: aura-star-twinkle 6.4s ease-in-out 1.6s infinite;
+}
+
+.aura-starfield-twinkle-slow {
+  animation: aura-star-twinkle 8.2s ease-in-out 0.8s infinite;
+}
+
+html[data-theme="light"] .aura-starfield-twinkle,
+html[data-theme="light"] .aura-starfield-twinkle-alt,
+html[data-theme="light"] .aura-starfield-twinkle-slow {
+  animation: none;
+  opacity: 0.45;
+}
+
+.aura-station-arc {
+  opacity: 0.25;
+  color: #7dd3fc;
+  transition: opacity 250ms ease, color 250ms ease;
+}
+
+html[data-theme="light"] .aura-station-arc {
+  opacity: 0.15;
+  color: #4f46e5;
+}
+
+.aura-pyramid-viewport {
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(56, 189, 248, 0.14),
+    rgba(15, 23, 42, 0.65) 70%,
+    rgba(2, 6, 23, 0.8) 100%
+  );
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="light"] .aura-pyramid-viewport {
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(56, 189, 248, 0.16),
+    rgba(224, 242, 254, 0.6) 72%,
+    rgba(238, 244, 251, 0.92) 100%
+  );
+  border: 1px solid rgba(3, 105, 161, 0.22);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+}
+
+.aura-pyramid-beam {
+  stroke-dasharray: 6 10;
+  animation: aura-beam-flow 2.8s linear infinite;
+}
+
+.aura-pyramid-beam-reverse {
+  stroke-dasharray: 5 11;
+  animation: aura-beam-flow 3.4s linear infinite reverse;
 }
 
 .aura-scrollbar::-webkit-scrollbar {
@@ -376,5 +574,21 @@ html[data-theme="light"] .ring-slate-700 {
 
   .aura-card-interactive:hover {
     transform: none;
+  }
+
+  .aura-breathe,
+  .aura-orbit-slow,
+  .aura-orbit-reverse,
+  .aura-panel-enter,
+  .aura-galaxy-nebula,
+  .aura-starfield,
+  .aura-starfield-twinkle,
+  .aura-starfield-twinkle-alt,
+  .aura-starfield-twinkle-slow,
+  .aura-station-arc,
+  .aura-pyramid-beam,
+  .aura-pyramid-beam-reverse {
+    animation: none !important;
+    animation-play-state: paused !important;
   }
 }

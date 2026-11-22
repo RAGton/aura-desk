@@ -11,6 +11,23 @@ import i18n from "../../lib/i18n";
 vi.mock("../../lib/ipc", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/ipc")>();
   const empty: never[] = [];
+  const defaultRaglightStatus = {
+    enabled: false,
+    mode: "managed_local",
+    baseUrl: "http://127.0.0.1:8000",
+    provider: "ollama",
+    embeddingModel: "nomic-embed-text",
+    llmModel: "qwen3:0.6b",
+    vectorStore: "chroma",
+    folders: empty,
+    hasApiKey: false,
+    installed: false,
+    running: false,
+    managedPid: null,
+    venvPath: "",
+    dbPath: "",
+    pythonTool: null,
+  };
 
   return {
     ...actual,
@@ -132,6 +149,68 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
         streaming: false,
       })),
     },
+    aiApi: {
+      providerStatus: vi.fn(async () => ({
+        configuredProvider: "offline",
+        activeProvider: "offline",
+        model: "",
+        baseUrl: null,
+        hasApiKey: false,
+        hermesCliAvailable: false,
+        codexCliAvailable: false,
+        ready: false,
+      })),
+      chatHistory: vi.fn(async () => empty),
+      chatClear: vi.fn(async () => 0),
+    },
+    hindsightApi: {
+      status: vi.fn(async () => ({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:8919",
+        defaultBank: "aura-main",
+        autoCreateBanks: true,
+        dailyMaintenance: true,
+        lastMaintenanceDate: "",
+        online: false,
+        banks: empty,
+        localCount: 0,
+      })),
+      runMaintenance: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        date: "2026-11-22",
+        banksProcessed: 0,
+      })),
+      recall: vi.fn(async () => empty),
+    },
+    raglightApi: {
+      status: vi.fn(async () => defaultRaglightStatus),
+      provision: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      start: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      stop: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      ingest: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      query: vi.fn(async () => ({ answer: "", sources: empty })),
+    },
     audioApi: {
       saveVoiceCapture: vi.fn(async () => ({ filePath: "note.wav", bytes: 44 })),
     },
@@ -235,12 +314,26 @@ describe("AppShell tabs", () => {
     mockedPomodoro.list.mockResolvedValue([]);
   });
 
-  it("shows the dashboard by default", async () => {
+  it("shows Aura IA as the first and default tab", async () => {
     render(<AppShell />);
     await waitFor(() => {
       expect(mockedTasks.list).toHaveBeenCalled();
     });
-    expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+    const navButtons = within(screen.getByRole("navigation")).getAllByRole("button");
+    expect(navButtons[0]).toHaveTextContent(/Aura IA/i);
+    expect(navButtons[0]).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("aura-pyramid-station")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Fila de Aprovação de Propostas/i)).not.toBeInTheDocument();
+  });
+
+  it("switches to the dashboard tab and shows today's overview and routines", async () => {
+    render(<AppShell />);
+    await openTab(/Painel Geral/i);
+
+    await waitFor(() => {
+      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+    });
     expect(screen.getByText("Rotinas Automáticas")).toBeInTheDocument();
     expect(screen.getByText(/Água a cada/)).toBeInTheDocument();
   });
@@ -396,8 +489,8 @@ describe("AppShell tabs", () => {
 
   it("opens the dashboard customizer and lets it be closed", async () => {
     render(<AppShell />);
+    const user = await openTab(/Painel Geral/i);
 
-    const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Personalizar Layout/i }));
 
     await waitFor(() => {
@@ -419,11 +512,20 @@ describe("AppShell tabs", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "pt-BR" })).toBeInTheDocument();
     });
+    expect(screen.getByTestId("aura-pyramid-station")).toHaveAttribute(
+      "aria-label",
+      "Aura Neural Station"
+    );
+    expect(screen.getByPlaceholderText(/e\.g\. "create task/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "pt-BR" }));
     await waitFor(() => {
-      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+      expect(screen.getByTestId("aura-pyramid-station")).toHaveAttribute(
+        "aria-label",
+        "Estação Neural Aura"
+      );
     });
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
   });
 
   it("imports GitHub issues from the Kanban toolbar", async () => {
@@ -479,15 +581,21 @@ describe("AppShell tabs", () => {
     });
   });
 
-  it("switches to the Hermes AI tab and renders chat, proposal queue, and audit log", async () => {
+  it("shows AI monitoring in the dashboard and navigates back to the Aura IA cockpit", async () => {
     render(<AppShell />);
-    await openTab(/Hermes/i);
-
+    await openTab(/Painel Geral/i);
     await waitFor(() => {
-      expect(screen.getByText(/Hermes Agente & Auditoria/i)).toBeInTheDocument();
+      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
     });
     expect(screen.getByText(/Fila de Aprovação de Propostas/i)).toBeInTheDocument();
     expect(screen.getByText(/Registro de Auditoria da IA/i)).toBeInTheDocument();
+
+    await openTab(/Aura IA/i);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("aura-pyramid-station")).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
   });
 
   it("renders the auto-update banner when an update is available and triggers installNow", async () => {

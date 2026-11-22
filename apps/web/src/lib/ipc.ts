@@ -308,6 +308,85 @@ export interface IntegrationState {
   inFocusSession: boolean;
 }
 
+export interface AiProviderStatus {
+  configuredProvider: string;
+  activeProvider: string;
+  model: string;
+  baseUrl?: string | null;
+  hasApiKey: boolean;
+  hermesCliAvailable: boolean;
+  codexCliAvailable: boolean;
+  ready: boolean;
+}
+
+export interface PersistedChatMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  provider?: string | null;
+  model?: string | null;
+  areaId?: string | null;
+  createdAt: string;
+}
+
+export interface RaglightStatus {
+  enabled: boolean;
+  mode: string;
+  baseUrl: string;
+  provider: string;
+  embeddingModel: string;
+  llmModel: string;
+  vectorStore: string;
+  folders: string[];
+  hasApiKey: boolean;
+  installed: boolean;
+  running: boolean;
+  managedPid?: number | null;
+  venvPath: string;
+  dbPath: string;
+  pythonTool?: string | null;
+}
+
+export interface RaglightActionResult {
+  ok: boolean;
+  message: string;
+  outputTail: string;
+  status: RaglightStatus;
+}
+
+export interface RaglightQueryResult {
+  answer: string;
+  sources: string[];
+}
+
+export interface HindsightStatus {
+  enabled: boolean;
+  baseUrl: string;
+  defaultBank: string;
+  autoCreateBanks: boolean;
+  dailyMaintenance: boolean;
+  lastMaintenanceDate: string;
+  online: boolean;
+  banks: string[];
+  localCount: number;
+}
+
+export interface HindsightRecallItem {
+  id: string;
+  bank: string;
+  content: string;
+  source: string;
+  createdAt?: string | null;
+}
+
+export interface HindsightMaintenanceResult {
+  ok: boolean;
+  message: string;
+  date: string;
+  banksProcessed: number;
+}
+
 export interface MonitorInfo {
   name: string;
   width: number;
@@ -326,6 +405,15 @@ export interface DesktopStateSnapshot {
   autostartEnabled: boolean;
   preferredMonitor: string;
   fallbackStrategy: MonitorFallbackStrategy | string;
+}
+
+export interface IdleStateSnapshot {
+  idleSecs: number;
+  thresholdSecs: number;
+  isIdle: boolean;
+  autoPausePomodoro: boolean;
+  suppressRoutines: boolean;
+  supported: boolean;
 }
 
 export type UpdateStatusKind =
@@ -1852,6 +1940,113 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     case "hermes_status":
       return { available: false, binaryPath: null } satisfies HermesStatus;
 
+    case "ai_provider_status": {
+      const configured = String(db.settings["ai.provider"] ?? "auto");
+      const active = configured === "auto" ? "offline" : configured;
+      const model = String(db.settings["ai.model"] ?? "") || active;
+      const baseUrl = String(db.settings["ai.base_url"] ?? "") || null;
+      const hasApiKey = Boolean(String(db.settings["ai.api_key"] ?? "").trim());
+      return {
+        configuredProvider: configured,
+        activeProvider: active,
+        model,
+        baseUrl,
+        hasApiKey,
+        hermesCliAvailable: false,
+        codexCliAvailable: false,
+        ready: active === "offline" || active === "ollama" || hasApiKey,
+      } satisfies AiProviderStatus;
+    }
+
+    case "ai_chat_history":
+      return [] as PersistedChatMessage[];
+
+    case "ai_chat_clear":
+      return 0;
+
+    case "raglight_status":
+      return {
+        enabled: Boolean(db.settings["raglight.enabled"]),
+        mode: String(db.settings["raglight.mode"] ?? "managed_local"),
+        baseUrl: String(db.settings["raglight.base_url"] ?? "http://127.0.0.1:8000"),
+        provider: String(db.settings["raglight.provider"] ?? "ollama"),
+        embeddingModel: String(db.settings["raglight.embedding_model"] ?? "nomic-embed-text"),
+        llmModel: String(db.settings["raglight.llm_model"] ?? "qwen3:0.6b"),
+        vectorStore: String(db.settings["raglight.vector_store"] ?? "chroma"),
+        folders: String(db.settings["raglight.folders"] ?? "")
+          .split(/[;\n]/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        hasApiKey: Boolean(String(db.settings["raglight.api_key"] ?? "").trim()),
+        installed: false,
+        running: false,
+        managedPid: null,
+        venvPath: "browser-local://raglight/.venv",
+        dbPath: "browser-local://raglight/db",
+        pythonTool: null,
+      } satisfies RaglightStatus;
+
+    case "raglight_provision":
+    case "raglight_start":
+    case "raglight_stop":
+    case "raglight_ingest":
+      return {
+        ok: false,
+        message: "desktop_required",
+        outputTail: "",
+        status: {
+          enabled: Boolean(db.settings["raglight.enabled"]),
+          mode: String(db.settings["raglight.mode"] ?? "managed_local"),
+          baseUrl: String(db.settings["raglight.base_url"] ?? "http://127.0.0.1:8000"),
+          provider: String(db.settings["raglight.provider"] ?? "ollama"),
+          embeddingModel: String(db.settings["raglight.embedding_model"] ?? "nomic-embed-text"),
+          llmModel: String(db.settings["raglight.llm_model"] ?? "qwen3:0.6b"),
+          vectorStore: String(db.settings["raglight.vector_store"] ?? "chroma"),
+          folders: [],
+          hasApiKey: false,
+          installed: false,
+          running: false,
+          managedPid: null,
+          venvPath: "browser-local://raglight/.venv",
+          dbPath: "browser-local://raglight/db",
+          pythonTool: null,
+        },
+      } satisfies RaglightActionResult;
+
+    case "raglight_query":
+      return { answer: "", sources: [] } satisfies RaglightQueryResult;
+
+    case "desktop_pick_folder":
+      return null;
+
+    case "hindsight_status":
+      return {
+        enabled: db.settings["hindsight.enabled"] !== false,
+        baseUrl: String(db.settings["hindsight.base_url"] ?? "http://127.0.0.1:8919"),
+        defaultBank: String(db.settings["hindsight.default_bank"] ?? "aura-main"),
+        autoCreateBanks: db.settings["hindsight.auto_create_banks"] !== false,
+        dailyMaintenance: db.settings["hindsight.daily_maintenance"] !== false,
+        lastMaintenanceDate: String(db.settings["hindsight.last_maintenance_date"] ?? ""),
+        online: false,
+        banks: ["aura-main"],
+        localCount: 0,
+      } satisfies HindsightStatus;
+
+    case "hindsight_run_maintenance": {
+      const today = new Date().toISOString().slice(0, 10);
+      db.settings["hindsight.last_maintenance_date"] = today;
+      saveBrowserDb(db);
+      return {
+        ok: true,
+        message: "maintenance_completed",
+        date: today,
+        banksProcessed: 1,
+      } satisfies HindsightMaintenanceResult;
+    }
+
+    case "hindsight_recall":
+      return [] as HindsightRecallItem[];
+
     case "hermes_chat_send": {
       const prompt = String(args.prompt ?? "");
       if (!prompt.trim()) throw new Error("prompt is required");
@@ -1929,6 +2124,16 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         preferredMonitor: String(db.settings["monitor.preferred"] ?? "primary"),
         fallbackStrategy: String(db.settings["monitor.fallback_strategy"] ?? "primary_then_hide"),
       } satisfies DesktopStateSnapshot;
+
+    case "desktop_get_idle_state":
+      return {
+        idleSecs: 0,
+        thresholdSecs: Math.max(1, Number(db.settings["desktop.idle_threshold_min"] ?? 5)) * 60,
+        isIdle: false,
+        autoPausePomodoro: db.settings["desktop.idle_auto_pause_pomodoro"] !== false,
+        suppressRoutines: db.settings["desktop.idle_suppress_routines"] !== false,
+        supported: false,
+      } satisfies IdleStateSnapshot;
 
     case "updater_get_state":
       return {
@@ -2231,6 +2436,42 @@ export const hermesApi = {
     wrapInvoke<HermesChatReply>("hermes_chat_send", { prompt, useCli }),
 };
 
+export const aiApi = {
+  providerStatus: (): Promise<AiProviderStatus> =>
+    wrapInvoke<AiProviderStatus>("ai_provider_status"),
+  chatHistory: (limit = 50): Promise<PersistedChatMessage[]> =>
+    wrapInvoke<PersistedChatMessage[]>("ai_chat_history", { limit }),
+  chatClear: (): Promise<number> => wrapInvoke<number>("ai_chat_clear"),
+};
+
+export const raglightApi = {
+  status: (): Promise<RaglightStatus> =>
+    wrapInvoke<RaglightStatus>("raglight_status"),
+  provision: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_provision"),
+  start: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_start"),
+  stop: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_stop"),
+  ingest: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_ingest"),
+  query: (query: string, topK = 5): Promise<RaglightQueryResult> =>
+    wrapInvoke<RaglightQueryResult>("raglight_query", { query, topK }),
+};
+
+export const hindsightApi = {
+  status: (): Promise<HindsightStatus> =>
+    wrapInvoke<HindsightStatus>("hindsight_status"),
+  runMaintenance: (): Promise<HindsightMaintenanceResult> =>
+    wrapInvoke<HindsightMaintenanceResult>("hindsight_run_maintenance"),
+  recall: (query: string, bank?: string | null, limit = 8): Promise<HindsightRecallItem[]> =>
+    wrapInvoke<HindsightRecallItem[]>("hindsight_recall", {
+      query,
+      bank: bank ?? null,
+      limit,
+    }),
+};
+
 export const audioApi = {
   saveVoiceCapture: (
     wavBase64: string,
@@ -2254,6 +2495,10 @@ export const desktopApi = {
     wrapInvoke<DesktopStateSnapshot>("desktop_get_state"),
   setAutostart: (enabled: boolean): Promise<boolean> =>
     wrapInvoke<boolean>("desktop_set_autostart", { enabled }),
+  getIdleState: (): Promise<IdleStateSnapshot> =>
+    wrapInvoke<IdleStateSnapshot>("desktop_get_idle_state"),
+  pickFolder: (): Promise<string | null> =>
+    wrapInvoke<string | null>("desktop_pick_folder"),
 };
 
 export const updaterApi = {

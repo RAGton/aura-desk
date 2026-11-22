@@ -17,7 +17,7 @@ export const DEFAULT_VISUAL_PREFS: VisualPrefs = {
   preset: "aurora",
   accent: "sky",
   glass: "medium",
-  navLayout: "top",
+  navLayout: "sidebar",
 };
 
 interface AccentTokens {

@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "AuraDesk",
-    "subtitle": "Caderneta de Produtividade & Comando Pessoal • Hermes Agent MCP",
+    "subtitle": "Orquestradora Pessoal Universal • Aura IA, Hindsight 3D & Produtividade",
     "connectedTauri": "SQLite Nativo (Tauri IPC)",
     "connectedBrowser": "Modo Navegador (Persistência Local Ativa)",
     "language": "Idioma",
@@ -26,7 +26,7 @@
     "pomodoro": "Pomodoro & Foco",
     "reminders": "Lembretes & Alertas",
     "reports": "Relatórios",
-    "hermes": "Hermes IA",
+    "hermes": "Aura IA",
     "settings": "Configurações"
   },
   "dashboard": {
@@ -189,6 +189,8 @@
     "sessionStarted": "▶ Foco iniciado ({{min}}m)!",
     "sessionCompleted": "🎉 Bloco concluído! +{{min}}m registrados.",
     "sessionInterrupted": "Sessão interrompida.",
+    "idleAutoPaused": "Pomodoro pausado automaticamente por inatividade no computador.",
+    "idleReturned": "Atividade detectada novamente. Retome o Pomodoro quando estiver pronto.",
     "kinds": {
       "focus": "Foco",
       "short_break": "Pausa Curta",
@@ -307,6 +309,27 @@
     "subtitle": "Personalize aparência Liquid Glass, ritmos Pomodoro, alertas e backups.",
     "saved": "Salvo com sucesso!",
     "unsavedIndicator": "Não salvo",
+    "navAriaLabel": "Subgrupos de configurações",
+    "nav": {
+      "general": "Geral & Aparência",
+      "desktop": "Desktop & Monitores",
+      "focus": "Pomodoro & Rotinas",
+      "reminders": "Lembretes & Alertas",
+      "ai": "Aura IA & GitHub",
+      "hindsight": "Memória Hindsight",
+      "raglight": "RAGLight Arquivos",
+      "system": "Sistema & Backup"
+    },
+    "navDesc": {
+      "general": "Idioma, tema visual, Liquid Glass e layout da barra de navegação.",
+      "desktop": "Inicialização, widget compacto, detecção de inatividade e monitores.",
+      "focus": "Duração dos ciclos Pomodoro, planejamento diário, hidratação e pausas.",
+      "reminders": "Som, bloqueio de tela, fila de alertas e validade de propostas.",
+      "ai": "Provedor de IA, chave de API, instruções da Aura e integração GitHub.",
+      "hindsight": "Memória episódica, bancos de memória, manutenção diária e recall.",
+      "raglight": "Banco vetorial de arquivos locais, pastas indexadas e servidor RAGLight.",
+      "system": "Atualizações via GitHub Releases, logs de diagnóstico e backup .zip."
+    },
     "groups": {
       "app": "Aplicativo",
       "desktop": "Desktop & Multi-Monitor",
@@ -314,6 +337,7 @@
       "pomodoro": "Pomodoro",
       "reminders": "Lembretes",
       "routines": "Rotinas",
+      "ai": "Aura IA & Provedores",
       "github": "GitHub Issues",
       "backup": "Backup & Portabilidade"
     },
@@ -438,6 +462,18 @@
         "label": "Widget compacto flutuante",
         "description": "Mantém uma minibarra sempre visível com Pomodoro e próxima tarefa."
       },
+      "idleThresholdMin": {
+        "label": "Tempo de inatividade (min)",
+        "description": "Minutos sem uso do teclado/mouse antes de considerar o computador ocioso."
+      },
+      "idleAutoPausePomodoro": {
+        "label": "Pausar Pomodoro por inatividade",
+        "description": "Pausa automaticamente a sessão de foco quando o limite de inatividade é atingido."
+      },
+      "idleSuppressRoutines": {
+        "label": "Silenciar rotinas quando ausente",
+        "description": "Evita disparar alertas de água e pausa enquanto você está longe do computador."
+      },
       "monitorPreferred": {
         "label": "Monitor preferencial",
         "description": "Tela onde a janela principal abre e se reposiciona.",
@@ -450,6 +486,34 @@
         "primary_then_hide": "Mover para primário (ocultar se não houver)",
         "primary": "Sempre mover para primário",
         "hide": "Ocultar na bandeja"
+      },
+      "aiProvider": {
+        "label": "Provedor de IA ativo",
+        "description": "Escolha entre OpenAI/Codex, MiniMax, Ollama local, OpenRouter, CLIs ou modo offline.",
+        "auto": "Automático (detectar chave/CLI)",
+        "openai": "OpenAI / Codex API",
+        "minimax": "MiniMax API",
+        "ollama": "Ollama (Local)",
+        "codexCli": "Codex CLI",
+        "hermesCli": "Hermes CLI",
+        "custom": "Endpoint OpenAI-compatível",
+        "offline": "Somente offline (propostas locais)"
+      },
+      "aiModel": {
+        "label": "Modelo de IA",
+        "description": "Opcional. Deixe vazio para usar o modelo padrão do provedor escolhido."
+      },
+      "aiBaseUrl": {
+        "label": "URL base da API",
+        "description": "Opcional. Sobrescreve o endpoint OpenAI-compatível (ex.: MiniMax, Ollama ou proxy)."
+      },
+      "aiApiKey": {
+        "label": "Chave de API (API Key)",
+        "description": "Opcional se já configurada via variável de ambiente (OPENAI_API_KEY, MINIMAX_API_KEY, etc.)."
+      },
+      "aiSystemPrompt": {
+        "label": "Instruções extras da Aura",
+        "description": "Personalize o perfil da assistente (ex.: foco em programação, cibersegurança, estudos)."
       }
     },
     "applyMonitorButton": "Aplicar posição do monitor",
@@ -465,6 +529,85 @@
     "githubAutoSyncNeedsRepo": "Defina o repositório (owner/repo) antes de ativar a sincronização automática.",
     "testBlockLabel": "Validação de Bloqueio",
     "testBlockDescription": "Dispare um alerta de teste para experimentar o modal bloqueante no desktop.",
+    "raglight": {
+      "title": "RAGLight — Banco de Arquivos & Provisionamento",
+      "description": "Conecte a um servidor RAGLight existente (local ou cloud) ou provisione automaticamente um RAGLight local para indexar pastas da sua máquina na Aura.",
+      "statusInstalled": "Ambiente instalado",
+      "statusNotInstalled": "Não instalado",
+      "statusRunning": "Online",
+      "statusStopped": "Parado",
+      "enableLabel": "Ativar RAGLight na Aura",
+      "enableDescription": "Consulta automaticamente os arquivos indexados ao conversar com a Aura.",
+      "modeLabel": "Modo de implantação",
+      "modeManagedLocal": "Local gerenciado pelo AuraDesk (instalação automática)",
+      "modeExternalUrl": "Conectar a RAGLight existente (Local ou Cloud)",
+      "providerLabel": "Provedor do RAGLight",
+      "providers": {
+        "ollama": "Ollama (Local gratuito)",
+        "lmstudio": "LM Studio (Local)",
+        "vllm": "vLLM (Local / Servidor)",
+        "openai": "OpenAI (Online pago)",
+        "gemini": "Google Gemini (Online pago)",
+        "mistral": "Mistral (Online pago)"
+      },
+      "vectorStoreLabel": "Banco vetorial",
+      "baseUrlLabel": "URL do servidor RAGLight",
+      "apiKeyLabel": "API Key (Cloud ou provedor pago)",
+      "llmModelLabel": "Modelo LLM do pipeline",
+      "embeddingModelLabel": "Modelo de Embeddings",
+      "foldersLabel": "Pastas padrão indexadas (banco privado de arquivos)",
+      "foldersPlaceholder": "Ex: ~/Documentos ou clique em + Selecionar pasta",
+      "pickFolderButton": "+ Selecionar pasta",
+      "addPathButton": "Adicionar caminho",
+      "removeFolder": "Remover pasta",
+      "noFoldersSelected": "Nenhuma pasta selecionada ainda. O RAGLight nunca varre o PC inteiro — apenas as pastas que você autorizar aqui.",
+      "guideTitle": "Como funciona o banco de arquivos (para qualquer usuário)",
+      "guideStep1": "1. Escolha abaixo um provedor local gratuito (Ollama) ou online pago (OpenAI, Gemini, Mistral).",
+      "guideStep2": "2. Adicione apenas as pastas que deseja ensinar para a Aura (estudos, projetos, anotações).",
+      "guideStep3": "3. Clique em Instalar & Provisionar (cria ambiente isolado em Python no Windows/Linux/macOS) e depois em Indexar pastas.",
+      "provisionButton": "Instalar & Provisionar RAGLight",
+      "provisioning": "Instalando ambiente...",
+      "startButton": "Iniciar servidor local",
+      "starting": "Iniciando...",
+      "stopButton": "Parar servidor",
+      "ingestButton": "Indexar pastas agora",
+      "ingesting": "Indexando arquivos...",
+      "refreshButton": "Atualizar status",
+      "testQueryPlaceholder": "Testar busca nos arquivos indexados...",
+      "testQueryButton": "Buscar",
+      "actionOk": "Concluído ({{msg}}).",
+      "emptyResult": "Nenhum trecho encontrado para essa busca.",
+      "sourcesLabel": "Fontes"
+    },
+    "hindsight": {
+      "title": "Hindsight — Cérebro de Memória Episódica & Manutenção",
+      "description": "Gerencia memórias pessoais, evolução de preferências (sobreposição de fatos antigos) e consolidação diária automática. Funciona no Windows, macOS e qualquer Linux.",
+      "statusOnline": "Daemon Hindsight online",
+      "statusFallback": "Modo SQLite integrado (offline)",
+      "banksCount": "{{count}} bank(s) ativos",
+      "localCount": "{{count}} memória(s) locais",
+      "enableLabel": "Ativar memória Hindsight na Aura",
+      "enableDescription": "Retém fatos de conversas/tarefas concluídas e injeta lembranças relevantes nas respostas.",
+      "autoBanksLabel": "Criar banks por área automaticamente",
+      "autoBanksDescription": "A Aura cria bancos isolados sob demanda (trabalho, estudos, finanças, hobbies) conforme o contexto.",
+      "dailyMaintenanceLabel": "Manutenção e revisão diária automática",
+      "dailyMaintenanceDescription": "Executa consolidação de memórias e otimização do banco SQLite uma vez por dia em segundo plano.",
+      "baseUrlLabel": "URL do servidor Hindsight",
+      "defaultBankLabel": "Bank padrão da Aura",
+      "lastMaintenance": "Última manutenção: {{date}}",
+      "neverMaintained": "Ainda não executada hoje",
+      "provisionButton": "Instalar Hindsight local",
+      "provisioning": "Instalando Hindsight...",
+      "startButton": "Iniciar daemon",
+      "stopButton": "Parar daemon",
+      "runMaintenanceButton": "Executar manutenção agora",
+      "runningMaintenance": "Consolidando memórias...",
+      "testRecallPlaceholder": "Consultar o que a Aura lembra sobre você...",
+      "testRecallButton": "Consultar memória",
+      "emptyRecall": "Nenhuma memória encontrada para essa consulta.",
+      "guideTitle": "Guia rápido de configuração (Windows, Linux e macOS)",
+      "guideBody": "Sem o Hindsight instalado, a Aura já funciona normalmente usando o banco SQLite embutido. Para ativar o motor completo com Mental Models e grafos de memória: 1) Configure um provedor de IA (local via Ollama ou chave online); 2) Clique em Instalar Hindsight local (usa Python/uv isolado no seu usuário); 3) Clique em Iniciar daemon."
+    },
     "updates": {
       "title": "Atualizações & Logs de Crash",
       "description": "Mantenha o AuraDesk atualizado via GitHub Releases e inspecione os logs persistentes de diagnóstico.",
@@ -514,18 +657,18 @@
     "invalidDueDate": "Data de vencimento inválida."
   },
   "hermes": {
-    "title": "Hermes Agente & Auditoria",
-    "subtitle": "Converse com o assistente local, grave notas em WAV, aprove propostas da IA antes de aplicá-las e inspecione o registro de comandos.",
+    "title": "Aura IA — Orquestradora Central",
+    "subtitle": "Assistente pessoal universal para rotina, casa, estudos e infraestrutura, com memória Hindsight 3D, RAGLight e aprovação de propostas.",
     "cliOnline": "Hermes CLI detectado ({{path}})",
     "cliOffline": "Hermes CLI offline — analisador local de propostas ativo",
     "useCliLabel": "Transmitir via Hermes CLI",
     "chatTitle": "Conversa & Propostas",
-    "chatEmpty": "Peça para o Hermes propor uma tarefa, agendar um lembrete ou resumir seu dia.",
+    "chatEmpty": "Converse com a Aura para orquestrar tarefas, rotinas, infraestrutura ou explorar suas memórias.",
     "chatPlaceholder": "Ex: \"criar tarefa: Revisar sprint\" ou \"resumo\"",
     "sendButton": "Enviar",
     "sending": "Enviando...",
     "userRole": "Você",
-    "assistantRole": "Hermes",
+    "assistantRole": "Aura",
     "quickActions": {
       "createTask": "Propor tarefa",
       "createReminder": "Propor lembrete",
@@ -537,7 +680,14 @@
       "saving": "Salvando áudio...",
       "saved": "Nota de voz salva ({{bytes}} bytes) -> {{path}}",
       "unsupported": "Gravação de áudio não é suportada neste navegador.",
-      "failed": "Não foi possível capturar o áudio."
+      "failed": "Não foi possível capturar o áudio.",
+      "liveModeOn": "Live Ativo",
+      "liveModeOff": "Conversa Live",
+      "transcribeAudio": "Transcrever Áudio",
+      "transcribing": "Ouvindo voz...",
+      "liveUnsupported": "Reconhecimento de voz ao vivo indisponível neste navegador — capturando nota em WAV.",
+      "toggleTranscript": "Conversa ({{count}})",
+      "hideTranscript": "Ocultar conversa"
     },
     "proposals": {
       "title": "Fila de Aprovação de Propostas",
@@ -572,7 +722,39 @@
     "proposalReminderSummary": "Criar lembrete: {{title}}",
     "proposalCreatedReply": "Proposta pendente criada: \"{{summary}}\". Revise e aprove na fila abaixo.",
     "overviewReply": "Hoje: {{overdue}} atrasadas, {{due_today}} para hoje, {{in_progress}} em andamento, {{focus_min}}min focados.",
-    "helpReply": "Assistente offline Aura pronto. Tente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\"."
+    "helpReply": "Assistente offline Aura pronto. Tente: \"criar tarefa <título>\", \"lembrete <título>\" ou \"resumo\".",
+    "providerBadge": "IA: {{provider}} · {{model}}",
+    "clearChat": "Limpar conversa",
+    "monitoringTitle": "Monitoramento IA, Fila de Propostas & Auditoria",
+    "station": {
+      "title": "Estação Neural Aura",
+      "subtitle": "Arquitetura piramidal interligando o núcleo de IA, memória episódica e banco vetorial de arquivos",
+      "apexLabel": "Núcleo IA",
+      "hindsightLabel": "Hindsight Memória",
+      "raglightLabel": "RAGLight Arquivos",
+      "hindsightOnline": "Daemon ativo ({{banks}} banks)",
+      "hindsightLocal": "SQLite ativo ({{count}} fatos)",
+      "raglightOnline": "Online ({{folders}} pastas)",
+      "raglightReady": "Configurado ({{folders}} pastas)",
+      "raglightIdle": "Desativado",
+      "configureHint": "Configurar em Ajustes",
+      "dragHint": "Arraste a pirâmide para girar em 3D/4D em tempo real",
+      "resetView": "Centralizar",
+      "dimension4d": "Camada 4D",
+      "standby": "Órbita estável",
+      "listeningState": "Captando entrada",
+      "speakingState": "Aura respondendo",
+      "memoriesOrbiting": "{{count}} memórias em órbita 3D",
+      "selectNodeHint": "Passe o mouse ou clique em um orbe Hindsight na galáxia para inspecionar",
+      "noMemories": "Nenhuma memória Hindsight ativa ainda — converse com a Aura ou conclua tarefas",
+      "memoryBankTag": "Banco: {{bank}}",
+      "expandUniverse": "Expandir Universo 3D",
+      "collapsePyramid": "Modo Pirâmide",
+      "neuralPulseActive": "Pulso neural ativo",
+      "raglightNodesCount": "{{count}} nós RAGLight",
+      "zoomIn": "Aproximar",
+      "zoomOut": "Afastar"
+    }
   },
   "updater": {
     "banner": {
@@ -586,5 +768,29 @@
       "dismiss": "Dispensar",
       "releaseNotes": "Notas da versão"
     }
+  },
+  "commandPalette": {
+    "button": "Comandos",
+    "shortcut": "Ctrl+K",
+    "title": "Paleta de comandos",
+    "placeholder": "Buscar tarefas, navegar ou executar ação...",
+    "empty": "Nenhum resultado encontrado.",
+    "groups": {
+      "quickCreate": "Criação rápida",
+      "navigation": "Navegação",
+      "actions": "Ações rápidas",
+      "tasks": "Tarefas"
+    },
+    "actions": {
+      "createTask": "Criar tarefa: \"{{title}}\"",
+      "startPomodoro": "Iniciar Pomodoro de foco",
+      "pausePomodoro": "Pausar Pomodoro ativo",
+      "resumePomodoro": "Retomar Pomodoro pausado",
+      "toggleDnd": "Alternar Não Perturbe (DND)",
+      "toggleTheme": "Alternar tema claro/escuro",
+      "toggleCompact": "Alternar Modo Compacto",
+      "focusTask": "Focar nesta tarefa (Pomodoro)"
+    },
+    "footerHint": "↑↓ navegar · Enter executar · Esc fechar"
   }
 }

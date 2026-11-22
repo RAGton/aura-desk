@@ -2,10 +2,12 @@
 //! depends on `domain` and on `infrastructure` for persistence.
 
 pub mod alerts;
+pub mod chat;
 pub mod daily_plans;
 pub mod data_io;
 pub mod github;
 pub mod kanban;
+pub mod memories;
 pub mod metrics;
 pub mod pomodoros;
 pub mod projects;

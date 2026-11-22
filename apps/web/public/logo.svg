@@ -1,185 +1,81 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
   <defs>
-    <!-- Background Squircle Gradient -->
-    <linearGradient id="bgGrad" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#0F172A" />
-      <stop offset="50%" stop-color="#1E1B4B" />
-      <stop offset="100%" stop-color="#090D16" />
+    <linearGradient id="bgGrad" x1="20" y1="16" x2="236" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#070B19" />
+      <stop offset="52%" stop-color="#16133B" />
+      <stop offset="100%" stop-color="#050814" />
     </linearGradient>
 
-    <!-- Aura Outer Glow -->
-    <radialGradient id="auraGlow" cx="50%" cy="48%" r="48%">
-      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.42" />
-      <stop offset="55%" stop-color="#818CF8" stop-opacity="0.18" />
-      <stop offset="100%" stop-color="#0F172A" stop-opacity="0" />
+    <radialGradient id="prismGlow" cx="50%" cy="52%" r="48%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.45" />
+      <stop offset="50%" stop-color="#818CF8" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#070B19" stop-opacity="0" />
     </radialGradient>
 
-    <!-- Wing Primary Gradient (Cyan -> Indigo -> Violet) -->
-    <linearGradient id="wingTop" x1="16" y1="68" x2="240" y2="148" gradientUnits="userSpaceOnUse">
+    <linearGradient id="squircleStroke" x1="20" y1="20" x2="236" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.58" />
+      <stop offset="50%" stop-color="#818CF8" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.48" />
+    </linearGradient>
+
+    <linearGradient id="facetLeft" x1="48" y1="196" x2="132" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="55%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#A5F3FC" />
+    </linearGradient>
+
+    <linearGradient id="facetRight" x1="126" y1="42" x2="208" y2="196" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#C084FC" />
+      <stop offset="55%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#312E81" />
+    </linearGradient>
+
+    <linearGradient id="facetBase" x1="68" y1="162" x2="192" y2="192" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="50%" stop-color="#818CF8" />
-      <stop offset="100%" stop-color="#38BDF8" />
+      <stop offset="52%" stop-color="#818CF8" />
+      <stop offset="100%" stop-color="#34D399" />
     </linearGradient>
 
-    <!-- Wing Secondary Feather Gradient (Gold/Amber -> Cyan Aura) -->
-    <linearGradient id="wingMid" x1="24" y1="96" x2="232" y2="172" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FBBF24" />
-      <stop offset="35%" stop-color="#38BDF8" />
-      <stop offset="65%" stop-color="#38BDF8" />
-      <stop offset="100%" stop-color="#FBBF24" />
-    </linearGradient>
-
-    <!-- Notebook Cover Gradient -->
-    <linearGradient id="notebookCover" x1="82" y1="54" x2="178" y2="204" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#1E293B" />
-      <stop offset="100%" stop-color="#0F172A" />
-    </linearGradient>
-
-    <!-- Notebook Border / Accent Gradient -->
-    <linearGradient id="notebookStroke" x1="80" y1="52" x2="176" y2="204" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="55%" stop-color="#A855F7" />
-      <stop offset="100%" stop-color="#F59E0B" />
-    </linearGradient>
-
-    <!-- Gold Ribbon / Hermes Accent -->
-    <linearGradient id="goldAccent" x1="128" y1="50" x2="160" y2="210" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FDE68A" />
-      <stop offset="50%" stop-color="#F59E0B" />
-      <stop offset="100%" stop-color="#D97706" />
+    <linearGradient id="coreShard" x1="128" y1="98" x2="128" y2="162" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="50%" stop-color="#7DD3FC" />
+      <stop offset="100%" stop-color="#818CF8" />
     </linearGradient>
   </defs>
 
-  <!-- App Icon Base Squircle -->
-  <rect x="14" y="14" width="228" height="228" rx="54" fill="url(#bgGrad)" stroke="#334155" stroke-width="2.5" />
-  <circle cx="128" cy="126" r="104" fill="url(#auraGlow)" />
+  <rect x="14" y="14" width="228" height="228" rx="56" fill="url(#bgGrad)" stroke="url(#squircleStroke)" stroke-width="2.5" />
+  <rect x="20" y="20" width="216" height="216" rx="50" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1" />
+  <circle cx="128" cy="132" r="92" fill="url(#prismGlow)" />
 
-  <!-- ================= LEFT WING (Asa Esquerda) ================= -->
-  <g>
-    <!-- Upper Sweeping Feather -->
-    <path
-      d="M84 106 C58 94, 34 72, 20 46 C19 68, 30 92, 50 106 C32 102, 22 92, 16 82 C20 104, 38 120, 64 126 Z"
-      fill="url(#wingTop)"
-    />
-    <!-- Middle Aerodynamic Feather -->
-    <path
-      d="M84 124 C56 120, 34 112, 20 98 C25 118, 42 134, 68 140 Z"
-      fill="url(#wingMid)"
-      opacity="0.95"
-    />
-    <!-- Lower Feather -->
-    <path
-      d="M84 140 C60 140, 40 136, 28 126 C35 144, 52 156, 76 158 Z"
-      fill="#6366F1"
-      opacity="0.9"
-    />
-    <!-- Inner Wing Tip -->
-    <path
-      d="M84 154 C68 156, 52 156, 42 150 C50 164, 66 170, 84 168 Z"
-      fill="#38BDF8"
-      opacity="0.75"
-    />
-  </g>
-
-  <!-- ================= RIGHT WING (Asa Direita) ================= -->
-  <g>
-    <!-- Upper Sweeping Feather -->
-    <path
-      d="M172 106 C198 94, 222 72, 236 46 C237 68, 226 92, 206 106 C224 102, 234 92, 240 82 C236 104, 218 120, 192 126 Z"
-      fill="url(#wingTop)"
-    />
-    <!-- Middle Aerodynamic Feather -->
-    <path
-      d="M172 124 C200 120, 222 112, 236 98 C231 118, 214 134, 188 140 Z"
-      fill="url(#wingMid)"
-      opacity="0.95"
-    />
-    <!-- Lower Feather -->
-    <path
-      d="M172 140 C196 140, 216 136, 228 126 C221 144, 204 156, 180 158 Z"
-      fill="#6366F1"
-      opacity="0.9"
-    />
-    <!-- Inner Wing Tip -->
-    <path
-      d="M172 154 C188 156, 204 156, 214 150 C206 164, 190 170, 172 168 Z"
-      fill="#38BDF8"
-      opacity="0.75"
-    />
-  </g>
-
-  <!-- ================= CADERNETA (Winged Notebook) ================= -->
-  <!-- Pages Stack / Depth Effect (Right Side) -->
-  <rect x="86" y="58" width="90" height="142" rx="14" fill="#E2E8F0" opacity="0.9" />
-  <rect x="83" y="55" width="90" height="142" rx="14" fill="#94A3B8" opacity="0.5" />
-
-  <!-- Main Hardcover Body -->
-  <rect
-    x="80"
-    y="52"
-    width="92"
-    height="144"
-    rx="14"
-    fill="url(#notebookCover)"
-    stroke="url(#notebookStroke)"
-    stroke-width="3.5"
-  />
-
-  <!-- Left Spine Binding Strip -->
   <path
-    d="M94 52 H96 V196 H94 C86.268 196 80 189.732 80 182 V66 C80 58.268 86.268 52 94 52 Z"
-    fill="#0F172A"
-    opacity="0.75"
-  />
-  <line x1="96" y1="54" x2="96" y2="194" stroke="#334155" stroke-width="1.5" />
-
-  <!-- Spiral Binding Rings (Argolas da Caderneta) -->
-  <g stroke="url(#goldAccent)" stroke-width="3.5" stroke-linecap="round">
-    <path d="M74 74 H88" />
-    <path d="M74 96 H88" />
-    <path d="M74 118 H88" />
-    <path d="M74 140 H88" />
-    <path d="M74 162 H88" />
-    <path d="M74 180 H88" />
-  </g>
-
-  <!-- Notebook Ruled Lines & Productivity Checkmarks -->
-  <!-- Line 1: Completed Task -->
-  <path
-    d="M106 86 L111 91 L120 81"
+    d="M128 34 L214 188 L42 188 Z"
     stroke="#38BDF8"
-    stroke-width="3"
-    stroke-linecap="round"
+    stroke-opacity="0.22"
+    stroke-width="1.5"
+    stroke-linejoin="round"
+    stroke-dasharray="6 6"
+  />
+
+  <path d="M128 42 L94 104 L68 186 L46 186 L108 68 C114 55, 121 46, 128 42 Z" fill="url(#facetLeft)" />
+  <path d="M128 42 L106 84 L94 104 L128 84 Z" fill="#E0F2FE" fill-opacity="0.35" />
+
+  <path d="M128 42 C135 46, 142 55, 148 68 L210 186 L186 186 L160 116 L128 74 Z" fill="url(#facetRight)" />
+  <path d="M128 42 L160 116 L140 100 L128 74 Z" fill="#F5D0FE" fill-opacity="0.28" />
+
+  <path d="M78 166 L154 146 L192 186 L96 186 Z" fill="url(#facetBase)" fill-opacity="0.92" />
+
+  <polygon
+    points="128,98 150,136 128,154 106,136"
+    fill="url(#coreShard)"
+    stroke="#E0F2FE"
+    stroke-opacity="0.85"
+    stroke-width="1.5"
     stroke-linejoin="round"
   />
-  <line x1="128" y1="86" x2="156" y2="86" stroke="#94A3B8" stroke-width="3.2" stroke-linecap="round" />
+  <line x1="128" y1="98" x2="128" y2="154" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.25" />
 
-  <!-- Line 2: Completed Task -->
-  <path
-    d="M106 110 L111 115 L120 105"
-    stroke="#38BDF8"
-    stroke-width="3"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
-  <line x1="128" y1="110" x2="158" y2="110" stroke="#CBD5E1" stroke-width="3.2" stroke-linecap="round" />
-
-  <!-- Line 3: Active Focus Task (Gold Highlight) -->
-  <circle cx="113" cy="134" r="4.5" fill="#FBBF24" />
-  <line x1="128" y1="134" x2="152" y2="134" stroke="#FDE68A" stroke-width="3.2" stroke-linecap="round" />
-
-  <!-- Line 4: Subtle Note Line -->
-  <line x1="108" y1="158" x2="146" y2="158" stroke="#64748B" stroke-width="3" stroke-linecap="round" />
-
-  <!-- Aura Star / Spark Emblem at Top-Right of Cover -->
-  <path
-    d="M150 64 L152.5 70.5 L159 73 L152.5 75.5 L150 82 L147.5 75.5 L141 73 L147.5 70.5 Z"
-    fill="#FBBF24"
-  />
-
-  <!-- Bookmark Ribbon Hanging Below Notebook -->
-  <path
-    d="M142 196 V218 L150 211 L158 218 V196 Z"
-    fill="url(#goldAccent)"
-  />
+  <circle cx="128" cy="40" r="5" fill="#E0F2FE" />
+  <circle cx="128" cy="40" r="10" fill="#38BDF8" fill-opacity="0.28" />
+  <circle cx="46" cy="186" r="4.5" fill="#38BDF8" />
+  <circle cx="210" cy="186" r="4.5" fill="#34D399" />
 </svg>

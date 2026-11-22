@@ -61,15 +61,23 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = [
+          nativeBuildInputs = [
             rust
+            pkgs.pkg-config
             pkgs.nodejs_22
             pkgs.pnpm
             cargoTauri
-            pkgs.pkg-config
+          ];
+
+          buildInputs = [
             pkgs.openssl
             pkgs.webkitgtk_4_1
             pkgs.gtk3
+            pkgs.glib
+            pkgs.cairo
+            pkgs.pango
+            pkgs.gdk-pixbuf
+            pkgs.atk
             pkgs.libsoup_3
             pkgs.libayatana-appindicator
             pkgs.librsvg
@@ -95,10 +103,11 @@
             # may have been inherited from the parent shell.
             export PATH="${toolchainBin}:$PATH"
 
-            # Toolchain hints for the Tauri build process. PKG_CONFIG_PATH
-            # is the union of all Tauri 2.12 .pc file directories; built
-            # by `pkgs.lib.makeSearchPath` so we don't hand-maintain it.
-            export PKG_CONFIG_PATH="${pkgConfigPath}"
+            # Toolchain hints for the Tauri build process. Preserve the
+            # PKG_CONFIG_PATH populated by Nix's pkg-config setup hook
+            # (which includes transitive .dev deps like glib-2.0, cairo,
+            # pango, atk, gdk-pixbuf) while prioritizing explicit Tauri deps.
+            export PKG_CONFIG_PATH="${pkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
             export RUST_SRC_PATH="${rust}/lib/rustlib/src/rust/src"
             export WEBKIT_DISABLE_COMPOSITING_MODE=1
 

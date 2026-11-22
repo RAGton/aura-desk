@@ -400,6 +400,70 @@ fn linux_autostart_dir() -> Result<std::path::PathBuf, String> {
     Ok(home.join(".config").join("autostart"))
 }
 
+fn non_empty_trimmed_stdout(output: std::process::Output) -> Option<String> {
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Open a native OS directory picker dialog and return the selected path if confirmed.
+pub fn pick_folder() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let start_dir = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+        match std::process::Command::new("kdialog")
+            .args(["--getexistingdirectory", &start_dir])
+            .output()
+        {
+            Ok(out) if out.status.success() => return non_empty_trimmed_stdout(out),
+            Ok(out) if out.status.code() == Some(1) => return None,
+            _ => {}
+        }
+
+        std::process::Command::new("zenity")
+            .args(["--file-selection", "--directory"])
+            .output()
+            .ok()
+            .and_then(non_empty_trimmed_stdout)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let script = "add-type -AssemblyName System.Windows.Forms; \
+            $d = New-Object System.Windows.Forms.FolderBrowserDialog; \
+            if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $d.SelectedPath }";
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-STA", "-Command", script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()
+            .and_then(non_empty_trimmed_stdout)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = "return POSIX path of (choose folder)";
+        std::process::Command::new("osascript")
+            .args(["-e", script])
+            .output()
+            .ok()
+            .and_then(non_empty_trimmed_stdout)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
 /// Spawn OS-level display hot-plug and suspend/resume watchers.
 pub fn spawn_os_event_watcher(app: AppHandle, db: Arc<Db>, wake_signal: Arc<WakeSignal>) {
     #[cfg(target_os = "windows")]

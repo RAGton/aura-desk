@@ -189,6 +189,56 @@ test.beforeEach(async ({ page }) => {
         if (cmd === "hermes_status") {
           return { available: false, binaryPath: null };
         }
+        if (cmd === "ai_provider_status") {
+          return {
+            configuredProvider: "offline",
+            activeProvider: "offline",
+            model: "",
+            baseUrl: null,
+            hasApiKey: false,
+            hermesCliAvailable: false,
+            codexCliAvailable: false,
+            ready: false,
+          };
+        }
+        if (cmd === "ai_chat_history") {
+          return [];
+        }
+        if (cmd === "hindsight_status") {
+          return {
+            enabled: true,
+            baseUrl: "http://127.0.0.1:8919",
+            defaultBank: "aura-main",
+            autoCreateBanks: true,
+            dailyMaintenance: true,
+            lastMaintenanceDate: "",
+            online: false,
+            banks: [],
+            localCount: 0,
+          };
+        }
+        if (cmd === "hindsight_recall") {
+          return [];
+        }
+        if (cmd === "raglight_status") {
+          return {
+            enabled: false,
+            mode: "managed_local",
+            baseUrl: "http://127.0.0.1:8000",
+            provider: "ollama",
+            embeddingModel: "nomic-embed-text",
+            llmModel: "qwen3:0.6b",
+            vectorStore: "chroma",
+            folders: [],
+            hasApiKey: false,
+            installed: false,
+            running: false,
+            managedPid: null,
+            venvPath: "",
+            dbPath: "",
+            pythonTool: null,
+          };
+        }
         if (cmd === "hermes_chat_send") {
           const prompt = String(args?.prompt ?? "");
           const title = prompt.replace(/^(criar tarefa|create task):?\s*/i, "").trim() || "Tarefa IA";
@@ -315,6 +365,7 @@ test.beforeEach(async ({ page }) => {
 test("Flow 1: create-task and shell navigation", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("header")).toBeVisible();
+  await page.locator("nav").getByRole("button", { name: /Painel Geral|Dashboard/i }).click();
   await expect(page.getByText("Consolidar arquitetura AuraDesk")).toBeVisible();
   await page.screenshot({
     path: path.join(screenshotDir, "01-create-task-dashboard.png"),
@@ -362,6 +413,7 @@ test("Flow 4: reports charts and settings persistence", async ({ page }) => {
   await page.goto("/reports");
   await expect(page.getByTestId("reports-chart")).toBeVisible();
   await page.goto("/settings");
+  await page.getByRole("tab", { name: /Lembretes & Alertas|Reminders & Alerts/i }).click();
   await expect(
     page.getByText(/Bloquear PC até confirmar leitura|Lock PC until read confirmed/i)
   ).toBeVisible();
@@ -383,6 +435,7 @@ test("Flow 5: mobile bottom navigation, theme switching, and zero horizontal ove
   );
   expect(overflowPx).toBeLessThanOrEqual(1);
 
+  await page.locator("nav").getByRole("button", { name: /Painel Geral|Dashboard/i }).click();
   await page.getByRole("button", { name: /Alternar Tema|Switch Theme/i }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   const startFocusBtn = page.getByRole("button", { name: /Iniciar Foco|Start Focus/i });
@@ -397,14 +450,23 @@ test("Flow 5: mobile bottom navigation, theme switching, and zero horizontal ove
   });
 });
 
-test("Flow 6: Hermes AI chat proposal, Edit & Approve, and audit log", async ({ page }) => {
-  await page.goto("/hermes");
-  await expect(page.getByText(/Hermes Agente & Auditoria|Hermes Agent & Audit/i)).toBeVisible();
+test("Flow 6: Aura AI chat proposal, Edit & Approve, and audit log", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("aura-pyramid-station")).toBeVisible();
 
   const chatInput = page.getByPlaceholder(/create task:|criar tarefa:/i);
+  await expect(chatInput).toBeVisible();
   await chatInput.fill("criar tarefa: Revisar release v0.2");
   await page.getByRole("button", { name: /^Enviar$|^Send$/i }).click();
 
+  await expect(
+    page.getByText(/Proposta pendente criada|Created pending proposal/i)
+  ).toBeVisible();
+  await page.locator("nav").getByRole("button", { name: /Painel Geral|Dashboard/i }).click();
+
+  await expect(
+    page.getByText(/Fila de Aprovação de Propostas|Proposal Approval Queue/i)
+  ).toBeVisible();
   await expect(
     page.getByText("Criar tarefa: Revisar release v0.2", { exact: true })
   ).toBeVisible();

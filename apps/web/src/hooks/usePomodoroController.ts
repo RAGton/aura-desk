@@ -64,6 +64,7 @@ export interface PomodoroController {
   timerPaused: boolean;
   syncFromRemotePomo: (pomo: PomodoroSession | null) => void;
   handleTogglePause: () => void;
+  pauseForIdle: () => boolean;
   handleStartPomodoro: (
     kind: SessionKind,
     plannedMin: number,
@@ -186,6 +187,16 @@ export function usePomodoroController({
     return () => window.clearInterval(id);
   }, [activePomo, timerPaused, computeElapsedMs, finishPomodoroSession]);
 
+  const pauseForIdle = useCallback((): boolean => {
+    if (!activePomo || timerPaused) return false;
+    const acc = computeElapsedMs();
+    accumulatedElapsedMsRef.current = acc;
+    segmentStartMsRef.current = null;
+    writePomoPauseCache(activePomo.id, true, acc);
+    setTimerPaused(true);
+    return true;
+  }, [activePomo, computeElapsedMs, timerPaused]);
+
   const handleTogglePause = useCallback(() => {
     if (!activePomo) return;
     if (!timerPaused) {
@@ -262,6 +273,7 @@ export function usePomodoroController({
     timerPaused,
     syncFromRemotePomo,
     handleTogglePause,
+    pauseForIdle,
     handleStartPomodoro,
     handleCompletePomodoro,
     handleAbandonPomodoro,
