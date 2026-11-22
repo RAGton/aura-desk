@@ -8,6 +8,26 @@
 //! and executes all upserts within a single SQLite transaction. If any validation
 //! or database constraint fails, the transaction is rolled back, guaranteeing
 //! that the database is never left in a partially modified state.
+//!
+//! # Secrets never leave the app in a backup
+//!
+//! Credential settings (`ai.api_key`, `raglight.api_key` — see
+//! [`SettingsKey::SENSITIVE`]) are **redacted** in every export path:
+//!
+//! * `DataBundle.settings` (and therefore `bundle.json` / `export_json`);
+//! * the `settings.json` entry of the `.zip` backup;
+//! * the `auradesk.db` entry of the `.zip` backup — the embedded SQLite
+//!   snapshot is post-processed before being written into the archive,
+//!   because the `settings` table inside it would otherwise carry the
+//!   cleartext key.
+//!
+//! The redaction placeholder ([`REDACTED_SETTING_VALUE`]) is written in
+//! place of the credential. On import, a sensitive setting whose value is
+//! the placeholder is **skipped**: the credential already stored in the
+//! local database is preserved and never overwritten by a masked value.
+//! Importing a redacted backup therefore always succeeds and never
+//! silently clears the user's configuration — the user only has to
+//! re-enter the API key when restoring onto a machine that never had one.
 
 #![allow(missing_docs)]
 
@@ -26,9 +46,17 @@ use crate::domain::github::GithubIssueLink;
 use crate::domain::pomodoro::PomodoroSession;
 use crate::domain::project::Project;
 use crate::domain::reminder::Reminder;
+use crate::domain::settings_key::SettingsKey;
 use crate::domain::task::{Task, TaskFilter};
 use crate::infrastructure::db::Db;
 use crate::CoreError;
+
+/// Placeholder written in place of a credential in an export.
+///
+/// It is deliberately distinctive so a masked value can never be
+/// confused with a real API key, and it round-trips through the import
+/// path: a sensitive setting carrying this exact value is ignored.
+pub const REDACTED_SETTING_VALUE: &str = "__AURADESK_REDACTED__";
 
 /// Current bundle version.
 ///
@@ -38,6 +66,115 @@ pub const SCHEMA_VERSION: u32 = 2;
 
 /// Oldest bundle version this build can import.
 pub const MIN_SUPPORTED_SCHEMA_VERSION: u32 = 1;
+
+/// Whether `key` names a credential setting.
+///
+/// The lookup goes through [`SettingsKey`] so the set of secrets is
+/// declared in exactly one place (`SettingsKey::SENSITIVE`).
+fn is_sensitive_key(key: &str) -> bool {
+    SettingsKey::from_str(key).is_some_and(|k| k.is_sensitive())
+}
+
+/// The JSON-encoded placeholder stored in the `settings` table for a
+/// redacted credential.
+fn redacted_setting_value() -> String {
+    serde_json::to_string(REDACTED_SETTING_VALUE)
+        .unwrap_or_else(|_| format!("\"{REDACTED_SETTING_VALUE}\""))
+}
+
+/// Whether a stored setting value is the redaction placeholder.
+///
+/// The stored value is a JSON string; both the JSON-encoded form and the
+/// bare form are accepted so a hand-edited backup is still recognized.
+fn is_redacted_value(stored: &str) -> bool {
+    let trimmed = stored.trim();
+    if trimmed == REDACTED_SETTING_VALUE {
+        return true;
+    }
+    serde_json::from_str::<String>(trimmed)
+        .map(|v| v == REDACTED_SETTING_VALUE)
+        .unwrap_or(false)
+}
+
+/// Replace the value of every credential setting with the redaction
+/// placeholder.
+///
+/// The `settings` table stores JSON-encoded values, so the placeholder is
+/// stored JSON-encoded too.
+fn redact_sensitive_settings(rows: Vec<(String, String, String)>) -> Vec<(String, String, String)> {
+    rows.into_iter()
+        .map(|(key, value, updated_at)| {
+            if is_sensitive_key(&key) {
+                (key, redacted_setting_value(), updated_at)
+            } else {
+                (key, value, updated_at)
+            }
+        })
+        .collect()
+}
+
+/// Redact credentials inside an embedded SQLite backup.
+///
+/// The `.zip` backup carries a full `auradesk.db` snapshot, and that
+/// snapshot's `settings` table holds the cleartext API key. Redacting
+/// only the sibling `settings.json` would leave the secret in the
+/// archive, so the database file itself is sanitized before it is
+/// written into the ZIP.
+///
+/// The snapshot is round-tripped through a temporary file: it is opened
+/// with a plain SQLite connection (not [`Db::open`], which would run
+/// migrations against the snapshot), the credential rows are updated, and
+/// the file is read back.
+///
+/// The operation only replaces the `settings` rows of the copy — every
+/// other table is preserved byte-for-byte as SQLite stores it.
+fn sanitize_db_bytes(db_bytes: Vec<u8>) -> Result<Vec<u8>, CoreError> {
+    use rusqlite::Connection;
+
+    if db_bytes.is_empty() {
+        return Ok(db_bytes);
+    }
+
+    let tmp_dir = std::env::temp_dir().join(format!("auradesk-export-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| CoreError::internal(format!("create export temp dir: {e}")))?;
+    let tmp_db_path = tmp_dir.join("auradesk.db");
+
+    let result = (|| -> Result<Vec<u8>, CoreError> {
+        std::fs::write(&tmp_db_path, &db_bytes)
+            .map_err(|e| CoreError::internal(format!("write export temp db: {e}")))?;
+
+        {
+            let conn = Connection::open(&tmp_db_path)
+                .map_err(|e| CoreError::internal(format!("open export temp db: {e}")))?;
+            // The snapshot may be a WAL database; make sure the redacted
+            // rows land in the main database file and not in a sidecar
+            // WAL that would not be embedded in the ZIP.
+            conn.pragma_update(None, "journal_mode", "DELETE")
+                .map_err(|e| CoreError::internal(format!("export temp db journal_mode: {e}")))?;
+
+            let placeholder = redacted_setting_value();
+            for key in SettingsKey::SENSITIVE {
+                conn.execute(
+                    "UPDATE settings SET value = ?1 WHERE key = ?2",
+                    params![placeholder, key.as_str()],
+                )
+                .map_err(|e| {
+                    CoreError::internal(format!("redact setting {}: {e}", key.as_str()))
+                })?;
+            }
+
+            conn.execute_batch("VACUUM")
+                .map_err(|e| CoreError::internal(format!("export temp db vacuum: {e}")))?;
+        }
+
+        std::fs::read(&tmp_db_path)
+            .map_err(|e| CoreError::internal(format!("read export temp db: {e}")))
+    })();
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    result
+}
 
 /// A single raw key-value setting record from the database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +223,10 @@ impl<'a> DataIoService<'a> {
     }
 
     /// Export all user-owned data into a strongly-typed `DataBundle`.
+    ///
+    /// Credential settings are replaced with
+    /// [`REDACTED_SETTING_VALUE`] — the cleartext API key never reaches
+    /// the returned bundle.
     pub fn export(&self) -> Result<DataBundle, CoreError> {
         let projects = ProjectsService::new(self.db).list()?;
         let tasks = TasksService::new(self.db).list(&TaskFilter::default())?;
@@ -93,7 +234,7 @@ impl<'a> DataIoService<'a> {
         let reminders = RemindersService::new(self.db).list(true)?;
         let daily_plans = DailyPlansService::new(self.db).list()?;
 
-        let raw_settings = SettingsService::new(self.db).list_raw()?;
+        let raw_settings = redact_sensitive_settings(SettingsService::new(self.db).list_raw()?);
         let settings = raw_settings
             .into_iter()
             .map(|(key, value, updated_at)| SettingItem {
@@ -473,7 +614,16 @@ impl<'a> DataIoService<'a> {
         }
 
         // 6. Settings
+        //
+        // A credential whose value is the redaction placeholder is skipped:
+        // the local value is preserved instead of being overwritten by a
+        // masked one. This keeps "restore a backup exported from another
+        // machine" working without wiping the API key the user already
+        // configured locally.
         for s in &bundle.settings {
+            if is_sensitive_key(&s.key) && is_redacted_value(&s.value) {
+                continue;
+            }
             tx.execute(
                 "INSERT INTO settings (key, value, updated_at) \
                  VALUES (?1, ?2, ?3) \
@@ -648,21 +798,25 @@ impl<'a> DataIoService<'a> {
     }
 
     /// Export a `.zip` archive containing `auradesk.db`, `settings.json`, and `audit-log.json`.
+    ///
+    /// Credentials are redacted from both the `settings.json` entry and the
+    /// embedded `auradesk.db` snapshot (see
+    /// [`REDACTED_SETTING_VALUE`]).
     pub fn export_zip_bytes(&self) -> Result<Vec<u8>, CoreError> {
         use std::io::Write;
         use zip::write::SimpleFileOptions;
         use zip::{CompressionMethod, ZipWriter};
 
-        let db_bytes = self.db.backup_to_bytes()?;
-        let settings: Vec<SettingItem> = SettingsService::new(self.db)
-            .list_raw()?
-            .into_iter()
-            .map(|(key, value, updated_at)| SettingItem {
-                key,
-                value,
-                updated_at,
-            })
-            .collect();
+        let db_bytes = sanitize_db_bytes(self.db.backup_to_bytes()?)?;
+        let settings: Vec<SettingItem> =
+            redact_sensitive_settings(SettingsService::new(self.db).list_raw()?)
+                .into_iter()
+                .map(|(key, value, updated_at)| SettingItem {
+                    key,
+                    value,
+                    updated_at,
+                })
+                .collect();
         let settings_json = serde_json::to_string_pretty(&settings)
             .map_err(|e| CoreError::internal(format!("export settings.json: {e}")))?;
         let audit_json = self.export_audit_log_json()?;

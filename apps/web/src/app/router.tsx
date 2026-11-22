@@ -68,7 +68,12 @@ export function AppRouter() {
         <Route path="/alerts" element={<AppShell />} />
         <Route path="/reminders" element={<AppShell />} />
         <Route path="/reports" element={<AppShell />} />
+        <Route path="/aura" element={<AppShell />} />
         <Route path="/hermes" element={<AppShell />} />
+        <Route path="/sessions" element={<AppShell />} />
+        <Route path="/hindsight" element={<AppShell />} />
+        <Route path="/knowledge" element={<AppShell />} />
+        <Route path="/agents" element={<AppShell />} />
         <Route path="/settings" element={<AppShell />} />
         <Route path="/compact" element={<CompactPage />} />
         <Route path="/alert-popup" element={<AlertLockPage popupWindow />} />

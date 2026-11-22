@@ -3,15 +3,20 @@ import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bell,
+  BookOpen,
   Bot,
+  Brain,
+  Cpu,
   Download,
   Kanban,
   LayoutDashboard,
+  MessageSquareText,
   Moon,
   PanelLeft,
   PanelTop,
   PictureInPicture2,
   RefreshCw,
+  Search,
   Settings,
   SlidersHorizontal,
   Sun,
@@ -20,9 +25,12 @@ import {
 } from "lucide-react";
 
 import { AuraDeskLogo } from "../../components/AuraDeskLogo";
+import { AuraSpaceBackdrop } from "../../components/AuraSpaceBackdrop";
+import { CommandPalette } from "../../components/CommandPalette";
 import { ReminderModal } from "../../components/ReminderModal";
 import { Badge, Button, Toast } from "../../components/ui";
-import { HermesChatPanel } from "../../features/hermes-chat/HermesChatPanel";
+import { AuraChatPanel } from "../../features/aura-chat/AuraChatPanel";
+import { AuraMonitoringPanel } from "../../features/aura-chat/AuraMonitoringPanel";
 import {
   alertsApi,
   dashboardApi,
@@ -43,6 +51,7 @@ import {
   serializeDailyPlanNotes,
   type DashboardSummary,
   type GithubIssueLink,
+  type IdleStateSnapshot,
   type PlanState,
   type PomodoroSession,
   type Project,
@@ -72,6 +81,10 @@ import { PomodoroPage } from "../../pages/PomodoroPage";
 import { RemindersPage } from "../../pages/RemindersPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { SettingsPage } from "../../pages/SettingsPage";
+import { SessionsCenterPage } from "../../pages/SessionsCenterPage";
+import { HindsightPanelPage } from "../../pages/HindsightPanelPage";
+import { LightRagExplorerPage } from "../../pages/LightRagExplorerPage";
+import { AgentsHubPage } from "../../pages/AgentsHubPage";
 
 type TabKey =
   | "dashboard"
@@ -80,6 +93,10 @@ type TabKey =
   | "reminders"
   | "reports"
   | "hermes"
+  | "sessions"
+  | "hindsight"
+  | "knowledge"
+  | "agents"
   | "settings";
 
 const LAYOUT_STORAGE_KEY = "auradesk_dashboard_layout_v1";
@@ -104,17 +121,23 @@ function loadDashboardLayout(): DashboardLayoutState {
 
 function initialTabFromLocation(): TabKey {
   const path = window.location.pathname.replace(/^\//, "").toLowerCase();
+  if (path === "dashboard") return "dashboard";
   if (path === "tasks" || path === "kanban") return "kanban";
   if (path === "alerts" || path === "reminders") return "reminders";
   if (path === "pomodoro") return "pomodoro";
   if (path === "reports") return "reports";
-  if (path === "hermes") return "hermes";
+  if (path === "sessions") return "sessions";
+  if (path === "hindsight") return "hindsight";
+  if (path === "knowledge") return "knowledge";
+  if (path === "agents") return "agents";
   if (path === "settings") return "settings";
-  return "dashboard";
+  return "hermes";
 }
 
 function tabToPath(tab: TabKey): string {
   switch (tab) {
+    case "dashboard":
+      return "/dashboard";
     case "kanban":
       return "/tasks";
     case "reminders":
@@ -123,10 +146,17 @@ function tabToPath(tab: TabKey): string {
       return "/pomodoro";
     case "reports":
       return "/reports";
-    case "hermes":
-      return "/hermes";
+    case "sessions":
+      return "/sessions";
+    case "hindsight":
+      return "/hindsight";
+    case "knowledge":
+      return "/knowledge";
+    case "agents":
+      return "/agents";
     case "settings":
       return "/settings";
+    case "hermes":
     default:
       return "/";
   }
@@ -141,6 +171,12 @@ function formatClock(secs: number): string {
 export function AppShell() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTabFromLocation);
+  const [activeSessionId, setActiveSessionId] = useState<string>("default");
+  const [galaxyFocusMemory, setGalaxyFocusMemory] = useState<{
+    bankId: string;
+    memoryId: string;
+  } | null>(null);
+  const [hindsightInitialBank, setHindsightInitialBank] = useState<string | null>(null);
   const [currentLang, setCurrentLang] = useState<string>(i18n.language || "pt-BR");
   const [inTauri] = useState<boolean>(() => isTauriRuntime());
   const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
@@ -167,6 +203,7 @@ export function AppShell() {
   } | null>(null);
   const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
   const [dismissedUpdateBanner, setDismissedUpdateBanner] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Dashboard Customizer State
   const [customizingLayout, setCustomizingLayout] = useState(false);
@@ -398,6 +435,7 @@ export function AppShell() {
     timerPaused,
     syncFromRemotePomo,
     handleTogglePause,
+    pauseForIdle,
     handleStartPomodoro,
     handleCompletePomodoro,
     handleAbandonPomodoro,
@@ -408,6 +446,12 @@ export function AppShell() {
     notify,
     onSessionStarted: () => selectTab("pomodoro"),
   });
+
+  const pausedByIdleRef = useRef<boolean>(false);
+  const pauseForIdleRef = useRef<() => boolean>(() => false);
+  pauseForIdleRef.current = pauseForIdle;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   pomodoroSyncRef.current = syncFromRemotePomo;
 
   useEffect(() => {
@@ -433,6 +477,7 @@ export function AppShell() {
     let unlistenSettings: (() => void) | undefined;
     let unlistenResume: (() => void) | undefined;
     let unlistenNavigate: (() => void) | undefined;
+    let unlistenIdle: (() => void) | undefined;
     let unlistenProposals: (() => void) | undefined;
     let unlistenUpdate: (() => void) | undefined;
     void updaterApi
@@ -490,9 +535,26 @@ export function AppShell() {
               target === "reminders" ||
               target === "reports" ||
               target === "hermes" ||
+              target === "sessions" ||
+              target === "hindsight" ||
+              target === "knowledge" ||
+              target === "agents" ||
               target === "settings"
             ) {
               selectTab(target);
+            }
+          });
+          unlistenIdle = await listen<IdleStateSnapshot>("auradesk://idle-state", (event) => {
+            const payload = event.payload;
+            if (!payload) return;
+            if (payload.isIdle && payload.autoPausePomodoro) {
+              if (pauseForIdleRef.current()) {
+                pausedByIdleRef.current = true;
+                notifyRef.current(t("pomodoro.idleAutoPaused"));
+              }
+            } else if (!payload.isIdle && pausedByIdleRef.current) {
+              pausedByIdleRef.current = false;
+              notifyRef.current(t("pomodoro.idleReturned"));
             }
           });
         })
@@ -511,6 +573,7 @@ export function AppShell() {
       if (unlistenProposals) unlistenProposals();
       if (unlistenUpdate) unlistenUpdate();
       if (unlistenNavigate) unlistenNavigate();
+      if (unlistenIdle) unlistenIdle();
     };
   }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain, selectTab]);
 
@@ -527,6 +590,41 @@ export function AppShell() {
     setCurrentLang(lng);
     await settingsApi.set("app.locale", lng).catch(() => {});
   };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleQuickCreateTaskFromPalette = useCallback(
+    async (title: string) => {
+      try {
+        await tasksApi.create({ title, priority: "normal" });
+        await refreshTasksDomain();
+        notify(t("dashboard.taskCreated"));
+      } catch (err) {
+        notify(String(err), true);
+      }
+    },
+    [notify, refreshTasksDomain, t]
+  );
+
+  const handleToggleCompactFromPalette = useCallback(async () => {
+    try {
+      const opened = await desktopApi.toggleCompact();
+      if (!isTauriRuntime() && opened) {
+        window.location.assign("/compact");
+      }
+    } catch (err) {
+      notify(String(err), true);
+    }
+  }, [notify]);
 
   const handleQuickThemeToggle = async () => {
     const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
@@ -609,10 +707,41 @@ export function AppShell() {
 
   const isPt = currentLang.startsWith("pt");
   const isSidebar = visualPrefs.navLayout === "sidebar";
+  const isAuraCockpit = activeTab === "hermes";
   const isLightTheme =
     typeof document !== "undefined" && document.documentElement.dataset.theme === "light";
 
   const navItems = [
+    {
+      key: "hermes" as const,
+      label: t("nav.hermes"),
+      icon: Bot,
+      badge: proposals.length > 0 ? proposals.length : undefined,
+    },
+    {
+      key: "sessions" as const,
+      label: t("nav.sessions"),
+      icon: MessageSquareText,
+      badge: undefined,
+    },
+    {
+      key: "hindsight" as const,
+      label: t("nav.hindsight"),
+      icon: Brain,
+      badge: undefined,
+    },
+    {
+      key: "knowledge" as const,
+      label: t("nav.knowledge"),
+      icon: BookOpen,
+      badge: undefined,
+    },
+    {
+      key: "agents" as const,
+      label: t("nav.agents"),
+      icon: Cpu,
+      badge: undefined,
+    },
     {
       key: "dashboard" as const,
       label: t("nav.dashboard"),
@@ -644,12 +773,6 @@ export function AppShell() {
       badge: undefined,
     },
     {
-      key: "hermes" as const,
-      label: t("nav.hermes"),
-      icon: Bot,
-      badge: proposals.length > 0 ? proposals.length : undefined,
-    },
-    {
       key: "settings" as const,
       label: t("nav.settings"),
       icon: Settings,
@@ -663,14 +786,14 @@ export function AppShell() {
       className={
         isSidebar
           ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
-          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
+          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
       }
     >
       <div
         className={
           isSidebar
-            ? "flex md:flex-col gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
-            : "flex items-center gap-1 max-md:grid max-md:grid-cols-7 max-md:w-full"
+            ? "flex md:flex-col gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
+            : "flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
         }
       >
         {navItems.map(({ key, label, icon: Icon, badge }) => {
@@ -733,10 +856,15 @@ export function AppShell() {
     <main
       id="main-content"
       tabIndex={-1}
-      className="flex-1 p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto space-y-6 focus:outline-none"
+      className={
+        isAuraCockpit
+          ? "flex-1 relative min-h-0 flex flex-col overflow-hidden p-0 max-md:pb-16 focus:outline-none"
+          : "flex-1 p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto space-y-6 focus:outline-none"
+      }
     >
       {activeTab === "dashboard" && (
-        <DashboardPage
+        <div className="aura-panel-enter space-y-6">
+          <DashboardPage
           layout={layout}
           customizingLayout={customizingLayout}
           summary={summary}
@@ -794,10 +922,13 @@ export function AppShell() {
           onApproveProposal={handleApproveProposal}
           onRejectProposal={handleRejectProposal}
         />
+        <AuraMonitoringPanel onProposalApplied={() => void refreshAll()} />
+        </div>
       )}
 
       {activeTab === "kanban" && (
-        <KanbanPage
+        <div className="aura-panel-enter">
+          <KanbanPage
           tasks={tasks}
           projects={projects}
           githubLinks={githubLinks}
@@ -831,10 +962,12 @@ export function AppShell() {
           onDeleteTask={handleDeleteTask}
           onFocusTask={(task) => handleStartPomodoro("focus", focusMin, task.id)}
         />
+        </div>
       )}
 
       {activeTab === "pomodoro" && (
-        <PomodoroPage
+        <div className="aura-panel-enter">
+          <PomodoroPage
           activePomo={activePomo}
           pomoHistory={pomoHistory}
           tasks={tasks}
@@ -851,10 +984,12 @@ export function AppShell() {
           onComplete={handleCompletePomodoro}
           onAbandon={handleAbandonPomodoro}
         />
+        </div>
       )}
 
       {activeTab === "reminders" && (
-        <RemindersPage
+        <div className="aura-panel-enter">
+          <RemindersPage
           reminders={reminders}
           alerts={alerts}
           newReminderTitle={newReminderTitle}
@@ -870,16 +1005,73 @@ export function AppShell() {
           onDismissReminder={handleDismissReminder}
           onDeleteReminder={handleDeleteReminder}
         />
+        </div>
       )}
 
-      {activeTab === "reports" && <ReportsPage />}
+      {activeTab === "reports" && (
+        <div className="aura-panel-enter">
+          <ReportsPage />
+        </div>
+      )}
 
       {activeTab === "hermes" && (
-        <HermesChatPanel onProposalApplied={() => void refreshAll()} />
+        <div className="aura-panel-enter flex-1 flex flex-col min-h-0">
+          <AuraChatPanel
+            sessionId={activeSessionId}
+            onSessionChange={setActiveSessionId}
+            focusMemory={galaxyFocusMemory}
+            onFocusMemoryHandled={() => setGalaxyFocusMemory(null)}
+            onOpenSessions={() => selectTab("sessions")}
+            onOpenHindsightBank={(bankId) => {
+              setHindsightInitialBank(bankId);
+              selectTab("hindsight");
+            }}
+            onProposalApplied={() => void refreshAll()}
+            onOpenSettings={() => selectTab("settings")}
+          />
+        </div>
+      )}
+
+      {activeTab === "sessions" && (
+        <div className="aura-panel-enter">
+          <SessionsCenterPage
+            activeSessionId={activeSessionId}
+            onContinueSession={(sid) => {
+              setActiveSessionId(sid);
+              selectTab("hermes");
+            }}
+            onActiveSessionDeleted={() => setActiveSessionId("default")}
+          />
+        </div>
+      )}
+
+      {activeTab === "hindsight" && (
+        <div className="aura-panel-enter">
+          <HindsightPanelPage
+            initialBank={hindsightInitialBank}
+            onOpenInGalaxy={(bankId, memoryId) => {
+              setGalaxyFocusMemory({ bankId, memoryId });
+              selectTab("hermes");
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === "knowledge" && (
+        <div className="aura-panel-enter">
+          <LightRagExplorerPage onOpenSettings={() => selectTab("settings")} />
+        </div>
+      )}
+
+      {activeTab === "agents" && (
+        <div className="aura-panel-enter">
+          <AgentsHubPage activeSessionId={activeSessionId} />
+        </div>
       )}
 
       {activeTab === "settings" && (
-        <SettingsPage
+        <div className="aura-panel-enter">
+          <SettingsPage
           externalTheme={
             typeof settingsMap["app.theme"] === "string" ? settingsMap["app.theme"] : undefined
           }
@@ -893,12 +1085,18 @@ export function AppShell() {
           }}
           onVisualPrefsChange={setVisualPrefs}
         />
+        </div>
       )}
     </main>
   );
 
   return (
-    <div className="min-h-screen aura-bg text-slate-100 flex flex-col">
+    <div
+      className={`aura-bg text-slate-100 flex flex-col relative isolate ${
+        isAuraCockpit ? "h-screen overflow-hidden" : "min-h-screen"
+      }`}
+    >
+      {!isAuraCockpit && <AuraSpaceBackdrop galaxyDark={false} />}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-aura-accent focus:px-4 focus:py-2 focus:text-xs focus:font-semibold focus:text-aura-inverse focus:shadow-lg"
@@ -907,16 +1105,26 @@ export function AppShell() {
       </a>
 
       {/* Top Header with Winged Notebook Logo + Quick Controls + Language Switcher */}
-      <header className="aura-glass border-b border-slate-800/40 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div className="p-1 rounded-2xl aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0">
-            <AuraDeskLogo size={48} animated />
+      <header
+        className={`aura-glass border-b border-slate-800/40 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 shrink-0 ${
+          isAuraCockpit ? "py-2" : "py-3.5 gap-4"
+        }`}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0 ${
+              isAuraCockpit ? "p-0.5 rounded-xl" : "p-1 rounded-2xl"
+            }`}
+          >
+            <AuraDeskLogo size={isAuraCockpit ? 34 : 48} animated />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
                 translate="no"
-                className="text-xl font-extrabold tracking-tight aura-brand-gradient bg-clip-text text-transparent"
+                className={`font-extrabold tracking-tight aura-brand-gradient bg-clip-text text-transparent ${
+                  isAuraCockpit ? "text-base" : "text-xl"
+                }`}
               >
                 {t("app.title")}
               </h1>
@@ -925,23 +1133,29 @@ export function AppShell() {
                 {inTauri ? t("app.connectedTauri") : t("app.connectedBrowser")}
               </Badge>
             </div>
-            <p className="text-xs text-slate-400 truncate">{t("app.subtitle")}</p>
+            {!isAuraCockpit && (
+              <p className="text-xs text-slate-400 truncate">{t("app.subtitle")}</p>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              void desktopApi
-                .toggleCompact()
-                .then((opened) => {
-                  if (!isTauriRuntime() && opened) {
-                    window.location.assign("/compact");
-                  }
-                })
-                .catch((err) => notify(String(err), true));
-            }}
+            onClick={() => setCommandPaletteOpen(true)}
+            aria-label={t("commandPalette.title")}
+            title={t("commandPalette.title")}
+            className="inline-flex h-9 items-center gap-2 rounded-xl aura-glass-pill px-3 text-xs font-medium text-slate-300 hover:text-aura-accent cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
+          >
+            <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">{t("commandPalette.button")}</span>
+            <kbd className="hidden sm:inline rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+              {t("commandPalette.shortcut")}
+            </kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleToggleCompactFromPalette()}
             aria-label={t("app.compactMode")}
             title={t("app.compactMode")}
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl aura-glass-pill text-slate-300 hover:text-aura-accent cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
@@ -1112,6 +1326,21 @@ export function AppShell() {
           onDismiss={handlePopupDismiss}
         />
       )}
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        tasks={tasks}
+        hasActivePomodoro={Boolean(activePomo)}
+        pomodoroPaused={timerPaused}
+        onSelectTab={selectTab}
+        onQuickCreateTask={handleQuickCreateTaskFromPalette}
+        onStartPomodoro={(taskId) => handleStartPomodoro("focus", focusMin, taskId ?? null)}
+        onTogglePausePomodoro={handleTogglePause}
+        onToggleDnd={handleToggleDnd}
+        onToggleTheme={handleQuickThemeToggle}
+        onToggleCompact={handleToggleCompactFromPalette}
+      />
     </div>
   );
 }

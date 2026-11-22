@@ -35,6 +35,7 @@ pub struct Scheduler<'a> {
     pub db: &'a Db,
     pub clock: &'a dyn Clock,
     pub audio: Option<&'a dyn AudioPort>,
+    pub user_idle: bool,
 }
 
 impl<'a> Scheduler<'a> {
@@ -43,11 +44,17 @@ impl<'a> Scheduler<'a> {
             db,
             clock,
             audio: None,
+            user_idle: false,
         }
     }
 
     pub fn with_audio(mut self, audio: &'a dyn AudioPort) -> Self {
         self.audio = Some(audio);
+        self
+    }
+
+    pub fn with_user_idle(mut self, user_idle: bool) -> Self {
+        self.user_idle = user_idle;
         self
     }
 
@@ -117,6 +124,14 @@ impl<'a> Scheduler<'a> {
         let alerts_svc = AlertsService::with_clock(self.db, self.clock);
         let pending_alerts = alerts_svc.list_pending()?;
 
+        let suppress_routines_on_idle = self.user_idle
+            && settings
+                .get(SettingsKey::DesktopIdleSuppressRoutines)
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
         let mut fired_routine_alerts = Vec::new();
         let mut suppressed_routines = 0;
 
@@ -138,7 +153,7 @@ impl<'a> Scheduler<'a> {
             )?;
 
             if is_due {
-                if in_focus_session {
+                if in_focus_session || suppress_routines_on_idle {
                     suppressed_routines += 1;
                 } else {
                     let alert = alerts_svc.create_with_parent(

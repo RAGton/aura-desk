@@ -1,22 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Bell,
-  Download,
-  Droplets,
-  FolderOpen,
   GitBranch,
   Monitor,
-  Palette,
-  RefreshCw,
   Settings,
   ShieldAlert,
-  Terminal,
-  Timer,
-  Upload,
 } from "lucide-react";
 
-import { Badge, Button, Dialog, Input, Select, Switch, Toast } from "@/components/ui";
+import { Badge, Button, Toast } from "@/components/ui";
 import {
   alertsApi,
   dataIoApi,
@@ -35,327 +26,85 @@ import {
   type VisualPrefs,
 } from "@/lib/theme";
 import { asArray } from "@/lib/utils";
+import {
+  BackupRestoreSection,
+  base64ToBlob,
+  bytesToBase64,
+} from "./settings/BackupRestoreSection";
+import { SettingRow } from "./settings/SettingRow";
+import { RaglightSection } from "./settings/RaglightSection";
+import { HindsightSection } from "./settings/HindsightSection";
+import {
+  defaultFor,
+  GROUP_ICONS,
+  GROUP_LABEL_KEYS,
+  groupBy,
+  SETTINGS_DEF,
+  SETTINGS_SECTIONS,
+  type SettingDef,
+  type SettingsSectionKey,
+} from "./settings/settingsSchema";
+import { UpdatesAndLogsSection } from "./settings/UpdatesAndLogsSection";
 
-type SettingType = "string" | "number" | "boolean" | "select";
-
-interface SettingOption {
-  value: string;
-  label?: string;
-  labelKey?: string;
-}
-
-interface SettingDef {
-  key: string;
-  labelKey: string;
-  descriptionKey: string;
-  type: SettingType;
-  options?: SettingOption[];
-  placeholder?: string;
-  numericValue?: boolean;
-  visualField?: keyof VisualPrefs;
-  group: "app" | "desktop" | "appearance" | "pomodoro" | "reminders" | "routines" | "github";
-}
-
-const SETTINGS_DEF: SettingDef[] = [
-  {
-    key: "app.locale",
-    labelKey: "settings.items.locale.label",
-    descriptionKey: "settings.items.locale.description",
-    type: "select",
-    options: [
-      { value: "pt-BR", label: "pt-BR" },
-      { value: "en", label: "en" },
-    ],
-    group: "app",
-  },
-  {
-    key: "app.theme",
-    labelKey: "settings.items.theme.label",
-    descriptionKey: "settings.items.theme.description",
-    type: "select",
-    options: [
-      { value: "dark", label: "dark" },
-      { value: "light", label: "light" },
-      { value: "system", label: "system" },
-    ],
-    group: "app",
-  },
-  {
-    key: "dashboard.refresh_sec",
-    labelKey: "settings.items.refreshSec.label",
-    descriptionKey: "settings.items.refreshSec.description",
-    type: "select",
-    numericValue: true,
-    options: [
-      { value: "3", label: "3s" },
-      { value: "5", label: "5s" },
-      { value: "10", label: "10s" },
-      { value: "15", label: "15s" },
-      { value: "30", label: "30s" },
-      { value: "60", label: "60s" },
-    ],
-    group: "app",
-  },
-  {
-    key: "updates.auto_update",
-    labelKey: "settings.items.autoUpdate.label",
-    descriptionKey: "settings.items.autoUpdate.description",
-    type: "boolean",
-    group: "app",
-  },
-  {
-    key: "app.autostart",
-    labelKey: "settings.items.autostart.label",
-    descriptionKey: "settings.items.autostart.description",
-    type: "boolean",
-    group: "desktop",
-  },
-  {
-    key: "desktop.compact_mode",
-    labelKey: "settings.items.compactMode.label",
-    descriptionKey: "settings.items.compactMode.description",
-    type: "boolean",
-    group: "desktop",
-  },
-  {
-    key: "monitor.preferred",
-    labelKey: "settings.items.monitorPreferred.label",
-    descriptionKey: "settings.items.monitorPreferred.description",
-    type: "select",
-    options: [
-      { value: "primary", labelKey: "settings.items.monitorPreferred.primary" },
-      { value: "secondary", labelKey: "settings.items.monitorPreferred.secondary" },
-    ],
-    group: "desktop",
-  },
-  {
-    key: "monitor.fallback_strategy",
-    labelKey: "settings.items.monitorFallback.label",
-    descriptionKey: "settings.items.monitorFallback.description",
-    type: "select",
-    options: [
-      {
-        value: "primary_then_hide",
-        labelKey: "settings.items.monitorFallback.primary_then_hide",
-      },
-      { value: "primary", labelKey: "settings.items.monitorFallback.primary" },
-      { value: "hide", labelKey: "settings.items.monitorFallback.hide" },
-    ],
-    group: "desktop",
-  },
-  {
-    key: "ui.preset",
-    labelKey: "settings.items.preset.label",
-    descriptionKey: "settings.items.preset.description",
-    type: "select",
-    visualField: "preset",
-    options: [
-      { value: "aurora", labelKey: "settings.items.presets.aurora" },
-      { value: "obsidian", labelKey: "settings.items.presets.obsidian" },
-      { value: "frosted", labelKey: "settings.items.presets.frosted" },
-      { value: "emerald", labelKey: "settings.items.presets.emerald" },
-      { value: "sunset", labelKey: "settings.items.presets.sunset" },
-    ],
-    group: "appearance",
-  },
-  {
-    key: "ui.accent",
-    labelKey: "settings.items.accent.label",
-    descriptionKey: "settings.items.accent.description",
-    type: "select",
-    visualField: "accent",
-    options: [
-      { value: "sky", labelKey: "settings.items.accents.sky" },
-      { value: "indigo", labelKey: "settings.items.accents.indigo" },
-      { value: "emerald", labelKey: "settings.items.accents.emerald" },
-      { value: "amber", labelKey: "settings.items.accents.amber" },
-      { value: "rose", labelKey: "settings.items.accents.rose" },
-      { value: "violet", labelKey: "settings.items.accents.violet" },
-    ],
-    group: "appearance",
-  },
-  {
-    key: "ui.glass",
-    labelKey: "settings.items.glass.label",
-    descriptionKey: "settings.items.glass.description",
-    type: "select",
-    visualField: "glass",
-    options: [
-      { value: "subtle", labelKey: "settings.items.glasses.subtle" },
-      { value: "medium", labelKey: "settings.items.glasses.medium" },
-      { value: "intense", labelKey: "settings.items.glasses.intense" },
-    ],
-    group: "appearance",
-  },
-  {
-    key: "ui.navLayout",
-    labelKey: "settings.items.navLayout.label",
-    descriptionKey: "settings.items.navLayout.description",
-    type: "select",
-    visualField: "navLayout",
-    options: [
-      { value: "top", labelKey: "settings.items.navLayouts.top" },
-      { value: "sidebar", labelKey: "settings.items.navLayouts.sidebar" },
-    ],
-    group: "appearance",
-  },
-  {
-    key: "pomodoro.focus_min",
-    labelKey: "settings.items.focusMin.label",
-    descriptionKey: "settings.items.focusMin.description",
-    type: "number",
-    group: "pomodoro",
-  },
-  {
-    key: "pomodoro.short_min",
-    labelKey: "settings.items.shortMin.label",
-    descriptionKey: "settings.items.shortMin.description",
-    type: "number",
-    group: "pomodoro",
-  },
-  {
-    key: "pomodoro.long_min",
-    labelKey: "settings.items.longMin.label",
-    descriptionKey: "settings.items.longMin.description",
-    type: "number",
-    group: "pomodoro",
-  },
-  {
-    key: "pomodoro.cycles_to_long",
-    labelKey: "settings.items.cyclesToLong.label",
-    descriptionKey: "settings.items.cyclesToLong.description",
-    type: "number",
-    group: "pomodoro",
-  },
-  {
-    key: "reminders.sound",
-    labelKey: "settings.items.sound.label",
-    descriptionKey: "settings.items.sound.description",
-    type: "boolean",
-    group: "reminders",
-  },
-  {
-    key: "reminders.block_screen",
-    labelKey: "settings.items.blockScreen.label",
-    descriptionKey: "settings.items.blockScreen.description",
-    type: "boolean",
-    group: "reminders",
-  },
-  {
-    key: "alerts.max_queue_size",
-    labelKey: "settings.items.maxQueue.label",
-    descriptionKey: "settings.items.maxQueue.description",
-    type: "number",
-    group: "reminders",
-  },
-  {
-    key: "proposals.ttl_hours",
-    labelKey: "settings.items.proposalsTtl.label",
-    descriptionKey: "settings.items.proposalsTtl.description",
-    type: "number",
-    group: "reminders",
-  },
-  {
-    key: "routine.daily_planning_time",
-    labelKey: "settings.items.planningTime.label",
-    descriptionKey: "settings.items.planningTime.description",
-    type: "string",
-    placeholder: "07:50",
-    group: "routines",
-  },
-  {
-    key: "routine.water_interval_min",
-    labelKey: "settings.items.waterInterval.label",
-    descriptionKey: "settings.items.waterInterval.description",
-    type: "number",
-    group: "routines",
-  },
-  {
-    key: "routine.break_interval_min",
-    labelKey: "settings.items.breakInterval.label",
-    descriptionKey: "settings.items.breakInterval.description",
-    type: "number",
-    group: "routines",
-  },
-  {
-    key: "github.repo",
-    labelKey: "settings.items.githubRepo.label",
-    descriptionKey: "settings.items.githubRepo.description",
-    type: "string",
-    placeholder: "owner/repo",
-    group: "github",
-  },
-  {
-    key: "github.filter_labels",
-    labelKey: "settings.items.githubLabels.label",
-    descriptionKey: "settings.items.githubLabels.description",
-    type: "string",
-    placeholder: "bug,enhancement",
-    group: "github",
-  },
-  {
-    key: "github.auto_sync",
-    labelKey: "settings.items.githubAutoSync.label",
-    descriptionKey: "settings.items.githubAutoSync.description",
-    type: "boolean",
-    group: "github",
-  },
-];
-
-const GROUP_LABEL_KEYS: Record<string, string> = {
-  app: "settings.groups.app",
-  desktop: "settings.groups.desktop",
-  appearance: "settings.groups.appearance",
-  pomodoro: "settings.groups.pomodoro",
-  reminders: "settings.groups.reminders",
-  routines: "settings.groups.routines",
-  github: "settings.groups.github",
+const HINDSIGHT_FIELD_DEFAULTS: Record<string, string> = {
+  "hindsight.base_url": "http://127.0.0.1:8919",
+  "hindsight.default_bank": "aura-main",
 };
 
-const GROUP_ICONS: Record<string, typeof Settings> = {
-  app: Settings,
-  desktop: Monitor,
-  appearance: Palette,
-  pomodoro: Timer,
-  reminders: Bell,
-  routines: Droplets,
-  github: GitBranch,
+const RAGLIGHT_FIELD_DEFAULTS: Record<string, string> = {
+  "raglight.base_url": "http://127.0.0.1:8000",
+  "raglight.api_key": "",
+  "raglight.llm_model": "qwen3:0.6b",
+  "raglight.embedding_model": "nomic-embed-text",
 };
+
+function isSchemaSettingDirty(
+  def: SettingDef,
+  values: Record<string, unknown>,
+  savedValues: Record<string, unknown>
+): boolean {
+  if (def.visualField || (def.type !== "number" && def.type !== "string")) {
+    return false;
+  }
+  const rowVal = values[def.key] ?? defaultFor(def);
+  const savedVal = savedValues[def.key] ?? defaultFor(def);
+  return String(rowVal ?? "") !== String(savedVal ?? "");
+}
+
+function hasFieldDefaultsDirty(
+  defaults: Record<string, string>,
+  values: Record<string, unknown>,
+  savedValues: Record<string, unknown>
+): boolean {
+  return Object.entries(defaults).some(([key, fallback]) => {
+    const current = values[key] ?? fallback;
+    const saved = savedValues[key] ?? fallback;
+    return String(current) !== String(saved);
+  });
+}
 
 export interface SettingsPageProps {
   externalTheme?: string;
   externalLocale?: string;
+  initialSection?: SettingsSectionKey;
   onSettingSaved?: (key: string, value: unknown) => void;
   onAlertTriggered?: () => void;
   onVisualPrefsChange?: (prefs: VisualPrefs) => void;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-function base64ToBlob(base64: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: "application/zip" });
-}
-
 export function SettingsPage({
   externalTheme,
   externalLocale,
+  initialSection,
   onSettingSaved,
   onAlertTriggered,
   onVisualPrefsChange,
 }: SettingsPageProps = {}) {
   const { t, i18n } = useTranslation();
+  const [activeSection, setActiveSection] = useState<SettingsSectionKey>(
+    initialSection ?? "general"
+  );
+  const tabRefs = useRef<Partial<Record<SettingsSectionKey, HTMLButtonElement | null>>>({});
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const initial: Record<string, unknown> = {};
     for (const s of SETTINGS_DEF) {
@@ -708,11 +457,67 @@ export function SettingsPage({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  const groups = groupBy(SETTINGS_DEF, (s) => s.group);
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection]);
+
+  const groups = useMemo(() => groupBy(SETTINGS_DEF, (s) => s.group), []);
+
+  const sectionDirtyMap = useMemo(() => {
+    const map: Record<SettingsSectionKey, boolean> = {
+      general: false,
+      desktop: false,
+      focus: false,
+      reminders: false,
+      ai: false,
+      hindsight: hasFieldDefaultsDirty(HINDSIGHT_FIELD_DEFAULTS, values, savedValues),
+      raglight: hasFieldDefaultsDirty(RAGLIGHT_FIELD_DEFAULTS, values, savedValues),
+      system: false,
+    };
+    for (const section of SETTINGS_SECTIONS) {
+      if (section.groups.length > 0) {
+        map[section.key] = section.groups.some((group) =>
+          (groups[group] ?? []).some((s) => isSchemaSettingDirty(s, values, savedValues))
+        );
+      }
+    }
+    return map;
+  }, [groups, values, savedValues]);
+
+  const hasPendingUpdate =
+    updateState?.status === "available" ||
+    updateState?.status === "downloading" ||
+    updateState?.status === "verifying" ||
+    updateState?.status === "installing";
+
+  const activeSectionDef =
+    SETTINGS_SECTIONS.find((s) => s.key === activeSection) ?? SETTINGS_SECTIONS[0];
+  const isSingleGroup = activeSectionDef.groups.length === 1;
+
+  function handleTabKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | null = null;
+    if (e.key === "ArrowRight") {
+      nextIndex = (index + 1) % SETTINGS_SECTIONS.length;
+    } else if (e.key === "ArrowLeft") {
+      nextIndex = (index - 1 + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = SETTINGS_SECTIONS.length - 1;
+    }
+    if (nextIndex !== null) {
+      e.preventDefault();
+      const nextKey = SETTINGS_SECTIONS[nextIndex].key;
+      setActiveSection(nextKey);
+      tabRefs.current[nextKey]?.focus();
+    }
+  }
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto aura-scrollbar pr-1">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
             <Settings className="h-5 w-5 text-aura-accent" aria-hidden="true" />
@@ -720,6 +525,62 @@ export function SettingsPage({
           </div>
           <p className="text-xs text-slate-400">{t("settings.subtitle")}</p>
         </div>
+      </div>
+
+      {/* Dedicated Settings Subgroup Navbar */}
+      <div
+        role="tablist"
+        aria-label={t("settings.navAriaLabel")}
+        aria-orientation="horizontal"
+        className="aura-glass rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5 shrink-0"
+      >
+        {SETTINGS_SECTIONS.map((section, idx) => {
+          const SectionIcon = section.icon;
+          const isActive = activeSection === section.key;
+          const dirty = sectionDirtyMap[section.key];
+          const showUpdateDot = section.key === "system" && hasPendingUpdate;
+          return (
+            <button
+              key={section.key}
+              ref={(el) => {
+                tabRefs.current[section.key] = el;
+              }}
+              id={`settings-tab-${section.key}`}
+              data-testid={`settings-tab-${section.key}`}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`settings-panel-${section.key}`}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => setActiveSection(section.key)}
+              onKeyDown={(e) => handleTabKeyDown(e, idx)}
+              className={`relative inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
+                isActive
+                  ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+              }`}
+            >
+              <SectionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>{t(section.labelKey)}</span>
+              {dirty && (
+                <span
+                  aria-hidden="true"
+                  title={t("settings.unsavedIndicator")}
+                  className="h-2 w-2 rounded-full bg-amber-400 ring-2 ring-amber-400/25"
+                />
+              )}
+              {!dirty && showUpdateDot && (
+                <span
+                  aria-hidden="true"
+                  title={t("settings.updates.available", {
+                    version: updateState?.latestVersion ?? updateState?.currentVersion ?? "",
+                  })}
+                  className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse ring-2 ring-indigo-400/25"
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="fixed bottom-20 md:bottom-6 right-4 z-50 flex flex-col items-end gap-2 max-w-[calc(100vw-2rem)]">
@@ -737,538 +598,208 @@ export function SettingsPage({
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {Object.entries(groups).map(([group, items]) => {
-          const GroupIcon = GROUP_ICONS[group] ?? Settings;
-          return (
-            <section
-              key={group}
-              className="rounded-2xl aura-glass p-5 flex flex-col justify-between"
-            >
-              <div>
-                <h3 className="mb-3.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
-                  <span className="rounded-lg bg-sky-500/15 p-1.5">
-                    <GroupIcon className="h-3.5 w-3.5 text-sky-400" />
-                  </span>
-                  {t(GROUP_LABEL_KEYS[group] ?? group)}
-                </h3>
-                <div className="divide-y divide-slate-800/60">
-                  {items.map((s) => {
-                    const rowVal = s.visualField
-                      ? visualPrefs[s.visualField]
-                      : (values[s.key] ?? defaultFor(s));
-                    const savedVal = s.visualField
-                      ? visualPrefs[s.visualField]
-                      : (savedValues[s.key] ?? defaultFor(s));
-                    const isDirty =
-                      !s.visualField &&
-                      (s.type === "number" || s.type === "string") &&
-                      String(rowVal ?? "") !== String(savedVal ?? "");
-                    const effectiveDef =
-                      s.key === "monitor.preferred" && monitors.length > 0
-                        ? {
-                            ...s,
-                            options: [
-                              ...(s.options ?? []),
-                              ...monitors.map((m) => ({
-                                value: m.name,
-                                label: `${m.name} (${m.width}x${m.height}${m.isPrimary ? " ★" : ""})`,
-                              })),
-                            ],
-                          }
-                        : s;
-                    return (
-                      <SettingRow
-                        key={s.key}
-                        def={effectiveDef}
-                        value={rowVal}
-                        dirty={isDirty}
-                        disabled={loading}
-                        onChange={(val) => {
-                          if (!s.visualField) {
-                            setValues((v) => ({ ...v, [s.key]: val }));
-                          }
-                        }}
-                        onSave={(v) => void saveOne(s.key, v)}
-                      />
-                    );
-                  })}
+      <div
+        key={activeSection}
+        role="tabpanel"
+        id={`settings-panel-${activeSection}`}
+        aria-labelledby={`settings-tab-${activeSection}`}
+        className="space-y-4 aura-panel-enter"
+      >
+        <p className="rounded-xl aura-glass-pill px-3.5 py-2 text-xs text-slate-400">
+          {t(activeSectionDef.descriptionKey)}
+        </p>
 
-                  {group === "desktop" && (
-                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
-                      <div className="text-xs text-slate-400">
-                        {monitors.map((m) => `${m.name} (${m.width}x${m.height})`).join(" • ")}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={loading}
-                        onClick={() => void handleApplyMonitorPlacement()}
-                        className="rounded-xl text-xs font-semibold"
-                      >
-                        <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("settings.applyMonitorButton")}
-                      </Button>
-                    </div>
-                  )}
-
-                  {group === "reminders" && (
-                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
-                      <div>
-                        <div className="text-sm font-medium text-slate-100">
-                          {t("settings.testBlockLabel")}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {t("settings.testBlockDescription")}
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        disabled={loading}
-                        onClick={() => void handleTestBlockingModal()}
-                        className="rounded-xl bg-rose-500/20 text-xs font-semibold text-rose-200 border-rose-500/40 hover:bg-rose-500/30"
-                      >
-                        <ShieldAlert className="h-3.5 w-3.5" />
-                        {t("reminders.testBlockButton")}
-                      </Button>
-                    </div>
-                  )}
-
-                  {group === "github" && (
-                    <div className="flex flex-wrap items-center justify-between gap-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2.5 text-xs">
-                        {githubAuth && (
-                          <Badge
-                            variant={githubAuth.authenticated ? "success" : "warning"}
-                            className="rounded-full px-2.5 py-0.5 font-medium"
-                          >
-                            {!githubAuth.available
-                              ? t("settings.githubCliMissing")
-                              : githubAuth.authenticated
-                                ? t("settings.githubConnected", {
-                                    account: githubAuth.account ?? "",
-                                  })
-                                : t("settings.githubNotConnected")}
-                          </Badge>
-                        )}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={loading}
-                        onClick={() => void handleCheckGithubAuth()}
-                        className="rounded-xl text-xs font-semibold"
-                      >
-                        <GitBranch className="h-3.5 w-3.5" />
-                        {t("settings.githubCheckButton")}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-          );
-        })}
-
-        {/* Updates & Crash Logs */}
-        <section
-          aria-label={t("settings.updates.title")}
-          className="lg:col-span-2 rounded-2xl aura-glass p-5 space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
-              <span className="rounded-lg bg-indigo-500/15 p-1.5">
-                <RefreshCw className="h-3.5 w-3.5 text-indigo-400" />
-              </span>
-              {t("settings.updates.title")}
-            </h3>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="default" className="rounded-full px-2.5 py-0.5 font-mono text-[11px]">
-                {t("settings.updates.currentVersion")}: v
-                {updateState?.currentVersion ?? String(values["app.version"] ?? "0.2.2")}
-              </Badge>
-              <Badge
-                variant={values["updates.auto_update"] !== false ? "success" : "warning"}
-                className="rounded-full px-2.5 py-0.5 text-[11px]"
-              >
-                {values["updates.auto_update"] !== false
-                  ? t("settings.updates.autoUpdateEnabled")
-                  : t("settings.updates.autoUpdateDisabled")}
-              </Badge>
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-400">{t("settings.updates.description")}</p>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-4 py-3">
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <p className="text-xs font-medium text-slate-200">
-                {formatUpdateStatusMessage(t, updateState)}
-              </p>
-              {updateState?.status === "downloading" && (
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                  <div
-                    className="h-full bg-indigo-500 transition-all duration-300"
-                    style={{ width: `${Math.max(4, updateState.progressPct)}%` }}
-                  />
-                </div>
-              )}
-              <p className="text-[11px] text-slate-500">
-                {updateState?.lastCheckedAt
-                  ? t("settings.updates.lastChecked", {
-                      time: new Date(updateState.lastCheckedAt).toLocaleString(),
-                    })
-                  : t("settings.updates.neverChecked")}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={checkingUpdate}
-                onClick={() => void handleCheckUpdates()}
-                className="rounded-xl text-xs font-semibold"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${checkingUpdate ? "animate-spin" : ""}`}
-                />
-                {checkingUpdate
-                  ? t("settings.updates.checking")
-                  : t("settings.updates.checkButton")}
-              </Button>
-
-              {(updateState?.status === "available" ||
-                (updateState?.status === "error" && Boolean(updateState.latestVersion))) && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={checkingUpdate}
-                  onClick={() => void handleInstallUpdate()}
-                  className="rounded-xl text-xs font-semibold"
+        {activeSectionDef.groups.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {activeSectionDef.groups.map((group) => {
+              const items = groups[group] ?? [];
+              const GroupIcon = GROUP_ICONS[group] ?? Settings;
+              return (
+                <section
+                  key={group}
+                  className={`rounded-2xl aura-glass p-5 flex flex-col justify-between ${
+                    isSingleGroup ? "lg:col-span-2" : ""
+                  }`}
                 >
-                  <Download className="h-3.5 w-3.5" />
-                  {updateState.status === "error"
-                    ? t("settings.updates.retryButton")
-                    : t("settings.updates.installButton")}
-                </Button>
-              )}
+                  <div>
+                    <h3 className="mb-3.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+                      <span className="rounded-lg bg-sky-500/15 p-1.5">
+                        <GroupIcon className="h-3.5 w-3.5 text-sky-400" />
+                      </span>
+                      {t(GROUP_LABEL_KEYS[group] ?? group)}
+                    </h3>
+                    <div
+                      className={
+                        isSingleGroup
+                          ? "grid grid-cols-1 lg:grid-cols-2 lg:gap-x-8 divide-y lg:divide-y-0 divide-slate-800/60"
+                          : "divide-y divide-slate-800/60"
+                      }
+                    >
+                      {items.map((s) => {
+                        const rowVal = s.visualField
+                          ? visualPrefs[s.visualField]
+                          : (values[s.key] ?? defaultFor(s));
+                        const isDirty = isSchemaSettingDirty(s, values, savedValues);
+                        const effectiveDef =
+                          s.key === "monitor.preferred" && monitors.length > 0
+                            ? {
+                                ...s,
+                                options: [
+                                  ...(s.options ?? []),
+                                  ...monitors.map((m) => ({
+                                    value: m.name,
+                                    label: `${m.name} (${m.width}x${m.height}${m.isPrimary ? " ★" : ""})`,
+                                  })),
+                                ],
+                              }
+                            : s;
+                        return (
+                          <SettingRow
+                            key={s.key}
+                            def={effectiveDef}
+                            value={rowVal}
+                            dirty={isDirty}
+                            disabled={loading}
+                            className={
+                              isSingleGroup
+                                ? "first:pt-3 last:pb-3 lg:border-b lg:border-slate-800/60"
+                                : undefined
+                            }
+                            onChange={(val) => {
+                              if (!s.visualField) {
+                                setValues((v) => ({ ...v, [s.key]: val }));
+                              }
+                            }}
+                            onSave={(v) => void saveOne(s.key, v)}
+                          />
+                        );
+                      })}
 
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void handleOpenLogsDir()}
-                className="rounded-xl text-xs font-semibold"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                {t("settings.updates.openLogs")}
-              </Button>
-            </div>
+                      {group === "desktop" && (
+                        <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-4 py-3 lg:pt-4 lg:pb-0">
+                          <div className="text-xs text-slate-400">
+                            {monitors.map((m) => `${m.name} (${m.width}x${m.height})`).join(" • ")}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={loading}
+                            onClick={() => void handleApplyMonitorPlacement()}
+                            className="rounded-xl text-xs font-semibold"
+                          >
+                            <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
+                            {t("settings.applyMonitorButton")}
+                          </Button>
+                        </div>
+                      )}
+
+                      {group === "reminders" && (
+                        <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-4 py-3 lg:pt-4 lg:pb-0">
+                          <div>
+                            <div className="text-sm font-medium text-slate-100">
+                              {t("settings.testBlockLabel")}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {t("settings.testBlockDescription")}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={loading}
+                            onClick={() => void handleTestBlockingModal()}
+                            className="rounded-xl bg-rose-500/20 text-xs font-semibold text-rose-200 border-rose-500/40 hover:bg-rose-500/30"
+                          >
+                            <ShieldAlert className="h-3.5 w-3.5" />
+                            {t("reminders.testBlockButton")}
+                          </Button>
+                        </div>
+                      )}
+
+                      {group === "github" && (
+                        <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                            {githubAuth && (
+                              <Badge
+                                variant={githubAuth.authenticated ? "success" : "warning"}
+                                className="rounded-full px-2.5 py-0.5 font-medium"
+                              >
+                                {!githubAuth.available
+                                  ? t("settings.githubCliMissing")
+                                  : githubAuth.authenticated
+                                    ? t("settings.githubConnected", {
+                                        account: githubAuth.account ?? "",
+                                      })
+                                    : t("settings.githubNotConnected")}
+                              </Badge>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={loading}
+                            onClick={() => void handleCheckGithubAuth()}
+                            className="rounded-xl text-xs font-semibold"
+                          >
+                            <GitBranch className="h-3.5 w-3.5" />
+                            {t("settings.githubCheckButton")}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
           </div>
+        )}
 
-          {logsOpenedPath && (
-            <p className="text-[11px] text-emerald-400">
-              {t("settings.updates.openedLogs", { path: logsOpenedPath })}
-            </p>
-          )}
+        {activeSection === "hindsight" && (
+          <HindsightSection
+            values={values}
+            disabled={loading}
+            onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+            onSave={(k, v) => void saveOne(k, v)}
+          />
+        )}
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
-                <Terminal className="h-3.5 w-3.5 text-slate-400" />
-                {t("settings.updates.logsTitle")}
-              </span>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void refreshDiagnostics()}
-                className="rounded-lg px-2.5 py-1 text-[11px]"
-              >
-                {t("settings.updates.refreshLogs")}
-              </Button>
-            </div>
-            <pre className="max-h-40 overflow-auto rounded-xl border border-slate-800/70 bg-slate-950/70 p-3 font-mono text-[11px] leading-relaxed text-slate-300">
-              {logsTail && logsTail.length > 0
-                ? logsTail.join("\n")
-                : t("settings.updates.logsEmpty")}
-            </pre>
-          </div>
-        </section>
+        {activeSection === "raglight" && (
+          <RaglightSection
+            values={values}
+            disabled={loading}
+            onChange={(k, v) => setValues((prev) => ({ ...prev, [k]: v }))}
+            onSave={(k, v) => void saveOne(k, v)}
+          />
+        )}
 
-        {/* Backup & Portability (.zip) */}
-        <section className="lg:col-span-2 rounded-2xl aura-glass p-5 space-y-3">
-          <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
-            <span className="rounded-lg bg-sky-500/15 p-1.5">
-              <Download className="h-3.5 w-3.5 text-sky-400" />
-            </span>
-            {t("settings.groups.backup")}
-          </h3>
-          <p className="text-xs text-slate-400">{t("settings.backup.description")}</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              size="md"
-              variant="primary"
-              disabled={loading}
-              onClick={() => void handleExportZip()}
-              className="rounded-xl text-xs font-semibold shadow-sm shadow-sky-500/25"
-            >
-              <Download className="h-3.5 w-3.5" />
-              {t("settings.backup.exportButton")}
-            </Button>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip,application/zip"
-              data-testid="backup-zip-input"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) setPendingImportFile(f);
-              }}
-              className="hidden"
+        {activeSection === "system" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+            <UpdatesAndLogsSection
+              className="lg:col-span-2"
+              updateState={updateState}
+              appVersion={String(values["app.version"] ?? "0.2.2")}
+              autoUpdateEnabled={values["updates.auto_update"] !== false}
+              checkingUpdate={checkingUpdate}
+              logsTail={logsTail}
+              logsOpenedPath={logsOpenedPath}
+              onCheckUpdates={() => void handleCheckUpdates()}
+              onInstallUpdate={() => void handleInstallUpdate()}
+              onOpenLogsDir={() => void handleOpenLogsDir()}
+              onRefreshDiagnostics={() => void refreshDiagnostics()}
             />
-            <Button
-              size="md"
-              variant="secondary"
-              disabled={loading}
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-xl text-xs font-semibold"
-            >
-              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("settings.backup.importButton")}
-            </Button>
-          </div>
-        </section>
-      </div>
-
-      <Dialog
-        open={Boolean(pendingImportFile)}
-        onClose={cancelPendingImport}
-        title={t("settings.backup.confirmTitle")}
-        description={
-          pendingImportFile
-            ? t("settings.backup.confirmDescription", { file: pendingImportFile.name })
-            : undefined
-        }
-        footer={
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={loading}
-              onClick={cancelPendingImport}
-            >
-              {t("kanban.cancel")}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
+            <BackupRestoreSection
+              className="lg:col-span-1 flex flex-col justify-between"
               loading={loading}
-              onClick={() => void confirmImportZip()}
-            >
-              {t("settings.backup.confirmAction")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-xs text-aura-secondary">{t("settings.backup.description")}</p>
-      </Dialog>
-    </div>
-  );
-}
-
-function SettingRow({
-  def,
-  value,
-  dirty,
-  disabled,
-  onChange,
-  onSave,
-}: {
-  def: SettingDef;
-  value: unknown;
-  dirty: boolean;
-  disabled: boolean;
-  onChange: (v: unknown) => void;
-  onSave: (v: unknown) => void;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-100">
-          <span>{t(def.labelKey)}</span>
-          {dirty && (
-            <Badge variant="warning" className="px-1.5 py-0 text-[11px]">
-              {t("settings.unsavedIndicator")}
-            </Badge>
-          )}
-        </div>
-        <div className="text-xs text-slate-400">{t(def.descriptionKey)}</div>
+              fileInputRef={fileInputRef}
+              pendingImportFile={pendingImportFile}
+              onExportZip={() => void handleExportZip()}
+              onSelectImportFile={(f) => setPendingImportFile(f)}
+              onConfirmImport={() => void confirmImportZip()}
+              onCancelImport={cancelPendingImport}
+            />
+          </div>
+        )}
       </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (def.type === "number" || def.type === "string") {
-            onSave(value);
-          }
-        }}
-        className="flex items-center gap-2 shrink-0"
-      >
-        {def.type === "boolean" ? (
-          <Switch
-            disabled={disabled}
-            aria-label={t(def.labelKey)}
-            checked={Boolean(value)}
-            onCheckedChange={(next) => {
-              onChange(next);
-              onSave(next);
-            }}
-          />
-        ) : def.type === "select" ? (
-          <Select
-            containerClassName="w-auto min-w-[140px]"
-            aria-label={t(def.labelKey)}
-            disabled={disabled}
-            value={String(value ?? "")}
-            onChange={(e) => {
-              const next = e.target.value;
-              onChange(next);
-              onSave(next);
-            }}
-            className="py-1.5 text-sm"
-          >
-            {def.options?.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.labelKey ? t(o.labelKey) : o.label}
-              </option>
-            ))}
-          </Select>
-        ) : def.type === "number" ? (
-          <Input
-            containerClassName="w-24"
-            aria-label={t(def.labelKey)}
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={value === undefined || value === null ? "" : String(value)}
-            onChange={(e) => onChange(e.target.value)}
-            className="py-1.5 text-sm"
-          />
-        ) : (
-          <Input
-            containerClassName="w-40"
-            aria-label={t(def.labelKey)}
-            type="text"
-            placeholder={def.placeholder ?? ""}
-            value={value == null ? "" : String(value)}
-            onChange={(e) => onChange(e.target.value)}
-            className="py-1.5 text-sm"
-          />
-        )}
-
-        {(def.type === "number" || def.type === "string") && (
-          <Button
-            type="submit"
-            size="sm"
-            variant={dirty ? "primary" : "secondary"}
-            disabled={disabled}
-            className="text-xs font-medium"
-          >
-            {t("kanban.save")}
-          </Button>
-        )}
-      </form>
     </div>
   );
-}
-
-function defaultFor(s: SettingDef): unknown {
-  switch (s.key) {
-    case "app.locale":
-      return "pt-BR";
-    case "app.theme":
-      return "dark";
-    case "app.autostart":
-    case "desktop.compact_mode":
-      return false;
-    case "monitor.preferred":
-      return "primary";
-    case "monitor.fallback_strategy":
-      return "primary_then_hide";
-    case "dashboard.refresh_sec":
-      return 30;
-    case "pomodoro.focus_min":
-      return 25;
-    case "pomodoro.short_min":
-      return 5;
-    case "pomodoro.long_min":
-      return 15;
-    case "pomodoro.cycles_to_long":
-      return 4;
-    case "reminders.sound":
-    case "updates.auto_update":
-      return true;
-    case "reminders.block_screen":
-      return false;
-    case "alerts.max_queue_size":
-      return 20;
-    case "proposals.ttl_hours":
-      return 24;
-    case "routine.daily_planning_time":
-      return "07:50";
-    case "routine.water_interval_min":
-      return 60;
-    case "routine.break_interval_min":
-      return 90;
-    case "github.repo":
-    case "github.filter_labels":
-      return "";
-    case "github.auto_sync":
-      return false;
-    default:
-      return "";
-  }
-}
-
-function formatUpdateStatusMessage(
-  t: (key: string, opts?: Record<string, unknown>) => string,
-  state: UpdateStateSnapshot | null
-): string {
-  if (!state || state.status === "idle" || state.status === "up_to_date") {
-    return t("settings.updates.upToDate", {
-      version: state?.currentVersion ?? "0.2.2",
-    });
-  }
-  const version = state.latestVersion ?? state.currentVersion;
-  switch (state.status) {
-    case "checking":
-      return t("settings.updates.checking");
-    case "available":
-      return t("settings.updates.available", { version });
-    case "downloading":
-      return t("settings.updates.downloading", {
-        version,
-        pct: state.progressPct,
-      });
-    case "verifying":
-      return t("settings.updates.verifying", { version });
-    case "installing":
-      return t("settings.updates.installing", { version });
-    case "error":
-      return t("settings.updates.error", {
-        message: state.errorMessage ?? "",
-      });
-  }
-}
-
-function groupBy<T>(list: T[], fn: (item: T) => string): Record<string, T[]> {
-  const out: Record<string, T[]> = {};
-  for (const item of list) {
-    const k = fn(item);
-    (out[k] ??= []).push(item);
-  }
-  return out;
 }

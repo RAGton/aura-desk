@@ -13,6 +13,23 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      "/__hindsight": {
+        target: "http://127.0.0.1:8919",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/__hindsight/, ""),
+      },
+      "/__lightrag": {
+        target: "http://127.0.0.1:9621",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/__lightrag/, ""),
+      },
+      "/__raglight": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/__raglight/, ""),
+      },
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

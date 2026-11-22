@@ -6,10 +6,10 @@ AuraDesk is a personal command-center for productivity: dashboard, tasks, kanban
 
 ## Status
 
-**v0.2.0 MVP Complete** — All planned MVP phases (Phases 0–5) are implemented, integrated on `main`, and verified across Rust unit/integration suites, MCP stdio tooling, Vitest frontend coverage, Playwright E2E flows, and Windows native builds:
+**v0.2.2 Released** — All planned MVP phases (Phases 0–5) plus post-MVP desktop hardening (`v0.2.1`–`v0.2.2`) are implemented, integrated on `main`, and verified across Rust unit/integration suites, MCP stdio tooling, Vitest frontend coverage, Playwright E2E flows, and Linux/Windows native builds:
 
-- **Rust Workspace (`auradesk-core`, `auradesk`, `auradesk-mcp`)**: SQLite WAL writer/reader pool (`V001`–`V005`), 19 spec MCP tools over stdio, Tauri 2 tray + Compact Mode + multi-monitor + wake recovery, Hermes CLI bridge / offline proposal parser, and WAV voice capture storage.
-- **Frontend (`apps/web`)**: Dashboard, Kanban board with atomic reorder, Pomodoro & Deep Focus timer, Persistent Reminders & fail-safe Alert Lock, Reports (CSV/JSON export), Hermes AI chat + Edit & Approve proposals + `ia_commands` audit log, and Settings (ZIP backup/restore, multi-monitor, autostart, themes, `pt-BR`/`en` i18n).
+- **Rust Workspace (`auradesk-core`, `auradesk`, `auradesk-mcp`)**: SQLite WAL writer/reader pool (`V001`–`V008`), 19 spec MCP tools over stdio, Tauri 2 tray + Compact Mode + multi-monitor + wake recovery, async IPC deadlock prevention, persistent crash/diagnostic logging, GitHub Releases SHA-256 auto-updater, Hermes CLI bridge / offline proposal parser, and WAV voice capture storage.
+- **Frontend (`apps/web`)**: Dashboard, Kanban board with atomic reorder, Pomodoro & Deep Focus timer, Persistent Reminders & fail-safe Alert Lock, Reports (CSV/JSON export), Hermes AI chat + Edit & Approve proposals + `ia_commands` audit log, and Settings (ZIP backup/restore, multi-monitor, autostart, auto-updater & crash log viewer, themes, `pt-BR`/`en` i18n).
 - **CI Gates**: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`, `check-strings` (0 hardcoded UI string violations), `pnpm lint` / `typecheck` / `test:coverage` / `build`, and Playwright E2E flows.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/PHASE1_EXECUTION_REPORT.md`](docs/PHASE1_EXECUTION_REPORT.md) for stabilization history.

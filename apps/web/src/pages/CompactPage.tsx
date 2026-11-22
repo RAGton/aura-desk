@@ -177,7 +177,7 @@ export function CompactPage() {
   return (
     <div
       data-testid="compact-widget"
-      className="h-screen w-screen aura-bg text-slate-100 p-2.5 flex flex-col justify-between overflow-hidden select-none"
+      className="h-screen w-screen aura-bg aura-glass text-slate-100 p-2.5 flex flex-col justify-between overflow-hidden select-none"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">

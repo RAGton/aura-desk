@@ -2,6 +2,44 @@ import { invoke } from "@tauri-apps/api/core";
 import i18n from "./i18n";
 import { ERROR_KEYS, errorMessage } from "./errors";
 import { decodeZipTextEntries, encodeZipBase64 } from "./zip";
+import type {
+  AgentBotRecord,
+  AgentRunRecord,
+  AgentSkillRecord,
+  AgentsOverview,
+  AgentToolEntry,
+  ChatSession,
+  ContextEventRecord,
+  ContextInspection,
+  HindsightBankStats,
+  HindsightBankSummary,
+  HindsightDirective,
+  HindsightDocumentDetail,
+  HindsightDocumentPage,
+  HindsightEntityDetail,
+  HindsightEntityPage,
+  HindsightGalaxySnapshot,
+  HindsightGlobalSearchHit,
+  HindsightGraphPayload,
+  HindsightMemoryDetail,
+  HindsightMemoryHistoryEntry,
+  HindsightMemoryPage,
+  HindsightMentalModel,
+  HindsightMentalModelPage,
+  HindsightOperation,
+  InstallSkillInput,
+  KnowledgeDocumentDetail,
+  KnowledgeDocumentsResult,
+  KnowledgeExplorerOverview,
+  KnowledgeGraphPayload,
+  KnowledgeSearchResult,
+  McpPluginRecord,
+  UpsertBotInput,
+  UpsertMcpPluginInput,
+} from "./auraTypes";
+import { handleAuraBrowserIpc } from "./ipcBrowserAura";
+
+export * from "./auraTypes";
 
 export type TaskStatus = "todo" | "doing" | "waiting" | "done" | "cancelled";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
@@ -308,6 +346,85 @@ export interface IntegrationState {
   inFocusSession: boolean;
 }
 
+export interface AiProviderStatus {
+  configuredProvider: string;
+  activeProvider: string;
+  model: string;
+  baseUrl?: string | null;
+  hasApiKey: boolean;
+  hermesCliAvailable: boolean;
+  codexCliAvailable: boolean;
+  ready: boolean;
+}
+
+export interface PersistedChatMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  provider?: string | null;
+  model?: string | null;
+  areaId?: string | null;
+  createdAt: string;
+}
+
+export interface RaglightStatus {
+  enabled: boolean;
+  mode: string;
+  baseUrl: string;
+  provider: string;
+  embeddingModel: string;
+  llmModel: string;
+  vectorStore: string;
+  folders: string[];
+  hasApiKey: boolean;
+  installed: boolean;
+  running: boolean;
+  managedPid?: number | null;
+  venvPath: string;
+  dbPath: string;
+  pythonTool?: string | null;
+}
+
+export interface RaglightActionResult {
+  ok: boolean;
+  message: string;
+  outputTail: string;
+  status: RaglightStatus;
+}
+
+export interface RaglightQueryResult {
+  answer: string;
+  sources: string[];
+}
+
+export interface HindsightStatus {
+  enabled: boolean;
+  baseUrl: string;
+  defaultBank: string;
+  autoCreateBanks: boolean;
+  dailyMaintenance: boolean;
+  lastMaintenanceDate: string;
+  online: boolean;
+  banks: string[];
+  localCount: number;
+}
+
+export interface HindsightRecallItem {
+  id: string;
+  bank: string;
+  content: string;
+  source: string;
+  createdAt?: string | null;
+}
+
+export interface HindsightMaintenanceResult {
+  ok: boolean;
+  message: string;
+  date: string;
+  banksProcessed: number;
+}
+
 export interface MonitorInfo {
   name: string;
   width: number;
@@ -326,6 +443,15 @@ export interface DesktopStateSnapshot {
   autostartEnabled: boolean;
   preferredMonitor: string;
   fallbackStrategy: MonitorFallbackStrategy | string;
+}
+
+export interface IdleStateSnapshot {
+  idleSecs: number;
+  thresholdSecs: number;
+  isIdle: boolean;
+  autoPausePomodoro: boolean;
+  suppressRoutines: boolean;
+  supported: boolean;
 }
 
 export type UpdateStatusKind =
@@ -416,6 +542,14 @@ interface BrowserDbState {
   settings: Record<string, unknown>;
   githubLinks?: GithubIssueLink[];
   metricsByDay?: Record<string, { waterCount: number; breakMin: number }>;
+  chatSessions?: ChatSession[];
+  chatMessages?: PersistedChatMessage[];
+  contextEvents?: ContextEventRecord[];
+  agentToolPolicies?: Record<string, { permission: string; enabled: boolean }>;
+  agentRuns?: AgentRunRecord[];
+  agentBots?: AgentBotRecord[];
+  agentSkills?: AgentSkillRecord[];
+  mcpPlugins?: McpPluginRecord[];
 }
 
 const STORAGE_KEY = "auradesk_browser_db_v1";
@@ -506,6 +640,17 @@ function loadBrowserDb(): BrowserDbState {
           parsed.metricsByDay && typeof parsed.metricsByDay === "object"
             ? parsed.metricsByDay
             : {},
+        chatSessions: Array.isArray(parsed.chatSessions) ? parsed.chatSessions : undefined,
+        chatMessages: Array.isArray(parsed.chatMessages) ? parsed.chatMessages : [],
+        contextEvents: Array.isArray(parsed.contextEvents) ? parsed.contextEvents : [],
+        agentToolPolicies:
+          parsed.agentToolPolicies && typeof parsed.agentToolPolicies === "object"
+            ? parsed.agentToolPolicies
+            : {},
+        agentRuns: Array.isArray(parsed.agentRuns) ? parsed.agentRuns : [],
+        agentBots: Array.isArray(parsed.agentBots) ? parsed.agentBots : undefined,
+        agentSkills: Array.isArray(parsed.agentSkills) ? parsed.agentSkills : undefined,
+        mcpPlugins: Array.isArray(parsed.mcpPlugins) ? parsed.mcpPlugins : undefined,
       };
     }
   } catch {
@@ -524,6 +669,10 @@ function loadBrowserDb(): BrowserDbState {
     settings: { ...DEFAULT_SETTINGS },
     githubLinks: [],
     metricsByDay: {},
+    chatMessages: [],
+    contextEvents: [],
+    agentToolPolicies: {},
+    agentRuns: [],
   };
 }
 
@@ -891,10 +1040,25 @@ function runBrowserHermesPrompt(
   };
 }
 
-function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}): unknown {
+async function invokeBrowserFallback(
+  cmd: string,
+  args: Record<string, unknown> = {}
+): Promise<unknown> {
   const db = loadBrowserDb();
   pollOverdueBrowserReminders(db);
   const nowIso = new Date().toISOString();
+
+  const auraHandled = await handleAuraBrowserIpc(cmd, {
+    db,
+    args,
+    nowIso,
+    genId,
+    saveBrowserDb,
+    runBrowserHermesPrompt,
+  });
+  if (auraHandled.handled) {
+    return auraHandled.result;
+  }
 
   switch (cmd) {
     case "ping":
@@ -1852,12 +2016,89 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
     case "hermes_status":
       return { available: false, binaryPath: null } satisfies HermesStatus;
 
-    case "hermes_chat_send": {
-      const prompt = String(args.prompt ?? "");
-      if (!prompt.trim()) throw new Error("prompt is required");
-      const reply = runBrowserHermesPrompt(db, prompt, nowIso);
+    case "ai_provider_status": {
+      const configured = String(db.settings["ai.provider"] ?? "auto");
+      const active = configured === "auto" ? "offline" : configured;
+      const model = String(db.settings["ai.model"] ?? "") || active;
+      const baseUrl = String(db.settings["ai.base_url"] ?? "") || null;
+      const hasApiKey = Boolean(String(db.settings["ai.api_key"] ?? "").trim());
+      return {
+        configuredProvider: configured,
+        activeProvider: active,
+        model,
+        baseUrl,
+        hasApiKey,
+        hermesCliAvailable: false,
+        codexCliAvailable: false,
+        ready: active === "offline" || active === "ollama" || hasApiKey,
+      } satisfies AiProviderStatus;
+    }
+
+    case "raglight_status":
+      return {
+        enabled: Boolean(db.settings["raglight.enabled"]),
+        mode: String(db.settings["raglight.mode"] ?? "managed_local"),
+        baseUrl: String(db.settings["raglight.base_url"] ?? "http://127.0.0.1:8000"),
+        provider: String(db.settings["raglight.provider"] ?? "ollama"),
+        embeddingModel: String(db.settings["raglight.embedding_model"] ?? "nomic-embed-text"),
+        llmModel: String(db.settings["raglight.llm_model"] ?? "qwen3:0.6b"),
+        vectorStore: String(db.settings["raglight.vector_store"] ?? "chroma"),
+        folders: String(db.settings["raglight.folders"] ?? "")
+          .split(/[;\n]/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        hasApiKey: Boolean(String(db.settings["raglight.api_key"] ?? "").trim()),
+        installed: false,
+        running: false,
+        managedPid: null,
+        venvPath: "browser-local://raglight/.venv",
+        dbPath: "browser-local://raglight/db",
+        pythonTool: null,
+      } satisfies RaglightStatus;
+
+    case "raglight_provision":
+    case "raglight_start":
+    case "raglight_stop":
+    case "raglight_ingest":
+      return {
+        ok: false,
+        message: "desktop_required",
+        outputTail: "",
+        status: {
+          enabled: Boolean(db.settings["raglight.enabled"]),
+          mode: String(db.settings["raglight.mode"] ?? "managed_local"),
+          baseUrl: String(db.settings["raglight.base_url"] ?? "http://127.0.0.1:8000"),
+          provider: String(db.settings["raglight.provider"] ?? "ollama"),
+          embeddingModel: String(db.settings["raglight.embedding_model"] ?? "nomic-embed-text"),
+          llmModel: String(db.settings["raglight.llm_model"] ?? "qwen3:0.6b"),
+          vectorStore: String(db.settings["raglight.vector_store"] ?? "chroma"),
+          folders: [],
+          hasApiKey: false,
+          installed: false,
+          running: false,
+          managedPid: null,
+          venvPath: "browser-local://raglight/.venv",
+          dbPath: "browser-local://raglight/db",
+          pythonTool: null,
+        },
+      } satisfies RaglightActionResult;
+
+    case "raglight_query":
+      return { answer: "", sources: [] } satisfies RaglightQueryResult;
+
+    case "desktop_pick_folder":
+      return null;
+
+    case "hindsight_run_maintenance": {
+      const today = new Date().toISOString().slice(0, 10);
+      db.settings["hindsight.last_maintenance_date"] = today;
       saveBrowserDb(db);
-      return reply;
+      return {
+        ok: true,
+        message: "maintenance_completed",
+        date: today,
+        banksProcessed: 1,
+      } satisfies HindsightMaintenanceResult;
     }
 
     case "audio_capture_save": {
@@ -1930,6 +2171,16 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
         fallbackStrategy: String(db.settings["monitor.fallback_strategy"] ?? "primary_then_hide"),
       } satisfies DesktopStateSnapshot;
 
+    case "desktop_get_idle_state":
+      return {
+        idleSecs: 0,
+        thresholdSecs: Math.max(1, Number(db.settings["desktop.idle_threshold_min"] ?? 5)) * 60,
+        isIdle: false,
+        autoPausePomodoro: db.settings["desktop.idle_auto_pause_pomodoro"] !== false,
+        suppressRoutines: db.settings["desktop.idle_suppress_routines"] !== false,
+        supported: false,
+      } satisfies IdleStateSnapshot;
+
     case "updater_get_state":
       return {
         status: "idle",
@@ -1977,7 +2228,7 @@ function invokeBrowserFallback(cmd: string, args: Record<string, unknown> = {}):
 async function wrapInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauriRuntime()) {
     try {
-      return invokeBrowserFallback(cmd, args) as T;
+      return (await invokeBrowserFallback(cmd, args)) as T;
     } catch (err) {
       throw toIpcError(err);
     }
@@ -2227,8 +2478,320 @@ export const proposalsApi = {
 export const hermesApi = {
   status: (): Promise<HermesStatus> =>
     wrapInvoke<HermesStatus>("hermes_status"),
-  sendMessage: (prompt: string, useCli = false): Promise<HermesChatReply> =>
-    wrapInvoke<HermesChatReply>("hermes_chat_send", { prompt, useCli }),
+  sendMessage: (
+    prompt: string,
+    useCli = false,
+    sessionId?: string | null
+  ): Promise<HermesChatReply> =>
+    wrapInvoke<HermesChatReply>("hermes_chat_send", {
+      prompt,
+      useCli,
+      sessionId: sessionId ?? null,
+    }),
+};
+
+export const aiApi = {
+  providerStatus: (): Promise<AiProviderStatus> =>
+    wrapInvoke<AiProviderStatus>("ai_provider_status"),
+  chatHistory: (limit = 50, sessionId?: string | null): Promise<PersistedChatMessage[]> =>
+    wrapInvoke<PersistedChatMessage[]>("ai_chat_history", {
+      limit,
+      sessionId: sessionId ?? null,
+    }),
+  chatClear: (sessionId?: string | null): Promise<number> =>
+    wrapInvoke<number>("ai_chat_clear", { sessionId: sessionId ?? null }),
+};
+
+export const hindsightExploreApi = {
+  banksList: (): Promise<HindsightBankSummary[]> =>
+    wrapInvoke<HindsightBankSummary[]>("hindsight_banks_list"),
+  bankCreate: (input: {
+    bankId: string;
+    name?: string | null;
+    mission?: string | null;
+    background?: string | null;
+  }): Promise<HindsightBankSummary> =>
+    wrapInvoke<HindsightBankSummary>("hindsight_bank_create", {
+      bankId: input.bankId,
+      name: input.name ?? null,
+      mission: input.mission ?? null,
+      background: input.background ?? null,
+    }),
+  bankStats: (bank: string): Promise<HindsightBankStats> =>
+    wrapInvoke<HindsightBankStats>("hindsight_bank_stats", { bank }),
+  memoriesList: (
+    bank: string,
+    query?: string | null,
+    limit?: number,
+    offset?: number,
+    factType?: string | null
+  ): Promise<HindsightMemoryPage> =>
+    wrapInvoke<HindsightMemoryPage>("hindsight_memories_list", {
+      bank,
+      query: query ?? null,
+      factType: factType ?? null,
+      limit: limit ?? null,
+      offset: offset ?? null,
+    }),
+  memoryRetain: (input: {
+    bank: string;
+    content: string;
+    context?: string | null;
+    tags?: string[];
+  }): Promise<unknown> =>
+    wrapInvoke<unknown>("hindsight_memory_retain", {
+      bank: input.bank,
+      content: input.content,
+      context: input.context ?? null,
+      tags: input.tags ?? [],
+    }),
+  memoryGet: (bank: string, memoryId: string): Promise<HindsightMemoryDetail> =>
+    wrapInvoke<HindsightMemoryDetail>("hindsight_memory_get", { bank, memoryId }),
+  memoryHistory: (bank: string, memoryId: string): Promise<HindsightMemoryHistoryEntry[]> =>
+    wrapInvoke<HindsightMemoryHistoryEntry[]>("hindsight_memory_history", {
+      bank,
+      memoryId,
+    }),
+  documentsList: (
+    bank: string,
+    query?: string | null,
+    limit?: number,
+    offset?: number
+  ): Promise<HindsightDocumentPage> =>
+    wrapInvoke<HindsightDocumentPage>("hindsight_documents_list", {
+      bank,
+      query: query ?? null,
+      limit: limit ?? null,
+      offset: offset ?? null,
+    }),
+  documentGet: (bank: string, documentId: string): Promise<HindsightDocumentDetail> =>
+    wrapInvoke<HindsightDocumentDetail>("hindsight_document_get", { bank, documentId }),
+  entitiesList: (
+    bank: string,
+    limit?: number,
+    offset?: number
+  ): Promise<HindsightEntityPage> =>
+    wrapInvoke<HindsightEntityPage>("hindsight_entities_list", {
+      bank,
+      limit: limit ?? null,
+      offset: offset ?? null,
+    }),
+  entityGet: (bank: string, entityId: string): Promise<HindsightEntityDetail> =>
+    wrapInvoke<HindsightEntityDetail>("hindsight_entity_get", { bank, entityId }),
+  graph: (
+    bank: string,
+    limit?: number,
+    query?: string | null,
+    factType?: string | null
+  ): Promise<HindsightGraphPayload> =>
+    wrapInvoke<HindsightGraphPayload>("hindsight_graph", {
+      bank,
+      limit: limit ?? null,
+      query: query ?? null,
+      factType: factType ?? null,
+    }),
+  mentalModels: (bank: string, limit?: number): Promise<HindsightMentalModelPage> =>
+    wrapInvoke<HindsightMentalModelPage>("hindsight_mental_models", {
+      bank,
+      limit: limit ?? null,
+    }),
+  mentalModelCreate: (input: {
+    bank: string;
+    name: string;
+    sourceQuery: string;
+    customId?: string | null;
+    tags?: string[];
+  }): Promise<HindsightMentalModel> =>
+    wrapInvoke<HindsightMentalModel>("hindsight_mental_model_create", {
+      bank: input.bank,
+      name: input.name,
+      sourceQuery: input.sourceQuery,
+      customId: input.customId ?? null,
+      tags: input.tags ?? [],
+    }),
+  mentalModelRefresh: (bank: string, modelId: string): Promise<unknown> =>
+    wrapInvoke<unknown>("hindsight_mental_model_refresh", { bank, modelId }),
+  mentalModelDelete: (bank: string, modelId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hindsight_mental_model_delete", { bank, modelId }),
+  directivesList: (bank: string): Promise<HindsightDirective[]> =>
+    wrapInvoke<HindsightDirective[]>("hindsight_directives_list", { bank }),
+  directiveCreate: (input: {
+    bank: string;
+    name: string;
+    content: string;
+    tags?: string[];
+  }): Promise<HindsightDirective> =>
+    wrapInvoke<HindsightDirective>("hindsight_directive_create", {
+      bank: input.bank,
+      name: input.name,
+      content: input.content,
+      tags: input.tags ?? [],
+    }),
+  directiveDelete: (bank: string, directiveId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hindsight_directive_delete", { bank, directiveId }),
+  operationsList: (bank: string, limit = 20): Promise<HindsightOperation[]> =>
+    wrapInvoke<HindsightOperation[]>("hindsight_operations_list", { bank, limit }),
+  bankConsolidate: (bank: string): Promise<unknown> =>
+    wrapInvoke<unknown>("hindsight_bank_consolidate", { bank }),
+  globalSearch: (
+    query: string,
+    bank?: string | null,
+    factType?: string | null,
+    limit?: number
+  ): Promise<HindsightGlobalSearchHit[]> =>
+    wrapInvoke<HindsightGlobalSearchHit[]>("hindsight_global_search", {
+      query,
+      bank: bank ?? null,
+      factType: factType ?? null,
+      limit: limit ?? null,
+    }),
+  galaxySnapshot: (
+    bankFilter?: string | null,
+    limitPerBank?: number
+  ): Promise<HindsightGalaxySnapshot> =>
+    wrapInvoke<HindsightGalaxySnapshot>("hindsight_galaxy_snapshot", {
+      bankFilter: bankFilter ?? null,
+      limitPerBank: limitPerBank ?? null,
+    }),
+};
+
+export const knowledgeApi = {
+  overview: (): Promise<KnowledgeExplorerOverview> =>
+    wrapInvoke<KnowledgeExplorerOverview>("knowledge_overview"),
+  documentsList: (
+    query?: string | null,
+    limit?: number
+  ): Promise<KnowledgeDocumentsResult> =>
+    wrapInvoke<KnowledgeDocumentsResult>("knowledge_documents_list", {
+      query: query ?? null,
+      limit: limit ?? null,
+    }),
+  documentGet: (docId: string): Promise<KnowledgeDocumentDetail> =>
+    wrapInvoke<KnowledgeDocumentDetail>("knowledge_document_get", { docId }),
+  graph: (
+    label?: string | null,
+    query?: string | null,
+    limit?: number
+  ): Promise<KnowledgeGraphPayload> =>
+    wrapInvoke<KnowledgeGraphPayload>("knowledge_graph", {
+      label: label ?? null,
+      query: query ?? null,
+      limit: limit ?? null,
+    }),
+  search: (query: string, topK?: number): Promise<KnowledgeSearchResult> =>
+    wrapInvoke<KnowledgeSearchResult>("knowledge_search", {
+      query,
+      topK: topK ?? null,
+    }),
+};
+
+export const sessionsApi = {
+  list: (
+    query?: string | null,
+    status?: string | null,
+    dateFrom?: string | null,
+    dateTo?: string | null
+  ): Promise<ChatSession[]> =>
+    wrapInvoke<ChatSession[]>("chat_sessions_list", {
+      query: query ?? null,
+      status: status ?? null,
+      dateFrom: dateFrom ?? null,
+      dateTo: dateTo ?? null,
+    }),
+  create: (title?: string | null): Promise<ChatSession> =>
+    wrapInvoke<ChatSession>("chat_sessions_create", { title: title ?? null }),
+  get: (sessionId: string): Promise<ChatSession | null> =>
+    wrapInvoke<ChatSession | null>("chat_sessions_get", { sessionId }),
+  rename: (sessionId: string, title: string): Promise<ChatSession> =>
+    wrapInvoke<ChatSession>("chat_sessions_rename", { sessionId, title }),
+  setStatus: (sessionId: string, status: string): Promise<ChatSession> =>
+    wrapInvoke<ChatSession>("chat_sessions_set_status", { sessionId, status }),
+  delete: (sessionId: string): Promise<void> =>
+    wrapInvoke<void>("chat_sessions_delete", { sessionId }),
+};
+
+export const contextEngineApi = {
+  inspect: (sessionId?: string | null): Promise<ContextInspection> =>
+    wrapInvoke<ContextInspection>("context_engine_inspect", {
+      sessionId: sessionId ?? null,
+    }),
+  compress: (sessionId?: string | null, reason?: string | null): Promise<ContextInspection> =>
+    wrapInvoke<ContextInspection>("context_engine_compress", {
+      sessionId: sessionId ?? null,
+      reason: reason ?? null,
+    }),
+};
+
+export const agentsApi = {
+  overview: (): Promise<AgentsOverview> =>
+    wrapInvoke<AgentsOverview>("agents_overview"),
+  setToolPolicy: (
+    toolName: string,
+    permission: string,
+    enabled: boolean
+  ): Promise<AgentToolEntry> =>
+    wrapInvoke<AgentToolEntry>("agents_set_tool_policy", {
+      toolName,
+      permission,
+      enabled,
+    }),
+  planPreview: (goal: string, sessionId?: string | null): Promise<AgentRunRecord> =>
+    wrapInvoke<AgentRunRecord>("agents_plan_preview", {
+      goal,
+      sessionId: sessionId ?? null,
+    }),
+  listBots: (): Promise<AgentBotRecord[]> =>
+    wrapInvoke<AgentBotRecord[]>("agents_bots_list"),
+  upsertBot: (input: UpsertBotInput): Promise<AgentBotRecord> =>
+    wrapInvoke<AgentBotRecord>("agents_bots_upsert", { input }),
+  deleteBot: (botId: string): Promise<void> =>
+    wrapInvoke<void>("agents_bots_delete", { botId }),
+  listSkills: (): Promise<AgentSkillRecord[]> =>
+    wrapInvoke<AgentSkillRecord[]>("agents_skills_list"),
+  installSkill: (input: InstallSkillInput): Promise<AgentSkillRecord> =>
+    wrapInvoke<AgentSkillRecord>("agents_skills_install", { input }),
+  importLocalSkills: (): Promise<AgentSkillRecord[]> =>
+    wrapInvoke<AgentSkillRecord[]>("agents_skills_import_local"),
+  toggleSkill: (skillId: string, enabled: boolean): Promise<AgentSkillRecord> =>
+    wrapInvoke<AgentSkillRecord>("agents_skills_toggle", { skillId, enabled }),
+  deleteSkill: (skillId: string): Promise<void> =>
+    wrapInvoke<void>("agents_skills_delete", { skillId }),
+  listMcpPlugins: (): Promise<McpPluginRecord[]> =>
+    wrapInvoke<McpPluginRecord[]>("agents_mcp_plugins_list"),
+  upsertMcpPlugin: (input: UpsertMcpPluginInput): Promise<McpPluginRecord> =>
+    wrapInvoke<McpPluginRecord>("agents_mcp_plugins_upsert", { input }),
+  testMcpPlugin: (pluginId: string): Promise<McpPluginRecord> =>
+    wrapInvoke<McpPluginRecord>("agents_mcp_plugins_test", { pluginId }),
+  deleteMcpPlugin: (pluginId: string): Promise<void> =>
+    wrapInvoke<void>("agents_mcp_plugins_delete", { pluginId }),
+};
+
+export const raglightApi = {
+  status: (): Promise<RaglightStatus> =>
+    wrapInvoke<RaglightStatus>("raglight_status"),
+  provision: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_provision"),
+  start: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_start"),
+  stop: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_stop"),
+  ingest: (): Promise<RaglightActionResult> =>
+    wrapInvoke<RaglightActionResult>("raglight_ingest"),
+  query: (query: string, topK = 5): Promise<RaglightQueryResult> =>
+    wrapInvoke<RaglightQueryResult>("raglight_query", { query, topK }),
+};
+
+export const hindsightApi = {
+  status: (): Promise<HindsightStatus> =>
+    wrapInvoke<HindsightStatus>("hindsight_status"),
+  runMaintenance: (): Promise<HindsightMaintenanceResult> =>
+    wrapInvoke<HindsightMaintenanceResult>("hindsight_run_maintenance"),
+  recall: (query: string, bank?: string | null, limit = 8): Promise<HindsightRecallItem[]> =>
+    wrapInvoke<HindsightRecallItem[]>("hindsight_recall", {
+      query,
+      bank: bank ?? null,
+      limit,
+    }),
 };
 
 export const audioApi = {
@@ -2254,6 +2817,10 @@ export const desktopApi = {
     wrapInvoke<DesktopStateSnapshot>("desktop_get_state"),
   setAutostart: (enabled: boolean): Promise<boolean> =>
     wrapInvoke<boolean>("desktop_set_autostart", { enabled }),
+  getIdleState: (): Promise<IdleStateSnapshot> =>
+    wrapInvoke<IdleStateSnapshot>("desktop_get_idle_state"),
+  pickFolder: (): Promise<string | null> =>
+    wrapInvoke<string | null>("desktop_pick_folder"),
 };
 
 export const updaterApi = {
@@ -2286,6 +2853,11 @@ export const ipc = {
   routines: routinesApi,
   proposals: proposalsApi,
   hermes: hermesApi,
+  hindsightExplore: hindsightExploreApi,
+  knowledge: knowledgeApi,
+  sessions: sessionsApi,
+  contextEngine: contextEngineApi,
+  agents: agentsApi,
   audio: audioApi,
   desktop: desktopApi,
   updater: updaterApi,

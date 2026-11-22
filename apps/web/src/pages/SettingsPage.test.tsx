@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
@@ -10,6 +10,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { invoke } from "@tauri-apps/api/core";
 const mockInvoke = vi.mocked(invoke);
+
+function openSettingsTab(testId: string) {
+  fireEvent.click(screen.getByTestId(testId));
+}
 
 describe("SettingsPage", () => {
   beforeAll(async () => {
@@ -48,31 +52,59 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("renders all settings groups and updated defaults", async () => {
+  it("renders subgroup navbar and isolates each subgroup panel without stacking all sections", async () => {
     render(<SettingsPage />);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_get_all", undefined);
     });
 
-    expect(screen.getByText("Aplicativo")).toBeInTheDocument();
-    expect(screen.getByText("Desktop & Multi-Monitor")).toBeInTheDocument();
-    expect(screen.getByText("Pomodoro")).toBeInTheDocument();
-    expect(screen.getByText("Lembretes")).toBeInTheDocument();
-    expect(screen.getByText("Rotinas")).toBeInTheDocument();
-    expect(screen.getByText("GitHub Issues")).toBeInTheDocument();
-    expect(screen.getByText("Backup & Portabilidade")).toBeInTheDocument();
+    const tablist = screen.getByRole("tablist", { name: /Subgrupos de configurações/i });
+    const tabs = within(tablist).getAllByRole("tab");
+    expect(tabs).toHaveLength(8);
 
+    // Initially only "general" (Aplicativo + Aparência) is visible
+    expect(screen.getByText("Aplicativo")).toBeInTheDocument();
+    expect(screen.getByText("Aparência & Liquid Glass")).toBeInTheDocument();
+    expect(screen.queryByText("Desktop & Multi-Monitor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pomodoro")).not.toBeInTheDocument();
+    expect(screen.queryByText("GitHub Issues")).not.toBeInTheDocument();
+    expect(screen.queryByText("Backup & Portabilidade")).not.toBeInTheDocument();
+
+    openSettingsTab("settings-tab-desktop");
+    expect(screen.getByText("Desktop & Multi-Monitor")).toBeInTheDocument();
+    expect(screen.queryByText("Aplicativo")).not.toBeInTheDocument();
+
+    openSettingsTab("settings-tab-focus");
+    expect(screen.getByText("Pomodoro")).toBeInTheDocument();
+    expect(screen.getByText("Rotinas")).toBeInTheDocument();
     expect(screen.getByLabelText("Intervalo de hidratação (min)")).toHaveValue(60);
     expect(screen.getByLabelText("Intervalo de pausa (min)")).toHaveValue(90);
+
+    openSettingsTab("settings-tab-reminders");
+    expect(screen.getByText("Lembretes")).toBeInTheDocument();
     expect(screen.getByLabelText("Bloquear PC até confirmar leitura")).toHaveAttribute(
       "aria-checked",
       "false"
     );
+
+    openSettingsTab("settings-tab-ai");
+    expect(screen.getByText("Aura IA & Provedores")).toBeInTheDocument();
+    expect(screen.getByText("GitHub Issues")).toBeInTheDocument();
+
+    openSettingsTab("settings-tab-hindsight");
+    expect(screen.getByLabelText(/Hindsight — Cérebro de Memória/i)).toBeInTheDocument();
+
+    openSettingsTab("settings-tab-raglight");
+    expect(screen.getByLabelText(/RAGLight — Banco de Arquivos/i)).toBeInTheDocument();
+
+    openSettingsTab("settings-tab-system");
+    expect(screen.getByText("Atualizações & Logs de Crash")).toBeInTheDocument();
+    expect(screen.getByText("Backup & Portabilidade")).toBeInTheDocument();
   });
 
   it("allows changing number values, shows unsaved badge, and saves them", async () => {
-    render(<SettingsPage />);
+    render(<SettingsPage initialSection="focus" />);
 
     const focusInput = screen.getByLabelText("Foco (min)");
     expect(focusInput).toHaveValue(25);
@@ -80,9 +112,13 @@ describe("SettingsPage", () => {
     fireEvent.change(focusInput, { target: { value: "30" } });
     expect(focusInput).toHaveValue(30);
     expect(screen.getByText("Não salvo")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("settings-tab-focus").querySelector('[title="Não salvo"]')
+    ).toBeInTheDocument();
 
-    const saveButtons = screen.getAllByRole("button", { name: "Salvar" });
-    fireEvent.click(saveButtons[0]);
+    const focusForm = focusInput.closest("form");
+    expect(focusForm).not.toBeNull();
+    fireEvent.submit(focusForm!);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_set", {
@@ -95,11 +131,15 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByText(/✓ (Salvo|Saved)/i)).toBeInTheDocument();
     expect(screen.queryByText("Não salvo")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("settings-tab-focus").querySelector('[title="Não salvo"]')
+    ).not.toBeInTheDocument();
   });
 
   it("auto-saves boolean switches including reminders.block_screen", async () => {
     render(<SettingsPage />);
 
+    openSettingsTab("settings-tab-reminders");
     const blockToggle = screen.getByLabelText("Bloquear PC até confirmar leitura");
     expect(blockToggle).toHaveAttribute("role", "switch");
     fireEvent.click(blockToggle);
@@ -114,6 +154,7 @@ describe("SettingsPage", () => {
       });
     });
 
+    openSettingsTab("settings-tab-desktop");
     const autostartToggle = screen.getByLabelText("Iniciar com o sistema");
     fireEvent.click(autostartToggle);
     await waitFor(() => {
@@ -198,6 +239,7 @@ describe("SettingsPage", () => {
       const onAlertTriggered = vi.fn();
       render(<SettingsPage onAlertTriggered={onAlertTriggered} />);
 
+      openSettingsTab("settings-tab-reminders");
       fireEvent.click(screen.getByRole("button", { name: /Testar modal bloqueante/i }));
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("alerts_trigger_test_block", {
@@ -207,6 +249,7 @@ describe("SettingsPage", () => {
       });
       expect(onAlertTriggered).toHaveBeenCalled();
 
+      openSettingsTab("settings-tab-system");
       fireEvent.click(screen.getByRole("button", { name: /Exportar Backup/i }));
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith("data_export_zip", undefined);
@@ -246,13 +289,28 @@ describe("SettingsPage", () => {
     }
   });
 
-  it("supports keyboard navigation (tabbing across controls)", async () => {
+  it("supports keyboard navigation across subgroup tabs and controls", async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("settings_get_all", undefined);
     });
+
+    const generalTab = screen.getByTestId("settings-tab-general");
+    const desktopTab = screen.getByTestId("settings-tab-desktop");
+
+    await user.tab();
+    expect(generalTab).toHaveFocus();
+
+    await user.keyboard("{ArrowRight}");
+    expect(desktopTab).toHaveFocus();
+    expect(desktopTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Desktop & Multi-Monitor")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(generalTab).toHaveFocus();
+    expect(generalTab).toHaveAttribute("aria-selected", "true");
 
     const localeSelect = screen.getByLabelText("Idioma / Language");
     await user.tab();
@@ -307,14 +365,25 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
 
-    expect(
-      await screen.findByText(/\[2026-11-18T10:00:00Z\] auradesk starting v0\.2\.1/i)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Atualização v0\.2\.2 disponível/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Atualizações automáticas")).toHaveAttribute(
       "aria-checked",
       "true"
     );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("settings-tab-system")
+          .querySelector('[title="Atualização v0.2.2 disponível."]')
+      ).toBeInTheDocument();
+    });
+
+    openSettingsTab("settings-tab-system");
+
+    expect(
+      await screen.findByText(/\[2026-11-18T10:00:00Z\] auradesk starting v0\.2\.1/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Atualização v0\.2\.2 disponível/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Verificar atualizações/i }));
     await waitFor(() => {

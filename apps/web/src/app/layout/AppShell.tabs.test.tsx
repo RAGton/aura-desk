@@ -11,6 +11,23 @@ import i18n from "../../lib/i18n";
 vi.mock("../../lib/ipc", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/ipc")>();
   const empty: never[] = [];
+  const defaultRaglightStatus = {
+    enabled: false,
+    mode: "managed_local",
+    baseUrl: "http://127.0.0.1:8000",
+    provider: "ollama",
+    embeddingModel: "nomic-embed-text",
+    llmModel: "qwen3:0.6b",
+    vectorStore: "chroma",
+    folders: empty,
+    hasApiKey: false,
+    installed: false,
+    running: false,
+    managedPid: null,
+    venvPath: "",
+    dbPath: "",
+    pythonTool: null,
+  };
 
   return {
     ...actual,
@@ -132,6 +149,68 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
         streaming: false,
       })),
     },
+    aiApi: {
+      providerStatus: vi.fn(async () => ({
+        configuredProvider: "offline",
+        activeProvider: "offline",
+        model: "",
+        baseUrl: null,
+        hasApiKey: false,
+        hermesCliAvailable: false,
+        codexCliAvailable: false,
+        ready: false,
+      })),
+      chatHistory: vi.fn(async () => empty),
+      chatClear: vi.fn(async () => 0),
+    },
+    hindsightApi: {
+      status: vi.fn(async () => ({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:8919",
+        defaultBank: "aura-main",
+        autoCreateBanks: true,
+        dailyMaintenance: true,
+        lastMaintenanceDate: "",
+        online: false,
+        banks: empty,
+        localCount: 0,
+      })),
+      runMaintenance: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        date: "2026-11-22",
+        banksProcessed: 0,
+      })),
+      recall: vi.fn(async () => empty),
+    },
+    raglightApi: {
+      status: vi.fn(async () => defaultRaglightStatus),
+      provision: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      start: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      stop: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      ingest: vi.fn(async () => ({
+        ok: true,
+        message: "ok",
+        outputTail: "",
+        status: defaultRaglightStatus,
+      })),
+      query: vi.fn(async () => ({ answer: "", sources: empty })),
+    },
     audioApi: {
       saveVoiceCapture: vi.fn(async () => ({ filePath: "note.wav", bytes: 44 })),
     },
@@ -192,6 +271,181 @@ vi.mock("../../lib/ipc", async (importOriginal) => {
       openLogsDir: vi.fn(async () => "C:\\logs"),
       getLogsTail: vi.fn(async () => []),
     },
+    hindsightExploreApi: {
+      banksList: vi.fn(async () => []),
+      bankStats: vi.fn(async () => ({
+        bankId: "aura-main",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+        nodesByFactType: {},
+        linksByLinkType: {},
+        pendingOperations: 0,
+        failedOperations: 0,
+        pendingConsolidation: 0,
+        failedConsolidation: 0,
+      })),
+      memoriesList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      memoryGet: vi.fn(async () => null),
+      memoryHistory: vi.fn(async () => empty),
+      documentsList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      documentGet: vi.fn(async () => null),
+      entitiesList: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      entityGet: vi.fn(async () => null),
+      graph: vi.fn(async () => ({ nodes: empty, edges: empty, totalUnits: 0 })),
+      mentalModels: vi.fn(async () => ({ items: empty, total: 0, limit: 25, offset: 0 })),
+      globalSearch: vi.fn(async () => empty),
+      galaxySnapshot: vi.fn(async () => ({
+        online: false,
+        banks: empty,
+        globes: empty,
+        links: empty,
+        totalRealNodes: 0,
+      })),
+      bankCreate: vi.fn(async () => ({
+        id: "new-bank",
+        name: "New Bank",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+      })),
+      memoryRetain: vi.fn(async () => true),
+      mentalModelCreate: vi.fn(async () => null),
+      mentalModelRefresh: vi.fn(async () => true),
+      mentalModelDelete: vi.fn(async () => true),
+      directivesList: vi.fn(async () => empty),
+      directiveCreate: vi.fn(async () => null),
+      directiveDelete: vi.fn(async () => true),
+      operationsList: vi.fn(async () => empty),
+      bankConsolidate: vi.fn(async () => true),
+    },
+    knowledgeApi: {
+      overview: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        baseUrl: "http://127.0.0.1:9621",
+        documentsCount: 0,
+        entitiesCount: 0,
+        relationsCount: 0,
+        configuredFolders: empty,
+        localFileCount: 0,
+        statusCounts: {},
+        diagnosticMessage: "offline",
+      })),
+      documentsList: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        documents: empty,
+        diagnosticMessage: "offline",
+      })),
+      documentGet: vi.fn(async () => null),
+      graph: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        entities: empty,
+        relations: empty,
+        diagnosticMessage: "offline",
+      })),
+      search: vi.fn(async () => ({
+        serviceKind: "offline",
+        online: false,
+        answer: "",
+        sources: empty,
+        matchingDocuments: empty,
+        matchingEntities: empty,
+        matchingRelations: empty,
+        diagnosticMessage: "offline",
+      })),
+    },
+    sessionsApi: {
+      list: vi.fn(async () => [
+        {
+          id: "default",
+          title: "sessions.defaultTitle",
+          status: "active",
+          semanticSummary: "",
+          contextState: "healthy",
+          compressionState: "none",
+          compressionCount: 0,
+          estimatedTokens: 0,
+          tokenBudget: 8192,
+          model: "offline",
+          provider: "offline",
+          associatedMemories: empty,
+          toolsUsed: empty,
+          messageCount: 0,
+          lastMessagePreview: null,
+          createdAt: "2026-11-22T10:00:00Z",
+          updatedAt: "2026-11-22T10:00:00Z",
+          lastActivityAt: "2026-11-22T10:00:00Z",
+        },
+      ]),
+      create: vi.fn(async () => ({
+        id: "sess-1",
+        title: "sessions.untitledSession",
+        status: "active",
+        semanticSummary: "",
+        contextState: "healthy",
+        compressionState: "none",
+        compressionCount: 0,
+        estimatedTokens: 0,
+        tokenBudget: 8192,
+        model: "offline",
+        provider: "offline",
+        associatedMemories: empty,
+        toolsUsed: empty,
+        messageCount: 0,
+        lastMessagePreview: null,
+        createdAt: "2026-11-22T10:00:00Z",
+        updatedAt: "2026-11-22T10:00:00Z",
+        lastActivityAt: "2026-11-22T10:00:00Z",
+      })),
+      get: vi.fn(async () => null),
+      rename: vi.fn(async () => null),
+      setStatus: vi.fn(async () => null),
+      delete: vi.fn(async () => undefined),
+    },
+    contextEngineApi: {
+      inspect: vi.fn(async () => ({
+        session: {
+          id: "default",
+          title: "sessions.defaultTitle",
+          status: "active",
+          semanticSummary: "",
+          contextState: "healthy",
+          compressionState: "none",
+          compressionCount: 0,
+          estimatedTokens: 120,
+          tokenBudget: 8192,
+          model: "offline",
+          provider: "offline",
+          associatedMemories: empty,
+          toolsUsed: empty,
+          messageCount: 0,
+          lastMessagePreview: null,
+          createdAt: "2026-11-22T10:00:00Z",
+          updatedAt: "2026-11-22T10:00:00Z",
+          lastActivityAt: "2026-11-22T10:00:00Z",
+        },
+        layers: empty,
+        totalTokens: 120,
+        tokenBudget: 8192,
+        usagePct: 1,
+        totalHistoryMessages: 0,
+        events: empty,
+      })),
+      compress: vi.fn(async () => null),
+    },
+    agentsApi: {
+      overview: vi.fn(async () => ({
+        agents: empty,
+        tools: empty,
+        runs: empty,
+        pendingProposals: 0,
+      })),
+      setToolPolicy: vi.fn(async () => null),
+      planPreview: vi.fn(async () => null),
+    },
   };
 });
 
@@ -235,12 +489,26 @@ describe("AppShell tabs", () => {
     mockedPomodoro.list.mockResolvedValue([]);
   });
 
-  it("shows the dashboard by default", async () => {
+  it("shows Aura IA as the first and default tab", async () => {
     render(<AppShell />);
     await waitFor(() => {
       expect(mockedTasks.list).toHaveBeenCalled();
     });
-    expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+    const navButtons = within(screen.getByRole("navigation")).getAllByRole("button");
+    expect(navButtons[0]).toHaveTextContent(/Aura IA/i);
+    expect(navButtons[0]).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("aura-pyramid-station")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Fila de Aprovação de Propostas/i)).not.toBeInTheDocument();
+  });
+
+  it("switches to the dashboard tab and shows today's overview and routines", async () => {
+    render(<AppShell />);
+    await openTab(/Painel Geral/i);
+
+    await waitFor(() => {
+      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+    });
     expect(screen.getByText("Rotinas Automáticas")).toBeInTheDocument();
     expect(screen.getByText(/Água a cada/)).toBeInTheDocument();
   });
@@ -396,8 +664,8 @@ describe("AppShell tabs", () => {
 
   it("opens the dashboard customizer and lets it be closed", async () => {
     render(<AppShell />);
+    const user = await openTab(/Painel Geral/i);
 
-    const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Personalizar Layout/i }));
 
     await waitFor(() => {
@@ -419,11 +687,20 @@ describe("AppShell tabs", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "pt-BR" })).toBeInTheDocument();
     });
+    expect(screen.getByTestId("aura-pyramid-station")).toHaveAttribute(
+      "aria-label",
+      "Aura Neural Station"
+    );
+    expect(screen.getByPlaceholderText(/e\.g\. "create task/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "pt-BR" }));
     await waitFor(() => {
-      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
+      expect(screen.getByTestId("aura-pyramid-station")).toHaveAttribute(
+        "aria-label",
+        "Estação Neural Aura"
+      );
     });
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
   });
 
   it("imports GitHub issues from the Kanban toolbar", async () => {
@@ -479,15 +756,21 @@ describe("AppShell tabs", () => {
     });
   });
 
-  it("switches to the Hermes AI tab and renders chat, proposal queue, and audit log", async () => {
+  it("shows AI monitoring in the dashboard and navigates back to the Aura IA cockpit", async () => {
     render(<AppShell />);
-    await openTab(/Hermes/i);
-
+    await openTab(/Painel Geral/i);
     await waitFor(() => {
-      expect(screen.getByText(/Hermes Agente & Auditoria/i)).toBeInTheDocument();
+      expect(screen.getByText("Visão do Dia")).toBeInTheDocument();
     });
     expect(screen.getByText(/Fila de Aprovação de Propostas/i)).toBeInTheDocument();
     expect(screen.getByText(/Registro de Auditoria da IA/i)).toBeInTheDocument();
+
+    await openTab(/Aura IA/i);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("aura-pyramid-station")).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText(/Ex: "criar tarefa/i)).toBeInTheDocument();
   });
 
   it("renders the auto-update banner when an update is available and triggers installNow", async () => {
@@ -515,6 +798,36 @@ describe("AppShell tabs", () => {
     await user.click(screen.getByRole("button", { name: /Atualizar e Reiniciar/i }));
     await waitFor(() => {
       expect(mockedUpdater.installNow).toHaveBeenCalled();
+    });
+  });
+
+  it("navigates across Sessions, Hindsight, LightRAG, and Agents tabs", async () => {
+    render(<AppShell />);
+
+    await openTab(/Conversas & Contexto/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Centro de Conversas & Context Engine/i)
+      ).toBeInTheDocument();
+    });
+
+    await openTab(/^Hindsight$/i);
+    await waitFor(() => {
+      expect(screen.getByText(/Hindsight Memory Explorer/i)).toBeInTheDocument();
+    });
+
+    await openTab(/^LightRAG$/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/LightRAG & RAGLight Knowledge Explorer/i)
+      ).toBeInTheDocument();
+    });
+
+    await openTab(/^Agentes$/i);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Arquitetura de Agentes & Tool Registry/i)
+      ).toBeInTheDocument();
     });
   });
 });

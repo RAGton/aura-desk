@@ -61,6 +61,52 @@ pub enum SettingsKey {
     GithubAutoSync,
     /// Whether AuraDesk automatically checks, downloads, and installs GitHub updates.
     UpdatesAutoUpdate,
+    /// OS inactivity threshold in minutes before user is considered idle.
+    DesktopIdleThresholdMin,
+    /// Whether an active Pomodoro session automatically pauses when the user goes idle.
+    DesktopIdleAutoPausePomodoro,
+    /// Whether periodic water/break routine alerts are suppressed while the user is idle.
+    DesktopIdleSuppressRoutines,
+    /// Active AI provider backend ("auto", "openai", "minimax", "ollama", "openrouter", "hermes_cli", "codex_cli", "custom", "offline").
+    AiProvider,
+    /// Optional OpenAI-compatible API base URL override.
+    AiBaseUrl,
+    /// Optional AI model override (e.g. "MiniMax-M1", "gpt-4.1-mini", "llama3.2").
+    AiModel,
+    /// Optional API key for the configured HTTP AI provider.
+    AiApiKey,
+    /// Optional custom persona instructions appended to Aura's system prompt.
+    AiSystemPrompt,
+    /// Whether RAGLight document/file retrieval is enabled for Aura.
+    RaglightEnabled,
+    /// RAGLight deployment mode ("managed_local" | "external_url").
+    RaglightMode,
+    /// RAGLight HTTP server URL (local or cloud/remote).
+    RaglightBaseUrl,
+    /// Optional API key for RAGLight cloud/remote server or paid provider.
+    RaglightApiKey,
+    /// Provider used by the managed RAGLight pipeline ("ollama" | "openai" | "gemini" | "mistral" | "vllm" | "lmstudio").
+    RaglightProvider,
+    /// Embedding model used by RAGLight.
+    RaglightEmbeddingModel,
+    /// LLM model used by RAGLight.
+    RaglightLlmModel,
+    /// Vector store backend used by RAGLight ("chroma" | "qdrant").
+    RaglightVectorStore,
+    /// Semicolon- or newline-separated list of local folders indexed by RAGLight.
+    RaglightFolders,
+    /// Whether Hindsight episodic/semantic memory integration is enabled.
+    HindsightEnabled,
+    /// Base URL for the Hindsight memory HTTP server.
+    HindsightBaseUrl,
+    /// Default Hindsight memory bank identifier for Aura.
+    HindsightDefaultBank,
+    /// Whether AuraDesk automatically creates area/project banks in Hindsight on demand.
+    HindsightAutoCreateBanks,
+    /// Whether AuraDesk runs daily memory consolidation and DB optimization automatically.
+    HindsightDailyMaintenance,
+    /// UTC date (YYYY-MM-DD) of the last completed daily memory maintenance run.
+    HindsightLastMaintenanceDate,
 }
 
 impl SettingsKey {
@@ -93,6 +139,29 @@ impl SettingsKey {
             Self::GithubFilterLabels => "github.filter_labels",
             Self::GithubAutoSync => "github.auto_sync",
             Self::UpdatesAutoUpdate => "updates.auto_update",
+            Self::DesktopIdleThresholdMin => "desktop.idle_threshold_min",
+            Self::DesktopIdleAutoPausePomodoro => "desktop.idle_auto_pause_pomodoro",
+            Self::DesktopIdleSuppressRoutines => "desktop.idle_suppress_routines",
+            Self::AiProvider => "ai.provider",
+            Self::AiBaseUrl => "ai.base_url",
+            Self::AiModel => "ai.model",
+            Self::AiApiKey => "ai.api_key",
+            Self::AiSystemPrompt => "ai.system_prompt",
+            Self::RaglightEnabled => "raglight.enabled",
+            Self::RaglightMode => "raglight.mode",
+            Self::RaglightBaseUrl => "raglight.base_url",
+            Self::RaglightApiKey => "raglight.api_key",
+            Self::RaglightProvider => "raglight.provider",
+            Self::RaglightEmbeddingModel => "raglight.embedding_model",
+            Self::RaglightLlmModel => "raglight.llm_model",
+            Self::RaglightVectorStore => "raglight.vector_store",
+            Self::RaglightFolders => "raglight.folders",
+            Self::HindsightEnabled => "hindsight.enabled",
+            Self::HindsightBaseUrl => "hindsight.base_url",
+            Self::HindsightDefaultBank => "hindsight.default_bank",
+            Self::HindsightAutoCreateBanks => "hindsight.auto_create_banks",
+            Self::HindsightDailyMaintenance => "hindsight.daily_maintenance",
+            Self::HindsightLastMaintenanceDate => "hindsight.last_maintenance_date",
         }
     }
 
@@ -130,8 +199,47 @@ impl SettingsKey {
             "github.filter_labels" => Self::GithubFilterLabels,
             "github.auto_sync" => Self::GithubAutoSync,
             "updates.auto_update" => Self::UpdatesAutoUpdate,
+            "desktop.idle_threshold_min" => Self::DesktopIdleThresholdMin,
+            "desktop.idle_auto_pause_pomodoro" => Self::DesktopIdleAutoPausePomodoro,
+            "desktop.idle_suppress_routines" => Self::DesktopIdleSuppressRoutines,
+            "ai.provider" => Self::AiProvider,
+            "ai.base_url" => Self::AiBaseUrl,
+            "ai.model" => Self::AiModel,
+            "ai.api_key" => Self::AiApiKey,
+            "ai.system_prompt" => Self::AiSystemPrompt,
+            "raglight.enabled" => Self::RaglightEnabled,
+            "raglight.mode" => Self::RaglightMode,
+            "raglight.base_url" => Self::RaglightBaseUrl,
+            "raglight.api_key" => Self::RaglightApiKey,
+            "raglight.provider" => Self::RaglightProvider,
+            "raglight.embedding_model" => Self::RaglightEmbeddingModel,
+            "raglight.llm_model" => Self::RaglightLlmModel,
+            "raglight.vector_store" => Self::RaglightVectorStore,
+            "raglight.folders" => Self::RaglightFolders,
+            "hindsight.enabled" => Self::HindsightEnabled,
+            "hindsight.base_url" => Self::HindsightBaseUrl,
+            "hindsight.default_bank" => Self::HindsightDefaultBank,
+            "hindsight.auto_create_banks" => Self::HindsightAutoCreateBanks,
+            "hindsight.daily_maintenance" => Self::HindsightDailyMaintenance,
+            "hindsight.last_maintenance_date" => Self::HindsightLastMaintenanceDate,
             _ => return None,
         })
+    }
+
+    /// Keys whose value is a credential (API key, token, secret).
+    ///
+    /// These are never written to a backup export in plaintext. See
+    /// [`crate::application::data_io`] for the redaction rules.
+    ///
+    /// This const is the single source of truth for "which settings are
+    /// secrets" — callers must not compare raw key strings.
+    pub const SENSITIVE: &'static [SettingsKey] = &[Self::AiApiKey, Self::RaglightApiKey];
+
+    /// Whether this key holds a credential that must be redacted on export.
+    ///
+    /// Prefer [`Self::SENSITIVE`] when iterating over several keys.
+    pub fn is_sensitive(&self) -> bool {
+        Self::SENSITIVE.contains(self)
     }
 
     /// All keys, in stable order. Used by `SettingsService::get_all` and
@@ -162,5 +270,28 @@ impl SettingsKey {
         Self::GithubFilterLabels,
         Self::GithubAutoSync,
         Self::UpdatesAutoUpdate,
+        Self::DesktopIdleThresholdMin,
+        Self::DesktopIdleAutoPausePomodoro,
+        Self::DesktopIdleSuppressRoutines,
+        Self::AiProvider,
+        Self::AiBaseUrl,
+        Self::AiModel,
+        Self::AiApiKey,
+        Self::AiSystemPrompt,
+        Self::RaglightEnabled,
+        Self::RaglightMode,
+        Self::RaglightBaseUrl,
+        Self::RaglightApiKey,
+        Self::RaglightProvider,
+        Self::RaglightEmbeddingModel,
+        Self::RaglightLlmModel,
+        Self::RaglightVectorStore,
+        Self::RaglightFolders,
+        Self::HindsightEnabled,
+        Self::HindsightBaseUrl,
+        Self::HindsightDefaultBank,
+        Self::HindsightAutoCreateBanks,
+        Self::HindsightDailyMaintenance,
+        Self::HindsightLastMaintenanceDate,
     ];
 }

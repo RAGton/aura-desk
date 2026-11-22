@@ -85,6 +85,7 @@ pub fn run_loop(
     let audio = DesktopAudio::new();
     let mut tick_count: u64 = 0;
     let mut last_wall = chrono::Utc::now();
+    let mut last_idle_state: Option<bool> = None;
 
     loop {
         let now_wall = chrono::Utc::now();
@@ -93,7 +94,15 @@ pub fn run_loop(
         }
         last_wall = now_wall;
 
-        let scheduler = Scheduler::new(&db, &clock).with_audio(&audio);
+        let idle_snapshot = crate::idle::current_idle_snapshot(&db);
+        if idle_snapshot.supported && last_idle_state != Some(idle_snapshot.is_idle) {
+            last_idle_state = Some(idle_snapshot.is_idle);
+            let _ = app.emit("auradesk://idle-state", &idle_snapshot);
+        }
+
+        let scheduler = Scheduler::new(&db, &clock)
+            .with_audio(&audio)
+            .with_user_idle(idle_snapshot.is_idle);
         match scheduler.tick() {
             Ok(outcome) => {
                 if !outcome.fired_reminder_alerts.is_empty()
@@ -127,6 +136,12 @@ pub fn run_loop(
                     );
                     let _ = app.emit("auradesk://tasks-updated", ());
                 }
+            }
+            if let Some(res) = crate::hindsight::run_daily_maintenance_if_due(&db) {
+                eprintln!(
+                    "routines: hindsight daily maintenance ok={} banks={} date={}",
+                    res.ok, res.banks_processed, res.date
+                );
             }
         }
         tick_count = tick_count.wrapping_add(1);
