@@ -163,6 +163,17 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 instance_lock,
             });
 
+            // Bring the local voice stack up in the background so the
+            // assistant can talk as soon as the app opens. The containers
+            // are rootless (this process runs as the desktop user), which
+            // is why the app — and not a systemd unit — owns them.
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    crate::voice::autostart_voice_services(&app_handle);
+                });
+            }
+
             let start_in_tray = std::env::args().any(|a| a == "--tray");
             if start_in_tray {
                 if let Some(win) = app.get_webview_window("main") {

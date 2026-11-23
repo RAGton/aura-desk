@@ -22,6 +22,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 
 /// Container image providing the Kokoro TTS service.
 pub const VOICE_IMAGE: &str = "ghcr.io/remsky/kokoro-fastapi-cpu:latest";
@@ -427,6 +428,45 @@ pub fn stop_container(runtime: &PathBuf) -> Result<(), String> {
 pub fn stop_stt_container(runtime: &PathBuf) -> Result<(), String> {
     run_runtime(runtime, &["stop", STT_CONTAINER], 60)?;
     Ok(())
+}
+
+/// Starts the voice services in the background when they are not running.
+///
+/// Called on app launch. It is deliberately best-effort: a missing runtime,
+/// a missing image or a failed pull must never keep the app from opening.
+/// The first launch downloads the container image, which is why the work
+/// happens on its own thread.
+pub fn autostart_voice_services(app: &tauri::AppHandle) {
+    let Some((_, runtime)) = detect_runtime() else {
+        return;
+    };
+
+    // Nothing to do when both services are already up.
+    if service_healthy().is_some() && stt_healthy() {
+        return;
+    }
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let emit = |stage: &str, message: &str| {
+            let _ = app.emit(
+                "auradesk://voice-progress",
+                VoiceServiceProgress {
+                    stage: stage.to_string(),
+                    message: message.to_string(),
+                    status: voice_status(),
+                },
+            );
+        };
+
+        // Pulling the images is the slow part; it only happens once.
+        let _ = ensure_image(&runtime, &emit);
+        let _ = ensure_container(&runtime, &emit);
+        let _ = ensure_stt_image(&runtime, &emit);
+        let _ = ensure_stt_container(&runtime, &emit);
+
+        emit("ready", "Serviço de voz pronto.");
+    });
 }
 
 #[cfg(test)]

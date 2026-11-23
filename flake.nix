@@ -311,67 +311,13 @@
               # The voice stack needs a container runtime. Enabling it here
               # removes the "install Podman first" step from the user's
               # checklist.
+              #
+              # The containers themselves are started by the application, as
+              # the desktop user, with a rootless podman: the app then reuses
+              # whatever is already running. A systemd unit would own the
+              # same host port as a second, rootful podman store and the two
+              # would fight over it.
               virtualisation.podman.enable = lib.mkIf cfg.voice.enable true;
-
-              systemd.services = lib.mkIf cfg.voice.enable {
-                auradesk-voice = {
-                  description = "AuraDesk local voice service (Kokoro TTS)";
-                  wantedBy = [ "multi-user.target" ];
-                  after = [ "network-online.target" ];
-                  wants = [ "network-online.target" ];
-
-                  serviceConfig = {
-                    Type = "simple";
-                    Restart = "always";
-                    RestartSec = 5;
-                    # Pull once; ExecStart then reuses the cached image.
-                    ExecStartPre = "${pkgs.podman}/bin/podman pull ${cfg.voice.image}";
-                    ExecStart = lib.concatStringsSep " " [
-                      "${pkgs.podman}/bin/podman"
-                      "run"
-                      "--rm"
-                      "--name"
-                      "auradesk-voice"
-                      "-p"
-                      "127.0.0.1:${toString cfg.voice.port}:${toString voiceContainerPort}"
-                      cfg.voice.image
-                    ];
-                    # The image is several GB; a restart must not re-pull it.
-                    ExecStop = "${pkgs.podman}/bin/podman stop --ignore auradesk-voice";
-                  };
-                };
-
-                auradesk-stt = {
-                  description = "AuraDesk local speech-to-text service (Whisper)";
-                  wantedBy = [ "multi-user.target" ];
-                  after = [ "network-online.target" ];
-                  wants = [ "network-online.target" ];
-
-                  serviceConfig = {
-                    Type = "simple";
-                    Restart = "always";
-                    RestartSec = 5;
-                    ExecStartPre = "${pkgs.podman}/bin/podman pull ${cfg.voice.stt.image}";
-                    ExecStart = lib.concatStringsSep " " [
-                      "${pkgs.podman}/bin/podman"
-                      "run"
-                      "--rm"
-                      "--name"
-                      "auradesk-stt"
-                      "-p"
-                      "127.0.0.1:${toString cfg.voice.stt.port}:${toString sttContainerPort}"
-                      "-e"
-                      "ASR_MODEL=${cfg.voice.stt.model}"
-                      "-e"
-                      "ASR_MODEL_SIZE=${cfg.voice.stt.modelSize}"
-                      "-e"
-                      "ASR_ENGINE=ct2"
-                      cfg.voice.stt.image
-                    ];
-                    ExecStop = "${pkgs.podman}/bin/podman stop --ignore auradesk-stt";
-                  };
-                };
-              };
             };
           };
       });

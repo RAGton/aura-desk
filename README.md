@@ -54,9 +54,13 @@ from the voice settings panel. On NixOS, enable the service with:
 ```nix
 programs.auradesk = {
   enable = true;
-  voice.enable = true;   # brings in podman and the two systemd units
+  voice.enable = true;   # brings in podman
 };
 ```
+
+The application owns the containers (rootless podman, running as the desktop
+user) and starts them on launch, so there is nothing to configure by hand and
+no systemd unit fighting for the same host port.
 
 Brazilian Portuguese voices: `pf_dora` (female), `pm_alex` and `pm_santa`
 (male). English: `af_heart`, `af_bella`, `am_michael`, and 30 more — the
