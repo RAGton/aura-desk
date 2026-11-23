@@ -85,6 +85,8 @@
           cargoHash = "sha256-Uz93PtZyJGTeofs2yV2SjwsqD3wQY/gQ2LkZZL5Sj5Y=";
           cargoBuildFlags = [ "--package" "auradesk-mcp" ];
           cargoInstallFlags = [ "--path" "crates/auradesk-mcp" ];
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.sqlite.dev ];
           doCheck = false;
 
           meta = {
@@ -117,6 +119,7 @@
 
           buildInputs = [
             pkgs.openssl
+            pkgs.aws-lc.dev
             pkgs.webkitgtk_4_1
             pkgs.gtk3
             pkgs.glib
