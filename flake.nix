@@ -108,6 +108,12 @@
           pnpmDeps = pnpmDeps;
           pnpmWorkspaces = [ "@auradesk/web" ];
 
+          # libappindicator-sys dlopens this library by soname at runtime;
+          # point it at the immutable Nix store path instead of the host filesystem.
+          postPatch = ''
+            substituteInPlace $cargoDepsCopy/*/libappindicator-sys-*/src/lib.rs --replace-fail "libayatana-appindicator3.so.1" "${pkgs.libayatana-appindicator}/lib/libayatana-appindicator3.so.1"
+          '';
+
           nativeBuildInputs = [
             pkgs.cargo-tauri.hook
             pkgs.nodejs_22
