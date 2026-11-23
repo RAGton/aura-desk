@@ -58,8 +58,95 @@
           pkgs.pkg-config
           pkgs.openssl
         ];
+
+        # Use the pinned overlay toolchain for both Rust packages. The
+        # default nixpkgs rustPlatform is otherwise independent of the
+        # rust-overlay selection above.
+        rustPlatform = pkgs.makeRustPlatform {
+          rustc = rust;
+          cargo = rust;
+        };
+
+        src = ./.;
+        version = "0.2.2";
+        pnpm = pkgs.pnpm;
+
+        pnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "auradesk";
+          inherit version src pnpm;
+          fetcherVersion = 4;
+          hash = "sha256-tGON20kaUiFAAhLSCeRi98R5ga5+pC1MTQTUAXzicnY=";
+        };
+
+        auradeskMcp = rustPlatform.buildRustPackage {
+          pname = "auradesk-mcp";
+          inherit version src;
+          cargoRoot = ".";
+          cargoHash = "sha256-Uz93PtZyJGTeofs2yV2SjwsqD3wQY/gQ2LkZZL5Sj5Y=";
+          cargoBuildFlags = [ "--package" "auradesk-mcp" ];
+          cargoInstallFlags = [ "--path" "crates/auradesk-mcp" ];
+          doCheck = false;
+
+          meta = {
+            description = "AuraDesk Model Context Protocol server";
+            homepage = "https://github.com/RAGton/aura-desk";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "auradesk-mcp";
+            platforms = pkgs.lib.platforms.linux;
+          };
+        };
+
+        auradesk = rustPlatform.buildRustPackage {
+          pname = "auradesk";
+          inherit version src;
+          cargoRoot = ".";
+          buildAndTestSubdir = "crates/auradesk";
+          cargoHash = "sha256-Uz93PtZyJGTeofs2yV2SjwsqD3wQY/gQ2LkZZL5Sj5Y=";
+
+          pnpmDeps = pnpmDeps;
+          pnpmWorkspaces = [ "@auradesk/web" ];
+
+          nativeBuildInputs = [
+            pkgs.cargo-tauri.hook
+            pkgs.nodejs_22
+            pkgs.pnpmConfigHook
+            pnpm
+            pkgs.pkg-config
+            pkgs.wrapGAppsHook4
+          ];
+
+          buildInputs = [
+            pkgs.openssl
+            pkgs.webkitgtk_4_1
+            pkgs.gtk3
+            pkgs.glib
+            pkgs.cairo
+            pkgs.pango
+            pkgs.gdk-pixbuf
+            pkgs.atk
+            pkgs.libsoup_3
+            pkgs.libayatana-appindicator
+            pkgs.librsvg
+          ];
+
+          doCheck = false;
+
+          meta = {
+            description = "AuraDesk desktop productivity application";
+            homepage = "https://github.com/RAGton/aura-desk";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "auradesk";
+            platforms = pkgs.lib.platforms.linux;
+          };
+        };
       in
       {
+        packages = {
+          inherit auradesk auradeskMcp;
+          "auradesk-mcp" = auradeskMcp;
+          default = auradesk;
+        };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = [
             rust
@@ -129,5 +216,34 @@
             echo "  cargo-tauri bin: $(which cargo-tauri 2>/dev/null || echo 'NOT IN PATH')"
           '';
         };
+
+        nixosModules.default = { config, lib, pkgs, ... }:
+          let
+            cfg = config.programs.auradesk;
+            packages = self.packages.${pkgs.stdenv.hostPlatform.system};
+          in
+          {
+            options.programs.auradesk = {
+              enable = lib.mkEnableOption "AuraDesk desktop application";
+              package = lib.mkOption {
+                type = lib.types.package;
+                default = packages.auradesk;
+                description = "AuraDesk package to install.";
+              };
+              mcp = {
+                enable = lib.mkEnableOption "AuraDesk MCP server";
+                package = lib.mkOption {
+                  type = lib.types.package;
+                  default = packages."auradesk-mcp";
+                  description = "AuraDesk MCP package to install.";
+                };
+              };
+            };
+
+            config = lib.mkIf cfg.enable {
+              environment.systemPackages = [ cfg.package ]
+                ++ lib.optional cfg.mcp.enable cfg.mcp.package;
+            };
+          };
       });
 }
