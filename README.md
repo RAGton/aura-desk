@@ -33,8 +33,34 @@ Documentation:
 | Storage | SQLite + rusqlite + refinery (WAL) |
 | Scheduler | tokio (in-process) |
 | Hermes integration | MCP stdio server (Rust) |
+| Voice (TTS) | Kokoro-82M (`kokoro-fastapi`) in Podman — pt-BR + English, realistic F/M |
+| Voice (STT) | Whisper large-v3-turbo (`faster-whisper-server`) in Podman — streaming |
 | Dev environment | Nix Flakes + direnv |
 | CI | GitHub Actions + tauri-action |
+
+## Local voice stack
+
+Aura speaks and listens entirely offline. Both services run as containers
+managed by the app itself — the user never has to install anything by hand.
+
+| Service | Image | Endpoint | Purpose |
+|---|---|---|---|
+| TTS | `ghcr.io/remsky/kokoro-fastapi-cpu:latest` | `127.0.0.1:8925` | Speech synthesis (OpenAI-compatible + realtime WebSocket) |
+| STT | `fedirz/faster-whisper-server:latest-cpu` | `127.0.0.1:9000` | Speech recognition (streaming WebSocket) |
+
+Provision manually with `scripts/setup_voice_podman.sh`, or let the app do it
+from the voice settings panel. On NixOS, enable the service with:
+
+```nix
+programs.auradesk = {
+  enable = true;
+  voice.enable = true;   # brings in podman and the two systemd units
+};
+```
+
+Brazilian Portuguese voices: `pf_dora` (female), `pm_alex` and `pm_santa`
+(male). English: `af_heart`, `af_bella`, `am_michael`, and 30 more — the
+full catalogue is listed in the voice settings panel.
 
 ## Repository layout
 

@@ -11,6 +11,7 @@ pub mod desktop;
 pub mod integrations;
 pub mod tasks;
 pub mod time;
+pub mod voice;
 
 pub use alerts::*;
 pub use aura::*;
@@ -19,6 +20,7 @@ pub use desktop::*;
 pub use integrations::*;
 pub use tasks::*;
 pub use time::*;
+pub use voice::*;
 
 use auradesk_core::application::settings::SettingsService;
 use auradesk_core::CoreError;

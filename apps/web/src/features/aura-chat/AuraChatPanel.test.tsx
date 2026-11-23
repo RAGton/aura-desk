@@ -33,6 +33,8 @@ describe("AuraChatPanel", () => {
   it("proposes tasks via chat, shows floating transcript popover, supports collapse/clear, and records proposal + audit", async () => {
     renderPanel();
 
+    // The status chrome is collapsed into a single floating menu.
+    fireEvent.click(screen.getByTestId("aura-status-menu-btn"));
     await waitFor(() => {
       expect(screen.getByText(/Hermes CLI offline/i)).toBeInTheDocument();
     });
@@ -45,7 +47,7 @@ describe("AuraChatPanel", () => {
       expect(screen.getByText(/Created pending proposal/i)).toBeInTheDocument();
     });
 
-    // Toggle transcript popover collapse & reopen
+    // Toggle transcript popover collapse & reopen (the status menu stays open)
     expect(screen.getByRole("button", { name: /Chat \(2\)/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Hide chat/i }));
     expect(screen.queryByText(/Created pending proposal/i)).not.toBeInTheDocument();
@@ -308,6 +310,7 @@ describe("AuraChatPanel", () => {
   it("creates a dedicated new chat session when clicking + New chat session", async () => {
     renderPanel();
 
+    fireEvent.click(screen.getByTestId("aura-status-menu-btn"));
     const newBtn = await screen.findByTestId("aura-new-session-btn");
     fireEvent.click(newBtn);
 

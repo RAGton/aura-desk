@@ -1,4 +1,10 @@
 {
+  "common": {
+    "save": "Salvar",
+    "close": "Fechar",
+    "cancel": "Cancelar",
+    "apply": "Aplicar"
+  },
   "app": {
     "title": "AuraDesk",
     "subtitle": "Orquestradora Pessoal Universal • Aura IA, Hindsight 3D & Produtividade",
@@ -673,6 +679,28 @@
     "sending": "Enviando...",
     "userRole": "Você",
     "assistantRole": "Aura",
+    "copyCode": "Copiar código",
+    "copied": "Copiado",
+    "copyMessage": "Copiar mensagem",
+    "speakMessage": "Ouvir em voz alta",
+    "stopSpeaking": "Parar voz",
+    "thoughtThinking": "Aura está pensando...",
+    "thoughtLines": "Raciocínio ({{count}} linhas)",
+    "voiceConfigTitle": "Configuração de Voz da Aura",
+    "voiceSelectLabel": "Voz (pt-BR / Sistema)",
+    "voiceSpeedLabel": "Velocidade: {{speed}}x",
+    "voiceTestButton": "Testar Voz",
+    "voiceTestPhrase": "Olá! Eu sou a Aura, sua assistente pessoal com voz em tempo real em português do Brasil.",
+    "autoSpeakLabel": "Falar respostas automaticamente",
+    "dockSideLabel": "Painel lateral à direita",
+    "dockCenterLabel": "Painel central flutuante",
+    "openVoiceSettings": "Configurações de voz",
+    "voiceEngineNeural": "Voz neural (local)",
+    "voiceEngineBrowser": "Voz do sistema",
+    "voiceServiceOffline": "O serviço de voz local não está rodando.",
+    "voiceServiceReady": "Voz local pronta — {{count}} vozes disponíveis.",
+    "voiceServiceInstall": "Instalar serviço de voz",
+    "voiceServiceStarting": "Iniciando o serviço de voz…",
     "quickActions": {
       "createTask": "Propor tarefa",
       "createReminder": "Propor lembrete",
@@ -691,7 +719,8 @@
       "transcribing": "Ouvindo voz...",
       "liveUnsupported": "Reconhecimento de voz ao vivo indisponível neste navegador — capturando nota em WAV.",
       "toggleTranscript": "Conversa ({{count}})",
-      "hideTranscript": "Ocultar conversa"
+      "hideTranscript": "Ocultar conversa",
+      "showTranscript": "Mostrar conversa"
     },
     "proposals": {
       "title": "Fila de Aprovação de Propostas",
@@ -783,6 +812,22 @@
       "openInPanel": "Abrir no Painel Hindsight",
       "loadingDetail": "Carregando detalhes completos do globo...",
       "offlineNotice": "Hindsight HTTP offline — exibindo fatos locais persistidos."
+    },
+    "toneTooltip": "Tom",
+    "toneLabel": "Tom",
+    "statusMenu": "Status e ações",
+    "chatLayoutMenu": "Layout do painel",
+    "chatDockLabel": "Posição",
+    "chatTransparencyLabel": "Transparência",
+    "chatDock": {
+      "left": "Esquerda",
+      "right": "Direita",
+      "center": "Centro"
+    },
+    "chatTransparency": {
+      "clear": "Clara",
+      "balanced": "Equilibrada",
+      "solid": "Sólida"
     }
   },
   "sessions": {

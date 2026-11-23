@@ -6,6 +6,7 @@ import {
   BookOpen,
   Bot,
   Brain,
+  ChevronRight,
   Cpu,
   Download,
   Kanban,
@@ -204,6 +205,32 @@ export function AppShell() {
   const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
   const [dismissedUpdateBanner, setDismissedUpdateBanner] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Sidebar collapse: "full" | "icons" | "hidden"
+  const [sidebarMode, setSidebarMode] = useState<"full" | "icons" | "hidden">(() => {
+    try { return (localStorage.getItem("auradesk_sidebar_mode") as "full" | "icons" | "hidden") ?? "full"; } catch { return "full"; }
+  });
+  const cycleSidebar = useCallback(() => {
+    setSidebarMode((prev) => {
+      const next = prev === "full" ? "icons" : prev === "icons" ? "hidden" : "full";
+      try { localStorage.setItem("auradesk_sidebar_mode", next); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Core info floating menu
+  const [coreMenuOpen, setCoreMenuOpen] = useState(false);
+  const coreMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!coreMenuOpen) return;
+    const handler = (e: globalThis.MouseEvent) => {
+      if (coreMenuRef.current && !coreMenuRef.current.contains(e.target as Node)) {
+        setCoreMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [coreMenuOpen]);
 
   // Dashboard Customizer State
   const [customizingLayout, setCustomizingLayout] = useState(false);
@@ -780,77 +807,120 @@ export function AppShell() {
     },
   ];
 
-  const renderNavSection = () => (
-    <nav
-      aria-label={t("app.title")}
-      className={
-        isSidebar
-          ? "aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 md:w-60 shrink-0 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
-          : "aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
-      }
-    >
-      <div
-        className={
-          isSidebar
-            ? "flex md:flex-col gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
-            : "flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full"
-        }
-      >
-        {navItems.map(({ key, label, icon: Icon, badge }) => {
-          const active = activeTab === key;
-          return (
+  const renderNavSection = () => {
+    if (!isSidebar && sidebarMode !== "hidden") {
+      // Top nav – unchanged
+      return (
+        <nav
+          aria-label={t("app.title")}
+          className="aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
+        >
+          <div className="flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full">
+            {navItems.map(({ key, label, icon: Icon, badge }) => {
+              const active = activeTab === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => selectTab(key)}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:min-w-0 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-0.5 max-md:py-2 max-md:text-[10px] px-4 py-3 border-b-2 max-md:border-b-0 ${
+                    active
+                      ? "border-aura-accent text-aura-accent bg-aura-accent/10 max-md:bg-aura-accent/15"
+                      : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 max-md:min-w-0 max-md:flex-col max-md:gap-0.5">
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="truncate max-md:max-w-[46px]">{label}</span>
+                  </span>
+                  {badge !== undefined && (
+                    <Badge variant="info" className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums max-md:hidden">
+                      {badge}
+                    </Badge>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {activeTab === "dashboard" && (
             <button
-              key={key}
               type="button"
-              onClick={() => selectTab(key)}
-              aria-current={active ? "page" : undefined}
-              className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:min-w-0 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-0.5 max-md:py-2 max-md:text-[10px] ${
-                isSidebar
-                  ? `rounded-xl px-3.5 py-2.5 w-full ${
-                      active
-                        ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                    }`
-                  : `px-4 py-3 border-b-2 max-md:border-b-0 ${
-                      active
-                        ? "border-aura-accent text-aura-accent bg-aura-accent/10 max-md:bg-aura-accent/15"
-                        : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700"
-                    }`
+              onClick={() => setCustomizingLayout((v) => !v)}
+              className={`max-md:hidden inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors touch-manipulation cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
+                customizingLayout ? "bg-aura-accent text-aura-inverse" : "aura-glass-pill text-slate-300 hover:text-aura-accent"
               }`}
             >
-              <span className="flex items-center gap-2 max-md:min-w-0 max-md:flex-col max-md:gap-0.5">
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="truncate max-md:max-w-[46px]">{label}</span>
-              </span>
-              {badge !== undefined && (
-                <Badge
-                  variant="info"
-                  className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums max-md:hidden"
-                >
-                  {badge}
-                </Badge>
-              )}
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              {customizingLayout ? t("dashboard.closeCustomizer") : t("dashboard.customizeLayout")}
             </button>
-          );
-        })}
-      </div>
+          )}
+        </nav>
+      );
+    }
 
-      {activeTab === "dashboard" && (
-        <button
-          type="button"
-          onClick={() => setCustomizingLayout((v) => !v)}
-          className={`max-md:hidden inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors touch-manipulation cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
-            customizingLayout
-              ? "bg-aura-accent text-aura-inverse"
-              : "aura-glass-pill text-slate-300 hover:text-aura-accent"
-          }`}
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-          {customizingLayout ? t("dashboard.closeCustomizer") : t("dashboard.customizeLayout")}
-        </button>
-      )}
-    </nav>
-  );
+    if (sidebarMode === "hidden") return null;
+
+    // Sidebar mode – icons-only or full
+    const iconsOnly = sidebarMode === "icons";
+    return (
+      <nav
+        aria-label={t("app.title")}
+        className={`aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 shrink-0 transition-all duration-200 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5 ${
+          iconsOnly ? "md:w-16" : "md:w-60"
+        }`}
+      >
+        <div className="flex md:flex-col gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full">
+          {navItems.map(({ key, label, icon: Icon, badge }) => {
+            const active = activeTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => selectTab(key)}
+                aria-label={iconsOnly ? label : undefined}
+                title={iconsOnly ? label : undefined}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex items-center gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus rounded-xl py-2.5 ${
+                  iconsOnly ? "justify-center px-2 w-full" : "justify-between px-3.5 w-full"
+                } ${
+                  active
+                    ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                }`}
+              >
+                <span className={`flex items-center gap-2 ${iconsOnly ? "" : ""}`}>
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {!iconsOnly && <span className="truncate">{label}</span>}
+                </span>
+                {badge !== undefined && !iconsOnly && (
+                  <Badge variant="info" className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums">
+                    {badge}
+                  </Badge>
+                )}
+                {badge !== undefined && iconsOnly && (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeTab === "dashboard" && !iconsOnly && (
+          <button
+            type="button"
+            onClick={() => setCustomizingLayout((v) => !v)}
+            className={`max-md:hidden inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors touch-manipulation cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
+              customizingLayout ? "bg-aura-accent text-aura-inverse" : "aura-glass-pill text-slate-300 hover:text-aura-accent"
+            }`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+            {customizingLayout ? t("dashboard.closeCustomizer") : t("dashboard.customizeLayout")}
+          </button>
+        )}
+      </nav>
+    );
+  };
 
   const renderMainContent = () => (
     <main
@@ -1111,13 +1181,18 @@ export function AppShell() {
         }`}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div
-            className={`aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0 ${
+          {/* Logo clicável – cicla sidebar: full → ícones → oculto */}
+          <button
+            type="button"
+            onClick={cycleSidebar}
+            title={sidebarMode === "full" ? "Recolher barra lateral" : sidebarMode === "icons" ? "Ocultar barra lateral" : "Mostrar barra lateral"}
+            aria-label="Alternar barra lateral"
+            className={`aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0 cursor-pointer hover:ring-sky-400/60 transition-all duration-200 ${
               isAuraCockpit ? "p-0.5 rounded-xl" : "p-1 rounded-2xl"
             }`}
           >
             <AuraDeskLogo size={isAuraCockpit ? 34 : 48} animated />
-          </div>
+          </button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
@@ -1128,14 +1203,30 @@ export function AppShell() {
               >
                 {t("app.title")}
               </h1>
-              <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[11px]">
-                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {inTauri ? t("app.connectedTauri") : t("app.connectedBrowser")}
-              </Badge>
+              {/* Floating core info menu */}
+              <div className="relative" ref={coreMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setCoreMenuOpen((v) => !v)}
+                  aria-label="Info do núcleo IA"
+                  title="Info do núcleo IA"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800/70 text-slate-400 hover:text-sky-300 hover:bg-slate-700/70 transition-colors cursor-pointer"
+                >
+                  <ChevronRight className={`h-3 w-3 transition-transform duration-200 ${coreMenuOpen ? "rotate-90" : ""}`} aria-hidden="true" />
+                </button>
+                {coreMenuOpen && (
+                  <div className="absolute top-7 left-0 z-50 min-w-[220px] rounded-xl border border-slate-700/60 bg-slate-950/90 backdrop-blur-xl shadow-2xl p-3 flex flex-col gap-2">
+                    <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[11px] w-fit">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {inTauri ? t("app.connectedTauri") : t("app.connectedBrowser")}
+                    </Badge>
+                    {!isAuraCockpit && (
+                      <p className="text-xs text-slate-400">{t("app.subtitle")}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-            {!isAuraCockpit && (
-              <p className="text-xs text-slate-400 truncate">{t("app.subtitle")}</p>
-            )}
           </div>
         </div>
 

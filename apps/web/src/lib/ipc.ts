@@ -1040,6 +1040,29 @@ function runBrowserHermesPrompt(
   };
 }
 
+/**
+ * Voice service status for the browser build. The browser cannot manage
+ * containers, so the neural voice is unavailable there; the UI falls back to
+ * the OS `SpeechSynthesis` engine.
+ */
+function browserVoiceStatus(): VoiceServiceStatus {
+  return {
+    runtimeAvailable: false,
+    runtime: null,
+    serviceReady: false,
+    containerRunning: false,
+    imagePresent: false,
+    baseUrl: "http://127.0.0.1:8925",
+    image: "ghcr.io/remsky/kokoro-fastapi-cpu:latest",
+    voiceCount: null,
+    detail:
+      "O serviço de voz local requer o aplicativo de desktop (o navegador não gerencia contêineres).",
+    sttReady: false,
+    sttBaseUrl: "http://127.0.0.1:9000",
+    sttContainerRunning: false,
+  };
+}
+
 async function invokeBrowserFallback(
   cmd: string,
   args: Record<string, unknown> = {}
@@ -2116,6 +2139,25 @@ async function invokeBrowserFallback(
       return { filePath, bytes } satisfies VoiceCaptureResult;
     }
 
+    case "voice_service_status":
+      // The browser build cannot manage containers; the desktop app can.
+      return browserVoiceStatus();
+
+    case "voice_service_start":
+      return {
+        ok: false,
+        message:
+          "O provisionamento do serviço de voz exige o aplicativo de desktop.",
+        status: browserVoiceStatus(),
+      } satisfies VoiceServiceOutcome;
+
+    case "voice_service_stop":
+      return {
+        ok: false,
+        message: "O serviço de voz não é gerenciado no navegador.",
+        status: browserVoiceStatus(),
+      } satisfies VoiceServiceOutcome;
+
     case "desktop_list_monitors":
       return [
         {
@@ -2805,6 +2847,50 @@ export const audioApi = {
     }),
 };
 
+/** Status of the local voice stack (Kokoro in Podman). */
+export interface VoiceServiceStatus {
+  runtimeAvailable: boolean;
+  runtime: string | null;
+  serviceReady: boolean;
+  containerRunning: boolean;
+  imagePresent: boolean;
+  baseUrl: string;
+  image: string;
+  voiceCount: number | null;
+  detail: string | null;
+  /** True when the local Whisper speech-to-text service is reachable. */
+  sttReady: boolean;
+  /** Base URL of the speech-to-text service (loopback). */
+  sttBaseUrl: string;
+  /** True when the Whisper container is running. */
+  sttContainerRunning: boolean;
+}
+
+/** Result of a provisioning attempt on the voice service. */
+export interface VoiceServiceOutcome {
+  ok: boolean;
+  message: string;
+  status: VoiceServiceStatus;
+}
+
+/** Progress event emitted while the voice stack is provisioned. */
+export interface VoiceServiceProgress {
+  stage: string;
+  message: string;
+  status: VoiceServiceStatus;
+}
+
+export const voiceApi = {
+  status: (): Promise<VoiceServiceStatus> =>
+    wrapInvoke<VoiceServiceStatus>("voice_service_status"),
+
+  start: (): Promise<VoiceServiceOutcome> =>
+    wrapInvoke<VoiceServiceOutcome>("voice_service_start"),
+
+  stop: (): Promise<VoiceServiceOutcome> =>
+    wrapInvoke<VoiceServiceOutcome>("voice_service_stop"),
+};
+
 export const desktopApi = {
   listMonitors: (): Promise<MonitorInfo[]> =>
     wrapInvoke<MonitorInfo[]>("desktop_list_monitors"),
@@ -2859,6 +2945,7 @@ export const ipc = {
   contextEngine: contextEngineApi,
   agents: agentsApi,
   audio: audioApi,
+  voice: voiceApi,
   desktop: desktopApi,
   updater: updaterApi,
 } as const;
