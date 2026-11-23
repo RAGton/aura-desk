@@ -1,4 +1,10 @@
 {
+  "common": {
+    "save": "Save",
+    "close": "Close",
+    "cancel": "Cancel",
+    "apply": "Apply"
+  },
   "app": {
     "title": "AuraDesk",
     "subtitle": "Universal Personal Orchestrator • Aura AI, 3D Hindsight & Productivity",
@@ -673,6 +679,28 @@
     "sending": "Sending...",
     "userRole": "You",
     "assistantRole": "Aura",
+    "copyCode": "Copy code",
+    "copied": "Copied",
+    "copyMessage": "Copy message",
+    "speakMessage": "Read aloud",
+    "stopSpeaking": "Stop speaking",
+    "thoughtThinking": "Aura is thinking...",
+    "thoughtLines": "Reasoning ({{count}} lines)",
+    "voiceConfigTitle": "Aura Voice Settings",
+    "voiceSelectLabel": "Voice (pt-BR / System)",
+    "voiceSpeedLabel": "Speed: {{speed}}x",
+    "voiceTestButton": "Test Voice",
+    "voiceTestPhrase": "Hello! I am Aura, your personal assistant with real-time voice in Brazilian Portuguese.",
+    "autoSpeakLabel": "Speak replies automatically",
+    "dockSideLabel": "Right side panel",
+    "dockCenterLabel": "Center floating dock",
+    "openVoiceSettings": "Voice settings",
+    "voiceEngineNeural": "Neural voice (local)",
+    "voiceEngineBrowser": "System voice",
+    "voiceServiceOffline": "Local voice service is not running.",
+    "voiceServiceReady": "Local voice ready — {{count}} voices available.",
+    "voiceServiceInstall": "Install voice service",
+    "voiceServiceStarting": "Starting the voice service…",
     "quickActions": {
       "createTask": "Propose task",
       "createReminder": "Propose reminder",
@@ -691,7 +719,8 @@
       "transcribing": "Listening...",
       "liveUnsupported": "Live speech recognition unavailable in this browser — capturing WAV note.",
       "toggleTranscript": "Chat ({{count}})",
-      "hideTranscript": "Hide chat"
+      "hideTranscript": "Hide chat",
+      "showTranscript": "Show chat"
     },
     "proposals": {
       "title": "Proposal Approval Queue",
@@ -783,6 +812,22 @@
       "openInPanel": "Open in Hindsight Panel",
       "loadingDetail": "Loading full globe details...",
       "offlineNotice": "Hindsight HTTP offline — showing persisted local facts."
+    },
+    "toneTooltip": "Tone",
+    "toneLabel": "Tone",
+    "statusMenu": "Status and actions",
+    "chatLayoutMenu": "Panel layout",
+    "chatDockLabel": "Position",
+    "chatTransparencyLabel": "Transparency",
+    "chatDock": {
+      "left": "Left",
+      "right": "Right",
+      "center": "Center"
+    },
+    "chatTransparency": {
+      "clear": "Clear",
+      "balanced": "Balanced",
+      "solid": "Solid"
     }
   },
   "sessions": {

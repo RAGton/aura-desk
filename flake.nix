@@ -108,6 +108,12 @@
           pnpmDeps = pnpmDeps;
           pnpmWorkspaces = [ "@auradesk/web" ];
 
+          # libappindicator-sys dlopens this library by soname at runtime;
+          # point it at the immutable Nix store path instead of the host filesystem.
+          postPatch = ''
+            substituteInPlace $cargoDepsCopy/*/libappindicator-sys-*/src/lib.rs --replace-fail "libayatana-appindicator3.so.1" "${pkgs.libayatana-appindicator}/lib/libayatana-appindicator3.so.1"
+          '';
+
           nativeBuildInputs = [
             pkgs.cargo-tauri.hook
             pkgs.nodejs_22
@@ -133,6 +139,11 @@
           ];
 
           doCheck = false;
+
+          # Podman is a runtime prerequisite: the voice service (Kokoro TTS)
+          # runs as a container. Bundling it here means the user never has
+          # to install a container runtime by hand.
+          runtimeDependencies = [ pkgs.podman ];
 
           meta = {
             description = "AuraDesk desktop productivity application";
@@ -224,6 +235,20 @@
           let
             cfg = config.programs.auradesk;
             packages = self.packages.${pkgs.stdenv.hostPlatform.system};
+
+            # Container image providing the local Kokoro TTS service.
+            voiceImage = "ghcr.io/remsky/kokoro-fastapi-cpu:latest";
+            # The container listens on 8880 internally; the image metadata
+            # advertises 8000/tcp, which is wrong (the entrypoint runs
+            # uvicorn with PORT=8880).
+            voiceHostPort = 8925;
+            voiceContainerPort = 8880;
+            # Speech-to-text (Whisper) service.
+            sttImage = "docker.io/fedirz/faster-whisper-server:latest-cpu";
+            sttHostPort = 9000;
+            sttContainerPort = 8000;
+            sttModel = "deepdml/faster-whisper-large-v3-turbo-ct2";
+            sttModelSize = "large-v3-turbo";
           in
           {
             options.programs.auradesk = {
@@ -241,11 +266,112 @@
                   description = "AuraDesk MCP package to install.";
                 };
               };
+              voice = {
+                enable = lib.mkEnableOption "AuraDesk local voice service (Kokoro TTS)";
+                image = lib.mkOption {
+                  type = lib.types.str;
+                  default = voiceImage;
+                  description = "Container image providing the local voice service.";
+                };
+                port = lib.mkOption {
+                  type = lib.types.port;
+                  default = voiceHostPort;
+                  description = "Host port the voice service is published on (loopback only).";
+                };
+                stt = {
+                  enable = lib.mkEnableOption "AuraDesk local speech-to-text service (Whisper)";
+                  image = lib.mkOption {
+                    type = lib.types.str;
+                    default = sttImage;
+                    description = "Container image providing the local speech-to-text service.";
+                  };
+                  port = lib.mkOption {
+                    type = lib.types.port;
+                    default = sttHostPort;
+                    description = "Host port the speech-to-text service is published on (loopback only).";
+                  };
+                  model = lib.mkOption {
+                    type = lib.types.str;
+                    default = sttModel;
+                    description = "Whisper model used for transcription.";
+                  };
+                  modelSize = lib.mkOption {
+                    type = lib.types.str;
+                    default = sttModelSize;
+                    description = "Model size label expected by the speech-to-text server.";
+                  };
+                };
+              };
             };
 
             config = lib.mkIf cfg.enable {
               environment.systemPackages = [ cfg.package ]
                 ++ lib.optional cfg.mcp.enable cfg.mcp.package;
+
+              # The voice stack needs a container runtime. Enabling it here
+              # removes the "install Podman first" step from the user's
+              # checklist.
+              virtualisation.podman.enable = lib.mkIf cfg.voice.enable true;
+
+              systemd.services = lib.mkIf cfg.voice.enable {
+                auradesk-voice = {
+                  description = "AuraDesk local voice service (Kokoro TTS)";
+                  wantedBy = [ "multi-user.target" ];
+                  after = [ "network-online.target" ];
+                  wants = [ "network-online.target" ];
+
+                  serviceConfig = {
+                    Type = "simple";
+                    Restart = "always";
+                    RestartSec = 5;
+                    # Pull once; ExecStart then reuses the cached image.
+                    ExecStartPre = "${pkgs.podman}/bin/podman pull ${cfg.voice.image}";
+                    ExecStart = lib.concatStringsSep " " [
+                      "${pkgs.podman}/bin/podman"
+                      "run"
+                      "--rm"
+                      "--name"
+                      "auradesk-voice"
+                      "-p"
+                      "127.0.0.1:${toString cfg.voice.port}:${toString voiceContainerPort}"
+                      cfg.voice.image
+                    ];
+                    # The image is several GB; a restart must not re-pull it.
+                    ExecStop = "${pkgs.podman}/bin/podman stop --ignore auradesk-voice";
+                  };
+                };
+
+                auradesk-stt = {
+                  description = "AuraDesk local speech-to-text service (Whisper)";
+                  wantedBy = [ "multi-user.target" ];
+                  after = [ "network-online.target" ];
+                  wants = [ "network-online.target" ];
+
+                  serviceConfig = {
+                    Type = "simple";
+                    Restart = "always";
+                    RestartSec = 5;
+                    ExecStartPre = "${pkgs.podman}/bin/podman pull ${cfg.voice.stt.image}";
+                    ExecStart = lib.concatStringsSep " " [
+                      "${pkgs.podman}/bin/podman"
+                      "run"
+                      "--rm"
+                      "--name"
+                      "auradesk-stt"
+                      "-p"
+                      "127.0.0.1:${toString cfg.voice.stt.port}:${toString sttContainerPort}"
+                      "-e"
+                      "ASR_MODEL=${cfg.voice.stt.model}"
+                      "-e"
+                      "ASR_MODEL_SIZE=${cfg.voice.stt.modelSize}"
+                      "-e"
+                      "ASR_ENGINE=ct2"
+                      cfg.voice.stt.image
+                    ];
+                    ExecStop = "${pkgs.podman}/bin/podman stop --ignore auradesk-stt";
+                  };
+                };
+              };
             };
           };
       });

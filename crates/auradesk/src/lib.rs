@@ -17,6 +17,7 @@ pub mod raglight;
 pub mod routines;
 pub mod runtime;
 pub mod updater;
+pub mod voice;
 
 /// Return the shared capability registry exposed by `auradesk list-capabilities`.
 pub fn list_capabilities() -> &'static [Capability] {
