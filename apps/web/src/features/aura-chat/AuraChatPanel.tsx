@@ -20,6 +20,7 @@ import {
   Square,
   Terminal,
   Volume2,
+  X,
 } from "lucide-react";
 
 import { AuraPyramidStation } from "../../components/AuraPyramidStation";
@@ -69,6 +70,18 @@ import {
 } from "./auraChatLayout";
 import type { AuraToneAnalysis } from "./auraToneAnalyzer";
 import { AuraVoiceSettingsModal } from "./AuraVoiceSettingsModal";
+
+/** Formats the time of a message for the footer. */
+function formatMessageTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
 
 export interface AuraChatMessage {
   id: string;
@@ -279,6 +292,8 @@ export function AuraChatPanel({
   const sendingRef = useRef(false);
   /** Request id of the reply being streamed, so it can be stopped. */
   const activeRequestIdRef = useRef<string | null>(null);
+  /** The last prompt, so a failed turn can be retried with one click. */
+  const lastPromptRef = useRef<string | null>(null);
   /** True while the user scrolled away from the bottom of the transcript. */
   const [atBottom, setAtBottom] = useState(true);
   /** Message the user is editing (user messages only). */
@@ -731,6 +746,7 @@ export function AuraChatPanel({
       if (!raw || sendingRef.current) return;
 
       sendingRef.current = true;
+      lastPromptRef.current = raw;
       setSending(true);
       setErrorMsg(null);
       setFeedback(null);
@@ -1499,11 +1515,38 @@ export function AuraChatPanel({
             className={`flex-1 overflow-y-auto space-y-4 p-4 min-h-0 ${transparency.transcript}`}
           >
             {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-2">
-                <Sparkles className="h-8 w-8 text-sky-400/50 mb-1" aria-hidden="true" />
-                <p className="text-xs text-slate-300 font-medium">
-                  {t("hermes.chatEmpty")}
-                </p>
+              <div className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                <div className="space-y-1.5">
+                  <Sparkles className="mx-auto h-7 w-7 text-sky-400/60" aria-hidden="true" />
+                  <p className="text-sm font-medium text-slate-200">
+                    {t("hermes.chatEmptyTitle")}
+                  </p>
+                  <p className="mx-auto max-w-sm text-xs leading-relaxed text-slate-400">
+                    {t("hermes.chatEmptyHint")}
+                  </p>
+                </div>
+
+                {/* Real starting points — each one fills the composer. */}
+                <div className="flex max-w-md flex-wrap justify-center gap-1.5">
+                  {(
+                    [
+                      { id: "summary", label: t("hermes.suggestions.summary") },
+                      { id: "pending", label: t("hermes.suggestions.pending") },
+                      { id: "memory", label: t("hermes.suggestions.memory") },
+                      { id: "task", label: t("hermes.suggestions.task") },
+                    ] as const
+                  ).map((suggestion) => (
+                    <button
+                      key={suggestion.id}
+                      type="button"
+                      data-testid={`aura-suggestion-${suggestion.id}`}
+                      onClick={() => setPrompt(t(`hermes.suggestionPrompts.${suggestion.id}`))}
+                      className="rounded-full border border-sky-400/25 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-sky-400/60 hover:bg-sky-500/10 hover:text-sky-200"
+                    >
+                      {suggestion.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
               messages.map((msg) => {
@@ -1516,140 +1559,180 @@ export function AuraChatPanel({
                 return (
                   <div
                     key={msg.id}
-                    className={
-                      isUser
-                        ? "ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-sky-500/20 border border-sky-400/35 px-4 py-3 text-xs text-slate-100 shadow-md"
-                        : "mr-auto max-w-[95%] rounded-2xl rounded-tl-sm bg-slate-900/80 border border-slate-700/60 p-4 text-xs text-slate-100 shadow-xl space-y-2"
-                    }
+                    className={`group/message relative flex w-full gap-2.5 ${
+                      isUser ? "flex-row-reverse" : ""
+                    }`}
                   >
-                    <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide mb-1">
-                      <span className={isUser ? "text-sky-300" : "text-emerald-400"}>
-                        {isUser ? t("hermes.userRole") : t("hermes.assistantRole")}
-                      </span>
-                      {msg.streaming && !isUser && (
-                        <span className="flex items-center gap-1 text-[10px] text-amber-300 normal-case">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
-                          {t("hermes.thoughtThinking")}
-                        </span>
-                      )}
-                    </div>
+                    {/* Avatar rail — a quieter hierarchy than a filled label. */}
+                    <span
+                      aria-hidden="true"
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                        isUser
+                          ? "border-sky-400/40 bg-sky-500/15 text-sky-300"
+                          : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+                      }`}
+                    >
+                      {isUser ? t("hermes.userRole").charAt(0) : "A"}
+                    </span>
 
-                    {isUser ? (
-                      editingMessageId === msg.id ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={editingText}
-                            onChange={(e) => setEditingText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                void submitEditedMessage();
-                              }
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                cancelEditingMessage();
-                              }
-                            }}
-                            rows={Math.min(8, editingText.split("\n").length + 1)}
-                            autoFocus
-                            aria-label={t("hermes.editMessage")}
-                            className="w-full resize-y rounded-xl border border-sky-400/40 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400/60"
-                          />
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={cancelEditingMessage}
-                              className="h-6 rounded-full px-2.5 text-[11px]"
-                            >
-                              {t("common.cancel", { defaultValue: "Cancel" })}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="primary"
-                              onClick={() => void submitEditedMessage()}
-                              disabled={!editingText.trim()}
-                              className="h-6 rounded-full px-3 text-[11px]"
-                            >
-                              <Send className="h-3 w-3" aria-hidden="true" />
-                              <span>{t("hermes.resend")}</span>
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="whitespace-pre-wrap leading-relaxed select-text">{msg.text}</p>
-                          <div className="flex items-center justify-end gap-2 pt-1.5 text-[10px] text-slate-400">
+                    <div
+                      className={`min-w-0 space-y-1 ${
+                        isUser ? "flex max-w-[85%] flex-col items-end" : "max-w-[92%] flex-1"
+                      }`}
+                    >
+                      <div
+                        className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                          isUser
+                            ? "rounded-tr-md border border-sky-400/25 bg-sky-500/12 text-slate-100"
+                            : "rounded-tl-md border border-aura-border/30 bg-aura-surface/45 text-slate-100"
+                        }`}
+                      >
+                        {msg.streaming && !isUser && (
+                          <span className="mb-1.5 flex items-center gap-1.5 text-[10px] text-amber-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                            {t("hermes.thoughtThinking")}
+                          </span>
+                        )}
+
+                        {isUser ? (
+                          editingMessageId === msg.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    void submitEditedMessage();
+                                  }
+                                  if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    cancelEditingMessage();
+                                  }
+                                }}
+                                rows={Math.min(8, editingText.split("\n").length + 1)}
+                                autoFocus
+                                aria-label={t("hermes.editMessage")}
+                                className="w-full resize-y rounded-xl border border-sky-400/40 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400/60"
+                              />
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={cancelEditingMessage}
+                                  className="h-6 rounded-full px-2.5 text-[11px]"
+                                >
+                                  {t("common.cancel", { defaultValue: "Cancel" })}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => void submitEditedMessage()}
+                                  disabled={!editingText.trim()}
+                                  className="h-6 rounded-full px-3 text-[11px]"
+                                >
+                                  <Send className="h-3 w-3" aria-hidden="true" />
+                                  <span>{t("hermes.resend")}</span>
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap select-text">
+                              {msg.text}
+                            </p>
+                          )
+                        ) : (
+                          <>
+                            {parsed?.thought && (
+                              <AuraThoughtBlock
+                                thought={parsed.thought}
+                                isThinking={parsed.isThinking}
+                              />
+                            )}
+                            <AuraMarkdownView content={parsed?.answer || msg.text} />
+                          </>
+                        )}
+                      </div>
+
+                      {/* Actions and time live below the bubble, not inside it. */}
+                      {editingMessageId !== msg.id && (
+                        <div
+                          className={`flex items-center gap-2 px-1 text-[10px] text-slate-500 transition-opacity ${
+                            isUser
+                              ? "justify-end"
+                              : "justify-start opacity-0 group-hover/message:opacity-100 focus-within:opacity-100"
+                          }`}
+                        >
+                          {isUser ? (
                             <button
                               type="button"
                               onClick={() => startEditingMessage(msg.id, msg.text)}
-                              className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                              className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
                               aria-label={t("hermes.editMessage")}
                               title={t("hermes.editMessage")}
                             >
                               <Pencil className="h-3 w-3" aria-hidden="true" />
                               <span>{t("hermes.editMessage")}</span>
                             </button>
-                          </div>
-                        </>
-                      )
-                    ) : (
-                      <>
-                        {parsed?.thought && (
-                          <AuraThoughtBlock
-                            thought={parsed.thought}
-                            isThinking={parsed.isThinking}
-                          />
-                        )}
-                        <AuraMarkdownView content={parsed?.answer || msg.text} />
-                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60 text-[10px] text-slate-400">
-                          <button
-                            type="button"
-                            onClick={() => handleSpeakMessage(parsed?.answer || msg.text)}
-                            className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
-                            aria-label={t("hermes.speakMessage")}
-                            title={t("hermes.speakMessage")}
-                          >
-                            <Volume2 className="h-3 w-3" aria-hidden="true" />
-                            <span>{t("hermes.speakMessage")}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleCopyMessage(parsed?.answer || msg.text, msg.id)}
-                            className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
-                            aria-label={t("hermes.copyMessage")}
-                            title={t("hermes.copyMessage")}
-                          >
-                            {copiedMsgId === msg.id ? (
-                              <>
-                                <Check className="h-3 w-3 text-emerald-400" aria-hidden="true" />
-                                <span className="text-emerald-400">{t("hermes.copied")}</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3 w-3" aria-hidden="true" />
-                                <span>{t("hermes.copyMessage")}</span>
-                              </>
-                            )}
-                          </button>
-                          {isLastAssistant && (
-                            <button
-                              type="button"
-                              onClick={() => void regenerateLastAnswer()}
-                              disabled={sending}
-                              className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors disabled:opacity-40"
-                              aria-label={t("hermes.regenerate")}
-                              title={t("hermes.regenerate")}
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleSpeakMessage(parsed?.answer || msg.text)}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                                aria-label={t("hermes.speakMessage")}
+                                title={t("hermes.speakMessage")}
+                              >
+                                <Volume2 className="h-3 w-3" aria-hidden="true" />
+                                <span>{t("hermes.speakMessage")}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyMessage(parsed?.answer || msg.text, msg.id)}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                                aria-label={t("hermes.copyMessage")}
+                                title={t("hermes.copyMessage")}
+                              >
+                                {copiedMsgId === msg.id ? (
+                                  <>
+                                    <Check className="h-3 w-3 text-emerald-400" aria-hidden="true" />
+                                    <span className="text-emerald-400">{t("hermes.copied")}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3 w-3" aria-hidden="true" />
+                                    <span>{t("hermes.copyMessage")}</span>
+                                  </>
+                                )}
+                              </button>
+                              {isLastAssistant && (
+                                <button
+                                  type="button"
+                                  onClick={() => void regenerateLastAnswer()}
+                                  disabled={sending}
+                                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors disabled:opacity-40"
+                                  aria-label={t("hermes.regenerate")}
+                                  title={t("hermes.regenerate")}
+                                >
+                                  <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                                  <span>{t("hermes.regenerate")}</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {msg.createdAt && (
+                            <time
+                              dateTime={msg.createdAt}
+                              className="tabular-nums opacity-70"
                             >
-                              <RefreshCw className="h-3 w-3" aria-hidden="true" />
-                              <span>{t("hermes.regenerate")}</span>
-                            </button>
+                              {formatMessageTime(msg.createdAt)}
+                            </time>
                           )}
                         </div>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -1740,9 +1823,34 @@ export function AuraChatPanel({
           {errorMsg && (
             <div
               role="alert"
-              className="rounded-full border border-rose-400/40 bg-slate-950/80 px-3 py-1 text-[11px] text-rose-300 text-center"
+              className="flex items-center justify-between gap-3 rounded-xl border border-rose-400/40 bg-slate-950/85 px-3 py-2 text-[11px] text-rose-300"
             >
-              {errorMsg}
+              <span className="min-w-0 break-words">{errorMsg}</span>
+              {/* An error the reader can act on, not just a notice. */}
+              <div className="flex shrink-0 items-center gap-1">
+                {lastPromptRef.current && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void sendPromptRef.current(lastPromptRef.current ?? undefined)}
+                    className="h-6 rounded-full px-2.5 text-[11px] text-rose-200 hover:bg-rose-500/15"
+                  >
+                    <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                    <span>{t("hermes.retry")}</span>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setErrorMsg(null)}
+                  aria-label={t("hermes.dismissError")}
+                  className="h-6 w-6 rounded-full p-0 text-rose-300 hover:bg-rose-500/15"
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           )}
 

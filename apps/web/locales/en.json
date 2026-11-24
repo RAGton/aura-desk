@@ -835,7 +835,23 @@
     "regenerate": "Regenerate",
     "editMessage": "Edit",
     "resend": "Send again",
-    "jumpToLatest": "Newest message"
+    "jumpToLatest": "Newest message",
+    "chatEmptyTitle": "What should Aura take on?",
+    "chatEmptyHint": "Ask about your tasks, your notes or what Aura remembers about you.",
+    "suggestions": {
+      "summary": "Summarize my day",
+      "pending": "What is pending?",
+      "memory": "What do you remember about me?",
+      "task": "Propose a task"
+    },
+    "suggestionPrompts": {
+      "summary": "Summarize my day.",
+      "pending": "What is pending on my tasks and reminders right now?",
+      "memory": "What do you remember about me and my preferences?",
+      "task": "Create task: "
+    },
+    "retry": "Try again",
+    "dismissError": "Dismiss"
   },
   "sessions": {
     "title": "Conversations & Context Engine Center",

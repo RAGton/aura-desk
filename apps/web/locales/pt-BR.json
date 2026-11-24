@@ -835,7 +835,23 @@
     "regenerate": "Gerar de novo",
     "editMessage": "Editar",
     "resend": "Enviar de novo",
-    "jumpToLatest": "Mensagem mais recente"
+    "jumpToLatest": "Mensagem mais recente",
+    "chatEmptyTitle": "O que a Aura deve assumir?",
+    "chatEmptyHint": "Pergunte sobre suas tarefas, suas anotações ou o que a Aura lembra de você.",
+    "suggestions": {
+      "summary": "Resuma meu dia",
+      "pending": "O que está pendente?",
+      "memory": "O que você lembra de mim?",
+      "task": "Propor uma tarefa"
+    },
+    "suggestionPrompts": {
+      "summary": "Resuma o meu dia.",
+      "pending": "O que está pendente nas minhas tarefas e lembretes agora?",
+      "memory": "O que você lembra de mim e das minhas preferências?",
+      "task": "Criar tarefa: "
+    },
+    "retry": "Tentar de novo",
+    "dismissError": "Dispensar"
   },
   "sessions": {
     "title": "Centro de Conversas & Context Engine",
