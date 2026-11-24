@@ -204,6 +204,15 @@ pub fn hermes_status() -> crate::hermes::HermesStatus {
     crate::hermes::check_hermes_status()
 }
 
+/// Stops a running assistant reply.
+///
+/// The CLI child is killed, its stdout closes and the stream emits its
+/// final `done` event, so the frontend settles exactly like a normal end.
+#[tauri::command]
+pub fn hermes_chat_cancel(request_id: String) -> bool {
+    crate::hermes::cancel_stream(&request_id)
+}
+
 #[tauri::command]
 pub fn ai_provider_status(state: State<'_, AppState>) -> crate::ai::AiProviderStatus {
     let db = db_from(&state);

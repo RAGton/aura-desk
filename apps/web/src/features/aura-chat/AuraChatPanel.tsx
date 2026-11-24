@@ -11,8 +11,10 @@ import {
   MessageSquare,
   Mic,
   PanelRight,
+  Pencil,
   Plus,
   Radio,
+  RefreshCw,
   Send,
   Sparkles,
   Square,
@@ -275,6 +277,13 @@ export function AuraChatPanel({
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const liveModeRef = useRef(false);
   const sendingRef = useRef(false);
+  /** Request id of the reply being streamed, so it can be stopped. */
+  const activeRequestIdRef = useRef<string | null>(null);
+  /** True while the user scrolled away from the bottom of the transcript. */
+  const [atBottom, setAtBottom] = useState(true);
+  /** Message the user is editing (user messages only). */
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
   const streamBuffersRef = useRef<Map<string, string>>(new Map());
   // How many characters of the answer were already handed to the speech
   // queue, per request. Keeps real-time speech from repeating text.
@@ -661,10 +670,60 @@ export function AuraChatPanel({
   }, [loadData, stopAudioTracks, stopSpeechRecognition, stopSpeechSynthesis]);
 
   useEffect(() => {
-    if (showTranscript && transcriptRef.current) {
+    if (showTranscript && transcriptRef.current && atBottom) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
-  }, [messages, showTranscript]);
+  }, [messages, showTranscript, atBottom]);
+
+  /** Tracks whether the transcript is scrolled to the bottom. */
+  const handleTranscriptScroll = useCallback(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAtBottom(distance < 60);
+  }, []);
+
+  /** Scrolls the transcript back to the newest message. */
+  const scrollToLatest = useCallback(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setAtBottom(true);
+  }, []);
+
+  /**
+   * Stops the reply that is currently streaming.
+   *
+   * The backend kills the CLI child; the stream then emits its final
+   * `done` event and the UI settles normally.
+   */
+  const stopGeneration = useCallback(async () => {
+    const requestId = activeRequestIdRef.current;
+    if (!requestId) return;
+    try {
+      await hermesApi.cancel(requestId);
+    } catch {
+      // The stream may have finished on its own — nothing to report.
+    }
+  }, []);
+
+  // Escape stops the generation, the way it does in every other assistant.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (editingMessageId !== null) {
+        setEditingMessageId(null);
+        setEditingText("");
+        return;
+      }
+      if (sendingRef.current) {
+        e.preventDefault();
+        void stopGeneration();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [stopGeneration, editingMessageId]);
 
   const sendPrompt = useCallback(
     async (textOverride?: string) => {
@@ -708,6 +767,7 @@ export function AuraChatPanel({
           activeSessionId
         );
         if (!mountedRef.current) return;
+        activeRequestIdRef.current = reply.streaming ? reply.requestId : null;
         setMessages((prev) => [
           ...prev,
           {
@@ -729,6 +789,7 @@ export function AuraChatPanel({
         setErrorMsg(err instanceof Error ? err.message : String(err));
       } finally {
         sendingRef.current = false;
+        activeRequestIdRef.current = null;
         if (mountedRef.current) setSending(false);
       }
     },
@@ -746,6 +807,64 @@ export function AuraChatPanel({
   useEffect(() => {
     sendPromptRef.current = sendPrompt;
   }, [sendPrompt]);
+
+  /** Waits for a running stream to settle before starting a new one. */
+  const settleRunningStream = useCallback(async () => {
+    if (!activeRequestIdRef.current) return;
+    await stopGeneration();
+    // The backend emits the final `done` event right after the kill.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }, [stopGeneration]);
+
+  /**
+   * Asks the assistant again, replacing the previous answer.
+   *
+   * The messages after the last user turn are dropped so the thread does
+   * not keep two different answers to the same question.
+   */
+  const regenerateLastAnswer = useCallback(async () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+
+    await settleRunningStream();
+    setMessages((prev) => {
+      const index = prev.findIndex((m) => m.id === lastUser.id);
+      return index >= 0 ? prev.slice(0, index + 1) : prev;
+    });
+    await sendPromptRef.current(lastUser.text);
+  }, [messages, settleRunningStream]);
+
+  /** Starts editing a user message so it can be sent again. */
+  const startEditingMessage = useCallback((messageId: string, text: string) => {
+    setEditingMessageId(messageId);
+    setEditingText(text);
+  }, []);
+
+  const cancelEditingMessage = useCallback(() => {
+    setEditingMessageId(null);
+    setEditingText("");
+  }, []);
+
+  /** Replaces an edited user message and asks again. */
+  const submitEditedMessage = useCallback(async () => {
+    const text = editingText.trim();
+    const messageId = editingMessageId;
+    if (!text || !messageId) return;
+
+    setEditingMessageId(null);
+    setEditingText("");
+
+    await settleRunningStream();
+    setMessages((prev) => {
+      const index = prev.findIndex((m) => m.id === messageId);
+      if (index < 0) return prev;
+      const next = prev.slice();
+      next[index] = { ...next[index], text };
+      // Drop the previous answer: it belongs to the old wording.
+      return next.slice(0, index + 1);
+    });
+    await sendPromptRef.current(text);
+  }, [editingText, editingMessageId, settleRunningStream]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -1372,9 +1491,11 @@ export function AuraChatPanel({
 
         {/* Full-Height Messages Stream */}
         {showTranscript && (
+          <div className="relative flex-1 min-h-0 flex flex-col">
           <div
             ref={transcriptRef}
             data-testid="aura-transcript"
+            onScroll={handleTranscriptScroll}
             className={`flex-1 overflow-y-auto space-y-4 p-4 min-h-0 ${transparency.transcript}`}
           >
             {messages.length === 0 ? (
@@ -1388,6 +1509,10 @@ export function AuraChatPanel({
               messages.map((msg) => {
                 const isUser = msg.role === "user";
                 const parsed = !isUser ? parseAuraMessageThought(msg.text) : null;
+                const isLastAssistant =
+                  !isUser &&
+                  !msg.streaming &&
+                  messages[messages.length - 1]?.id === msg.id;
                 return (
                   <div
                     key={msg.id}
@@ -1410,7 +1535,66 @@ export function AuraChatPanel({
                     </div>
 
                     {isUser ? (
-                      <p className="whitespace-pre-wrap leading-relaxed select-text">{msg.text}</p>
+                      editingMessageId === msg.id ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                void submitEditedMessage();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelEditingMessage();
+                              }
+                            }}
+                            rows={Math.min(8, editingText.split("\n").length + 1)}
+                            autoFocus
+                            aria-label={t("hermes.editMessage")}
+                            className="w-full resize-y rounded-xl border border-sky-400/40 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400/60"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={cancelEditingMessage}
+                              className="h-6 rounded-full px-2.5 text-[11px]"
+                            >
+                              {t("common.cancel", { defaultValue: "Cancel" })}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="primary"
+                              onClick={() => void submitEditedMessage()}
+                              disabled={!editingText.trim()}
+                              className="h-6 rounded-full px-3 text-[11px]"
+                            >
+                              <Send className="h-3 w-3" aria-hidden="true" />
+                              <span>{t("hermes.resend")}</span>
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="whitespace-pre-wrap leading-relaxed select-text">{msg.text}</p>
+                          <div className="flex items-center justify-end gap-2 pt-1.5 text-[10px] text-slate-400">
+                            <button
+                              type="button"
+                              onClick={() => startEditingMessage(msg.id, msg.text)}
+                              className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                              aria-label={t("hermes.editMessage")}
+                              title={t("hermes.editMessage")}
+                            >
+                              <Pencil className="h-3 w-3" aria-hidden="true" />
+                              <span>{t("hermes.editMessage")}</span>
+                            </button>
+                          </div>
+                        </>
+                      )
                     ) : (
                       <>
                         {parsed?.thought && (
@@ -1450,6 +1634,19 @@ export function AuraChatPanel({
                               </>
                             )}
                           </button>
+                          {isLastAssistant && (
+                            <button
+                              type="button"
+                              onClick={() => void regenerateLastAnswer()}
+                              disabled={sending}
+                              className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors disabled:opacity-40"
+                              aria-label={t("hermes.regenerate")}
+                              title={t("hermes.regenerate")}
+                            >
+                              <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                              <span>{t("hermes.regenerate")}</span>
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
@@ -1457,6 +1654,21 @@ export function AuraChatPanel({
                 );
               })
             )}
+          </div>
+
+          {/* Jump back to the newest message when the user scrolled up. */}
+          {!atBottom && (
+            <button
+              type="button"
+              onClick={scrollToLatest}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 rounded-full border border-sky-400/35 bg-slate-950/90 px-3 py-1 text-[11px] text-sky-200 shadow-lg backdrop-blur-md hover:bg-sky-500/20 transition-colors"
+              aria-label={t("hermes.jumpToLatest")}
+              title={t("hermes.jumpToLatest")}
+            >
+              <ChevronDown className="h-3 w-3" aria-hidden="true" />
+              <span>{t("hermes.jumpToLatest")}</span>
+            </button>
+          )}
           </div>
         )}
 
@@ -1609,16 +1821,32 @@ export function AuraChatPanel({
               aria-label={t("hermes.chatTitle")}
             />
 
-            <Button
-              type="submit"
-              size="sm"
-              loading={sending}
-              disabled={!prompt.trim() || sending}
-              className="rounded-xl h-8 px-3 shrink-0"
-            >
-              <Send className="h-3 w-3" aria-hidden="true" />
-              <span className="text-[11px]">{sending ? t("hermes.sending") : t("hermes.sendButton")}</span>
-            </Button>
+            {/* While a reply is streaming the same slot becomes the stop
+                control, the way it works in every other assistant. */}
+            {sending ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="danger"
+                onClick={() => void stopGeneration()}
+                className="rounded-xl h-8 px-3 shrink-0"
+                aria-label={t("hermes.stopGenerating")}
+                title={t("hermes.stopGenerating")}
+              >
+                <Square className="h-3 w-3" aria-hidden="true" />
+                <span className="text-[11px]">{t("hermes.stopGenerating")}</span>
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!prompt.trim()}
+                className="rounded-xl h-8 px-3 shrink-0"
+              >
+                <Send className="h-3 w-3" aria-hidden="true" />
+                <span className="text-[11px]">{t("hermes.sendButton")}</span>
+              </Button>
+            )}
           </form>
         </div>
       </div>

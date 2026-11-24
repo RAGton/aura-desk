@@ -536,6 +536,23 @@ html[data-theme="light"] .fill-slate-400 {
   fill: rgb(var(--text-muted));
 }
 
+/*
+ * SVG text inherits the page's light-theme remapping only for a handful of
+ * utilities. The knowledge graph is a dark surface in BOTH themes (like the
+ * galaxy), so its labels must stay light there — the overrides below keep
+ * them readable when the surrounding page turns light.
+ */
+html[data-theme="light"] .aura-graph-surface .fill-slate-100,
+html[data-theme="light"] .aura-graph-surface .fill-slate-200,
+html[data-theme="light"] .aura-graph-surface .fill-slate-300 {
+  fill: rgb(226 232 240);
+}
+
+html[data-theme="light"] .aura-graph-surface .fill-sky-300,
+html[data-theme="light"] .aura-graph-surface .fill-sky-400 {
+  fill: rgb(125 211 252);
+}
+
 html[data-theme="light"] .border-slate-900,
 html[data-theme="light"] .border-slate-800,
 html[data-theme="light"] .border-slate-800\/80,
@@ -759,6 +776,17 @@ html[data-theme="light"] .aura-galaxy-nebula-dark {
 
 .aura-galaxy-chrome-muted {
   color: var(--aura-galaxy-text-muted);
+}
+
+/*
+ * The knowledge graph is a dark surface in BOTH themes. Its visual identity
+ * follows the galaxy, not the global UI theme, so the node and edge colours
+ * are always read against a deep background.
+ */
+.aura-graph-surface {
+  background-color: var(--aura-galaxy-base);
+  background-image:
+    radial-gradient(ellipse 85% 75% at 50% 45%, rgba(15, 23, 42, 0.25), var(--aura-galaxy-mid) 70%, var(--aura-galaxy-deep) 100%);
 }
 
 /* Scopes the galaxy's light-on-dark tokens to a subtree that floats over

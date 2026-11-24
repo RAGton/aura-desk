@@ -39,6 +39,8 @@ vi.mock("../lib/ipc", async (importOriginal) => {
       globalSearch: vi.fn(),
       galaxySnapshot: vi.fn(),
       bankCreate: vi.fn(),
+      bankUpdate: vi.fn(),
+      bankDelete: vi.fn(),
       memoryRetain: vi.fn(),
       mentalModelCreate: vi.fn(),
       mentalModelRefresh: vi.fn(),
@@ -586,23 +588,31 @@ describe("HindsightPanelPage", () => {
     // 3. Graph tab + World / Experience / Observation layer switching + SVG node click inspection
     fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
     await waitFor(() => {
-      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 80, null, null);
+      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 60, null, null);
     });
 
     // Switch to World Graph, Experience Graph, Observation Graph
     fireEvent.click(screen.getByTestId("graph-layer-world"));
     await waitFor(() => {
-      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 80, null, "world");
+      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 60, null, "world");
     });
 
     fireEvent.click(screen.getByTestId("graph-layer-experience"));
     await waitFor(() => {
-      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 80, null, "experience");
+      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 60, null, "experience");
     });
 
     fireEvent.click(screen.getByTestId("graph-layer-observation"));
     await waitFor(() => {
-      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 80, null, "observation");
+      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 60, null, "observation");
+    });
+
+    // The node-limit control must actually reach the backend.
+    fireEvent.change(screen.getByLabelText("Nodes shown"), {
+      target: { value: "150" },
+    });
+    await waitFor(() => {
+      expect(mockExplore.graph).toHaveBeenCalledWith("estudos", 150, null, "observation");
     });
 
     const svg = await screen.findByLabelText("Graph");
@@ -671,6 +681,33 @@ describe("HindsightPanelPage", () => {
     fireEvent.click(refreshBtns[0]);
     await waitFor(() => {
       expect(mockExplore.mentalModelRefresh).toHaveBeenCalledWith("estudos", "mm-1");
+    });
+  });
+
+  it("renames and deletes a bank through the real backend calls", async () => {
+    setupOnlineMocks();
+
+    render(<HindsightPanelPage />);
+    expect(await screen.findByText("Real Banks (2)")).toBeInTheDocument();
+
+    // 1. Rename a bank — the action must reach the backend.
+    fireEvent.click(screen.getByTestId("hindsight-bank-edit-estudos"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Rename" }), {
+      target: { value: "Estudos Renomeados" },
+    });
+    fireEvent.click(screen.getByTestId("hindsight-bank-save-btn"));
+
+    await waitFor(() => {
+      expect(mockExplore.bankUpdate).toHaveBeenCalledWith({
+        bankId: "estudos",
+        name: "Estudos Renomeados",
+      });
+    });
+
+    // 2. Delete a bank — it must reach the backend too.
+    fireEvent.click(screen.getByTestId("hindsight-bank-delete-estudos"));
+    await waitFor(() => {
+      expect(mockExplore.bankDelete).toHaveBeenCalledWith("estudos");
     });
   });
 

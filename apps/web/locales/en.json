@@ -828,7 +828,12 @@
       "clear": "Clear",
       "balanced": "Balanced",
       "solid": "Solid"
-    }
+    },
+    "stopGenerating": "Stop",
+    "regenerate": "Regenerate",
+    "editMessage": "Edit",
+    "resend": "Send again",
+    "jumpToLatest": "Newest message"
   },
   "sessions": {
     "title": "Conversations & Context Engine Center",
@@ -939,7 +944,10 @@
       "experience": "Experience Graph",
       "observation": "Observation Graph",
       "linkAll": "All Links",
-      "filterPlaceholder": "Filter graph nodes by text or context..."
+      "filterPlaceholder": "Filter graph nodes by text or context...",
+      "nodeLimit": "Nodes shown",
+      "nodeLimitValue": "{{limit}} nodes",
+      "showing": "Showing {{shown}} of {{total}} nodes"
     },
     "createBank": {
       "button": "New Bank",
@@ -1002,6 +1010,33 @@
       "title": "Background Operations & Consolidation",
       "subtitle": "Real-time log of retentions, observation consolidations, and mental model refreshes.",
       "empty": "No recent operations recorded for this bank."
+    },
+    "graph": {
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "resetView": "Reset view"
+    },
+    "stats": {
+      "pendingConsolidation": "Pending consolidation",
+      "failedConsolidation": "Failed consolidation",
+      "failedOperations": "Failed operations",
+      "lastConsolidatedAt": "Last consolidation",
+      "lastMemoryWriteAt": "Last memory write",
+      "linksByType": "Links by type"
+    },
+    "health": {
+      "online": "Hindsight online",
+      "offline": "Hindsight offline",
+      "banks": "banks",
+      "localMemories": "Local memories",
+      "dailyMaintenance": "Daily maintenance",
+      "lastMaintenance": "Last run",
+      "on": "on",
+      "off": "off"
+    },
+    "banks": {
+      "rename": "Rename",
+      "delete": "Delete"
     }
   },
   "knowledgePanel": {

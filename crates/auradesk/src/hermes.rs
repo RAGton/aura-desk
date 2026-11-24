@@ -4,13 +4,21 @@
 //! (`ProposalsService` + `ia_proposals` + `ia_commands`), never mutating
 //! `tasks` or `reminders` directly.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 static REQ_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Live CLI children, keyed by request id, so a reply can be stopped
+/// mid-stream instead of running to completion.
+type StreamRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<Option<Child>>>>>>;
+
+static ACTIVE_STREAMS: LazyLock<StreamRegistry> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 use auradesk_core::application::proposals::ProposalsService;
 use auradesk_core::capabilities::dispatch_capability;
@@ -118,6 +126,48 @@ fn find_hermes_binary() -> Option<PathBuf> {
     None
 }
 
+/// Stops an in-flight CLI reply.
+///
+/// Returns `true` when a running stream was found and killed. The stream
+/// then emits its final (empty) `done` event, so the UI can settle.
+pub fn cancel_stream(request_id: &str) -> bool {
+    let handle = {
+        let Ok(registry) = ACTIVE_STREAMS.lock() else {
+            return false;
+        };
+        registry.get(request_id).cloned()
+    };
+
+    let Some(handle) = handle else {
+        return false;
+    };
+
+    let killed = {
+        let Ok(mut guard) = handle.lock() else {
+            return false;
+        };
+        match guard.as_mut() {
+            Some(child) => child.kill().is_ok(),
+            None => false,
+        }
+    };
+
+    if killed {
+        if let Ok(mut registry) = ACTIVE_STREAMS.lock() {
+            registry.remove(request_id);
+        }
+    }
+    killed
+}
+
+/// True when a stream with this request id is currently running.
+pub fn is_stream_active(request_id: &str) -> bool {
+    ACTIVE_STREAMS
+        .lock()
+        .map(|registry| registry.contains_key(request_id))
+        .unwrap_or(false)
+}
+
 /// Process an in-app chat prompt: creates a pending proposal or overview in
 /// local offline mode, or streams from the local `hermes` CLI when requested.
 pub fn handle_chat_prompt(
@@ -199,8 +249,18 @@ fn stream_hermes_cli(app: &AppHandle, request_id: &str, bin: &std::path::Path, p
     }
 
     match cmd.spawn() {
-        Ok(mut child) => {
-            if let Some(stdout) = child.stdout.take() {
+        Ok(child) => {
+            // Keep a handle so the reply can be stopped from the UI.
+            let handle = Arc::new(Mutex::new(Some(child)));
+            if let Ok(mut registry) = ACTIVE_STREAMS.lock() {
+                registry.insert(request_id.to_string(), Arc::clone(&handle));
+            }
+
+            if let Some(stdout) = handle
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.as_mut().and_then(|c| c.stdout.take()))
+            {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines().map_while(Result::ok) {
                     let _ = app.emit(
@@ -214,8 +274,20 @@ fn stream_hermes_cli(app: &AppHandle, request_id: &str, bin: &std::path::Path, p
                     );
                 }
             }
-            match child.wait() {
-                Ok(status) if status.success() => {
+
+            // The child may have been killed by a cancel request; either way
+            // it has to be reaped.
+            let waited: Option<Result<std::process::ExitStatus, std::io::Error>> = handle
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.as_mut().map(|c| c.wait()));
+
+            if let Ok(mut registry) = ACTIVE_STREAMS.lock() {
+                registry.remove(request_id);
+            }
+
+            match waited {
+                None => {
                     let _ = app.emit(
                         "auradesk://hermes-stream",
                         HermesStreamEvent {
@@ -226,7 +298,31 @@ fn stream_hermes_cli(app: &AppHandle, request_id: &str, bin: &std::path::Path, p
                         },
                     );
                 }
-                Ok(status) => {
+                // A process stopped by a signal (killed by the cancel
+                // request) has no exit code — that is a stop, not a failure.
+                Some(Ok(status)) if !status.success() && status.code().is_none() => {
+                    let _ = app.emit(
+                        "auradesk://hermes-stream",
+                        HermesStreamEvent {
+                            request_id: request_id.to_string(),
+                            chunk: String::new(),
+                            done: true,
+                            is_error: false,
+                        },
+                    );
+                }
+                Some(Ok(status)) if status.success() => {
+                    let _ = app.emit(
+                        "auradesk://hermes-stream",
+                        HermesStreamEvent {
+                            request_id: request_id.to_string(),
+                            chunk: String::new(),
+                            done: true,
+                            is_error: false,
+                        },
+                    );
+                }
+                Some(Ok(status)) => {
                     let code = status.code().unwrap_or(-1).to_string();
                     let msg = auradesk_core::i18n::t_with("hermes.cli_failed", &[("code", &code)]);
                     let _ = app.emit(
@@ -239,7 +335,7 @@ fn stream_hermes_cli(app: &AppHandle, request_id: &str, bin: &std::path::Path, p
                         },
                     );
                 }
-                Err(e) => {
+                Some(Err(e)) => {
                     let _ = app.emit(
                         "auradesk://hermes-stream",
                         HermesStreamEvent {

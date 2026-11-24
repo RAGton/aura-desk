@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  HindsightGraphView,
+  linkTypeLabel,
+} from "../features/hindsight/HindsightGraphView";
+import {
   Activity,
   AlertTriangle,
   Brain,
@@ -16,6 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Tag,
+  Pencil,
   Trash2,
   X,
 } from "lucide-react";
@@ -30,6 +35,7 @@ import {
   Textarea,
 } from "../components/ui";
 import {
+  hindsightApi,
   hindsightExploreApi,
   type HindsightBankStats,
   type HindsightBankSummary,
@@ -46,6 +52,7 @@ import {
   type HindsightMemoryItem,
   type HindsightMentalModel,
   type HindsightOperation,
+  type HindsightStatus,
 } from "../lib/ipc";
 
 export interface HindsightPanelPageProps {
@@ -98,30 +105,11 @@ function factTypeVariant(factType?: string | null) {
   }
 }
 
-function factTypeNodeColor(factType?: string | null, fallback?: string | null): string {
-  switch ((factType ?? "").toLowerCase()) {
-    case "world":
-      return "#38bdf8";
-    case "experience":
-      return "#34d399";
-    case "observation":
-      return "#fbbf24";
-    default:
-      return fallback || "#38bdf8";
-  }
-}
-
 function parseTagsCsv(raw: string): string[] {
   return raw
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
-}
-
-function truncateLabel(text: string, maxLen = 22): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLen) return clean;
-  return `${clean.slice(0, maxLen - 1)}…`;
 }
 
 function computeConstellationLayout(
@@ -236,6 +224,7 @@ export function HindsightPanelPage({
   const [selectedBank, setSelectedBank] = useState<string | null>(initialBank ?? null);
 
   const [bankStats, setBankStats] = useState<HindsightBankStats | null>(null);
+  const [hindsightStatus, setHindsightStatus] = useState<HindsightStatus | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [consolidatingBank, setConsolidatingBank] = useState(false);
 
@@ -243,6 +232,10 @@ export function HindsightPanelPage({
 
   // Create Bank form state
   const [showCreateBankForm, setShowCreateBankForm] = useState(false);
+  // Bank lifecycle: rename / delete.
+  const [editingBankId, setEditingBankId] = useState<string | null>(null);
+  const [editingBankName, setEditingBankName] = useState("");
+  const [bankBusyId, setBankBusyId] = useState<string | null>(null);
   const [newBankId, setNewBankId] = useState("");
   const [newBankName, setNewBankName] = useState("");
   const [newBankMission, setNewBankMission] = useState("");
@@ -289,6 +282,8 @@ export function HindsightPanelPage({
   const [graphFactType, setGraphFactType] = useState<CognitiveLayerFilter>("");
   const [graphQuery, setGraphQuery] = useState("");
   const [graphLinkTypeFilter, setGraphLinkTypeFilter] = useState("");
+  // How many nodes the graph shows. The backend clamps this to 200.
+  const [graphNodeLimit, setGraphNodeLimit] = useState(60);
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
 
   // Mental Models + Create / Refresh / Delete
@@ -342,6 +337,23 @@ export function HindsightPanelPage({
   useEffect(() => {
     void loadBanks();
   }, [loadBanks]);
+
+  // The daemon's own health, so the screen can say what is wrong instead of
+  // showing an empty list.
+  useEffect(() => {
+    let active = true;
+    void hindsightApi
+      .status()
+      .then((status) => {
+        if (active) setHindsightStatus(status);
+      })
+      .catch(() => {
+        if (active) setHindsightStatus(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (initialBank && banks.some((b) => b.id === initialBank)) {
@@ -446,7 +458,7 @@ export function HindsightPanelPage({
       void hindsightExploreApi
         .graph(
           selectedBank,
-          80,
+          graphNodeLimit,
           graphQuery.trim() || null,
           graphFactType || null,
         )
@@ -514,12 +526,56 @@ export function HindsightPanelPage({
     memoryFactType,
     memoryQuery,
     graphFactType,
+    graphNodeLimit,
     graphQuery,
   ]);
 
   const handleRefresh = () => {
     void loadBanks();
     setRefreshNonce((n) => n + 1);
+  };
+
+  /** Renames a bank. The id never changes — only its display name. */
+  const handleRenameBank = async () => {
+    const bankId = editingBankId;
+    const name = editingBankName.trim();
+    if (!bankId || !name) return;
+
+    setBankBusyId(bankId);
+    setTabError(null);
+    try {
+      await hindsightExploreApi.bankUpdate({ bankId, name });
+      setEditingBankId(null);
+      setEditingBankName("");
+      await loadBanks();
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBankBusyId(null);
+    }
+  };
+
+  /** Deletes a bank and everything it holds. */
+  const handleDeleteBank = async (bankId: string) => {
+    setBankBusyId(bankId);
+    setTabError(null);
+    try {
+      await hindsightExploreApi.bankDelete(bankId);
+      if (selectedBank === bankId) {
+        setSelectedBank("");
+        setSelectedGraphNodeId(null);
+        setSelectedMemory(null);
+      }
+      setEditingBankId(null);
+      setEditingBankName("");
+      await loadBanks();
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBankBusyId(null);
+    }
   };
 
   const handleCreateBank = async (e: FormEvent) => {
@@ -761,9 +817,32 @@ export function HindsightPanelPage({
     );
   }, [graphPayload?.edges, graphLinkTypeFilter]);
 
+  /**
+   * The link types that actually exist in this bank, with the ones the
+   * backend reports first. The filter is data-driven instead of a fixed
+   * list of four options that may not exist.
+   */
+  const graphLinkTypes = useMemo(() => {
+    const fromStats = Object.keys(bankStats?.linksByLinkType ?? {});
+    const fromEdges = new Set(
+      (graphPayload?.edges ?? [])
+        .map((edge) => edge.linkType)
+        .filter((value): value is string => Boolean(value))
+    );
+    const all = Array.from(new Set([...fromStats, ...fromEdges]));
+    // Keep a sensible order for the known types, then the rest.
+    const preferred = ["semantic", "temporal", "entity", "caused_by"];
+    return [
+      ...preferred.filter((type) => all.includes(type)),
+      ...all.filter((type) => !preferred.includes(type)).sort(),
+    ];
+  }, [bankStats?.linksByLinkType, graphPayload?.edges]);
+
+  // The geometry is computed from the full edge set: filtering by link type
+  // then only changes what is drawn, not where the nodes sit.
   const nodePositions = useMemo(
-    () => computeConstellationLayout(graphNodes, graphEdges),
-    [graphNodes, graphEdges],
+    () => computeConstellationLayout(graphNodes, graphPayload?.edges ?? []),
+    [graphNodes, graphPayload?.edges],
   );
 
   const selectedGraphNode = useMemo(
@@ -777,15 +856,6 @@ export function HindsightPanelPage({
       (e) => e.source === selectedGraphNodeId || e.target === selectedGraphNodeId,
     );
   }, [graphEdges, selectedGraphNodeId]);
-
-  const neighborNodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const e of connectedGraphEdges) {
-      if (e.source === selectedGraphNodeId) ids.add(e.target);
-      if (e.target === selectedGraphNodeId) ids.add(e.source);
-    }
-    return ids;
-  }, [connectedGraphEdges, selectedGraphNodeId]);
 
   const tabItems: Array<{ id: HindsightTab; label: string; badge?: number }> = [
     { id: "memories", label: t("hindsightPanel.tabs.memories") },
@@ -998,6 +1068,44 @@ export function HindsightPanelPage({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
           {/* Sidebar: Real Banks + Active Bank Stats */}
           <aside className="space-y-4 lg:col-span-4 xl:col-span-3">
+            {/* Health strip: what the daemon reports about itself. */}
+            {hindsightStatus && (
+              <div
+                className={`rounded-aura-lg border p-3 text-[11px] ${
+                  hindsightStatus.enabled && hindsightStatus.online
+                    ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+                    : "border-rose-400/30 bg-rose-500/10 text-rose-200"
+                }`}
+                data-testid="hindsight-health-strip"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    {hindsightStatus.enabled && hindsightStatus.online
+                      ? t("hindsightPanel.health.online")
+                      : t("hindsightPanel.health.offline")}
+                  </span>
+                  <span className="font-mono text-[10px] opacity-80">
+                    {hindsightStatus.banks.length} {t("hindsightPanel.health.banks")}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 opacity-90">
+                  <span>{t("hindsightPanel.health.localMemories")}: {hindsightStatus.localCount}</span>
+                  <span>
+                    {t("hindsightPanel.health.dailyMaintenance")}:{" "}
+                    {hindsightStatus.dailyMaintenance
+                      ? t("hindsightPanel.health.on")
+                      : t("hindsightPanel.health.off")}
+                  </span>
+                  {hindsightStatus.lastMaintenanceDate && (
+                    <span>
+                      {t("hindsightPanel.health.lastMaintenance")}:{" "}
+                      {hindsightStatus.lastMaintenanceDate}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-aura-secondary">
@@ -1024,31 +1132,84 @@ export function HindsightPanelPage({
                   {banks.map((bank) => {
                     const active = bank.id === selectedBank;
                     return (
-                      <button
+                      <div
                         key={bank.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedBank(bank.id);
-                          if (activeTab === "globalHits") {
-                            setActiveTab("memories");
-                          }
-                        }}
-                        className={`w-full rounded-aura-md border p-3 text-left transition-colors ${
+                        className={`group relative rounded-aura-md border p-3 transition-colors ${
                           active
                             ? "border-aura-accent/70 bg-aura-accent/10"
                             : "border-aura-border/40 bg-aura-canvas/40 hover:border-aura-border-strong/70 hover:bg-aura-surface"
                         }`}
                       >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBank(bank.id);
+                            if (activeTab === "globalHits") {
+                              setActiveTab("memories");
+                            }
+                          }}
+                          className="block w-full text-left"
+                        >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-semibold text-aura-primary">
-                            {bank.name || bank.id}
-                          </span>
-                          {bank.name && bank.name !== bank.id && (
+                          {editingBankId === bank.id ? (
+                            <Input
+                              containerClassName="flex-1"
+                              value={editingBankName}
+                              autoFocus
+                              onChange={(e) => setEditingBankName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleRenameBank();
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  setEditingBankId(null);
+                                  setEditingBankName("");
+                                }
+                              }}
+                              aria-label={t("hindsightPanel.banks.rename")}
+                            />
+                          ) : (
+                            <span className="truncate text-sm font-semibold text-aura-primary">
+                              {bank.name || bank.id}
+                            </span>
+                          )}
+                          {editingBankId !== bank.id && bank.name && bank.name !== bank.id && (
                             <span className="shrink-0 font-mono text-[10px] text-aura-text-muted">
                               {bank.id}
                             </span>
                           )}
                         </div>
+
+                        {editingBankId === bank.id && (
+                          <div className="mt-2 flex items-center justify-end gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setEditingBankId(null);
+                                setEditingBankName("");
+                              }}
+                              className="h-6 rounded-full px-2.5 text-[10px]"
+                            >
+                              {t("common.cancel", { defaultValue: "Cancel" })}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="primary"
+                              data-testid="hindsight-bank-save-btn"
+                              loading={bankBusyId === bank.id}
+                              onClick={() => void handleRenameBank()}
+                              disabled={!editingBankName.trim()}
+                              className="h-6 rounded-full px-2.5 text-[10px]"
+                            >
+                              {t("common.save", { defaultValue: "Save" })}
+                            </Button>
+                          </div>
+                        )}
                         <div className="mt-2 grid grid-cols-3 gap-1.5 text-[11px]">
                           <div className="rounded-aura-sm bg-aura-surface/80 px-2 py-1">
                             <div className="text-aura-text-muted">
@@ -1075,7 +1236,39 @@ export function HindsightPanelPage({
                             </div>
                           </div>
                         </div>
-                      </button>
+                        </button>
+
+                        {/* Bank lifecycle: a bank you can create must also
+                            be renamable and removable. */}
+                        <div className="mt-2 flex items-center justify-end gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          <button
+                            type="button"
+                            data-testid={`hindsight-bank-edit-${bank.id}`}
+                            onClick={() => {
+                              setEditingBankId(bank.id);
+                              setEditingBankName(bank.name || bank.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-aura-sm border border-aura-border/50 px-1.5 py-0.5 text-[10px] text-aura-secondary hover:border-aura-accent/60 hover:text-aura-accent transition-colors"
+                            aria-label={t("hindsightPanel.banks.rename")}
+                            title={t("hindsightPanel.banks.rename")}
+                          >
+                            <Pencil className="h-3 w-3" aria-hidden="true" />
+                            {t("hindsightPanel.banks.rename")}
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`hindsight-bank-delete-${bank.id}`}
+                            onClick={() => void handleDeleteBank(bank.id)}
+                            disabled={bankBusyId === bank.id}
+                            className="inline-flex items-center gap-1 rounded-aura-sm border border-rose-400/40 px-1.5 py-0.5 text-[10px] text-rose-300 hover:bg-rose-500/15 transition-colors disabled:opacity-40"
+                            aria-label={t("hindsightPanel.banks.delete")}
+                            title={t("hindsightPanel.banks.delete")}
+                          >
+                            <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            {t("hindsightPanel.banks.delete")}
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -1161,6 +1354,75 @@ export function HindsightPanelPage({
                         );
                       })}
                     </div>
+
+                    {/* Operational counters the backend already reports. */}
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      {(
+                        [
+                          {
+                            key: "pendingConsolidation",
+                            label: t("hindsightPanel.stats.pendingConsolidation"),
+                            value: bankStats.pendingConsolidation,
+                          },
+                          {
+                            key: "failedConsolidation",
+                            label: t("hindsightPanel.stats.failedConsolidation"),
+                            value: bankStats.failedConsolidation,
+                          },
+                          {
+                            key: "failedOperations",
+                            label: t("hindsightPanel.stats.failedOperations"),
+                            value: bankStats.failedOperations,
+                          },
+                          {
+                            key: "lastConsolidatedAt",
+                            label: t("hindsightPanel.stats.lastConsolidatedAt"),
+                            value: bankStats.lastConsolidatedAt
+                              ? formatDate(bankStats.lastConsolidatedAt)
+                              : "—",
+                          },
+                          {
+                            key: "lastMemoryWriteAt",
+                            label: t("hindsightPanel.stats.lastMemoryWriteAt"),
+                            value: bankStats.lastMemoryWriteAt
+                              ? formatDate(bankStats.lastMemoryWriteAt)
+                              : "—",
+                          },
+                        ] as const
+                      ).map((stat) => (
+                        <div
+                          key={stat.key}
+                          className="rounded-aura-sm border border-aura-border/30 bg-aura-canvas/50 px-2 py-1.5"
+                        >
+                          <div className="text-aura-text-muted">{stat.label}</div>
+                          <div className="font-semibold text-aura-primary tabular-nums">
+                            {stat.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* How the links are distributed — the same numbers the
+                        graph filter uses. */}
+                    {Object.keys(bankStats.linksByLinkType ?? {}).length > 0 && (
+                      <div className="rounded-aura-sm border border-aura-border/30 bg-aura-canvas/50 p-2">
+                        <div className="mb-1 text-[11px] text-aura-text-muted">
+                          {t("hindsightPanel.stats.linksByType")}
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-aura-secondary">
+                          {Object.entries(bankStats.linksByLinkType).map(
+                            ([linkType, count]) => (
+                              <span key={linkType} className="tabular-nums">
+                                {linkTypeLabel(linkType)}:{" "}
+                                <span className="font-semibold text-aura-primary">
+                                  {count}
+                                </span>
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     <Button
                       size="sm"
@@ -1910,11 +2172,51 @@ export function HindsightPanelPage({
                         aria-label={t("hindsightPanel.graphLayers.linkAll")}
                       >
                         <option value="">{t("hindsightPanel.graphLayers.linkAll")}</option>
-                        <option value="semantic">semantic</option>
-                        <option value="temporal">temporal</option>
-                        <option value="entity">entity</option>
-                        <option value="caused_by">caused_by</option>
+                        {graphLinkTypes.map((linkType) => (
+                          <option key={linkType} value={linkType}>
+                            {linkTypeLabel(linkType)}
+                            {typeof bankStats?.linksByLinkType?.[linkType] === "number"
+                              ? ` (${bankStats.linksByLinkType[linkType]})`
+                              : ""}
+                          </option>
+                        ))}
                       </Select>
+                      <Select
+                        containerClassName="w-full sm:w-36"
+                        value={String(graphNodeLimit)}
+                        onChange={(e) => setGraphNodeLimit(Number(e.target.value))}
+                        aria-label={t("hindsightPanel.graphLayers.nodeLimit")}
+                      >
+                        {[25, 60, 100, 150, 200].map((limit) => (
+                          <option key={limit} value={limit}>
+                            {t("hindsightPanel.graphLayers.nodeLimitValue", { limit })}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    {/* How much of the graph is on screen, and what the colours mean. */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-aura-border/30 pt-2.5">
+                      <p className="text-[11px] text-aura-muted">
+                        {t("hindsightPanel.graphLayers.showing", {
+                          shown: graphNodes.length,
+                          total: graphPayload?.totalUnits ?? 0,
+                        })}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {(
+                          [
+                            { id: "world", label: t("hindsightPanel.graphLayers.world"), dot: "bg-sky-400" },
+                            { id: "experience", label: t("hindsightPanel.graphLayers.experience"), dot: "bg-emerald-400" },
+                            { id: "observation", label: t("hindsightPanel.graphLayers.observation"), dot: "bg-amber-400" },
+                          ] as const
+                        ).map((layer) => (
+                          <span key={layer.id} className="inline-flex items-center gap-1 text-[10px] text-aura-muted">
+                            <span className={`h-2 w-2 rounded-full ${layer.dot}`} />
+                            {layer.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1925,7 +2227,7 @@ export function HindsightPanelPage({
                     title={t("hindsightPanel.offlineBanner")}
                   />
                 ) : loadingGraph ? (
-                  <Skeleton className="h-[440px]" />
+                  <Skeleton className="h-[460px]" />
                 ) : graphNodes.length === 0 ? (
                   <EmptyState
                     icon={<Network className="h-5 w-5" />}
@@ -1933,13 +2235,7 @@ export function HindsightPanelPage({
                   />
                 ) : (
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                    <div
-                      className={
-                        selectedGraphNode
-                          ? "rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-3 xl:col-span-8"
-                          : "rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-3 xl:col-span-12"
-                      }
-                    >
+                    <div className="rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-3 xl:col-span-9">
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-aura-text-muted">
                         <span>
                           {t("hindsightPanel.totalNodes")}: {graphNodes.length} ·{" "}
@@ -1957,127 +2253,19 @@ export function HindsightPanelPage({
                         )}
                       </div>
 
-                      <svg
-                        viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
-                        aria-label={t("hindsightPanel.tabs.graph")}
-                        className="h-[420px] w-full rounded-aura-md border border-aura-border/40 bg-slate-950"
-                      >
-                        {/* Edges */}
-                        <g>
-                          {graphEdges.map((edge) => {
-                            const from = nodePositions[edge.source];
-                            const to = nodePositions[edge.target];
-                            if (!from || !to) return null;
-                            const isHighlighted =
-                              selectedGraphNodeId !== null &&
-                              (edge.source === selectedGraphNodeId ||
-                                edge.target === selectedGraphNodeId);
-                            const dimmed =
-                              selectedGraphNodeId !== null && !isHighlighted;
-                            return (
-                              <g key={edge.id}>
-                                <line
-                                  x1={from.x}
-                                  y1={from.y}
-                                  x2={to.x}
-                                  y2={to.y}
-                                  stroke={
-                                    isHighlighted
-                                      ? "rgb(56 189 248)"
-                                      : edge.color || "rgba(148, 163, 184, 0.45)"
-                                  }
-                                  strokeWidth={isHighlighted ? 2.4 : 1.1}
-                                  strokeOpacity={dimmed ? 0.16 : isHighlighted ? 0.95 : 0.45}
-                                  strokeDasharray={
-                                    edge.lineStyle === "dashed" ? "4 3" : undefined
-                                  }
-                                />
-                                {isHighlighted && (edge.entityName || edge.linkType) && (
-                                  <text
-                                    x={(from.x + to.x) / 2}
-                                    y={(from.y + to.y) / 2 - 4}
-                                    textAnchor="middle"
-                                    className="fill-sky-300 text-[10px] font-medium pointer-events-none"
-                                  >
-                                    {truncateLabel(
-                                      edge.entityName || edge.linkType || "",
-                                      18,
-                                    )}
-                                  </text>
-                                )}
-                              </g>
-                            );
-                          })}
-                        </g>
-
-                        {/* Nodes */}
-                        <g>
-                          {graphNodes.map((node) => {
-                            const pos = nodePositions[node.id];
-                            if (!pos) return null;
-                            const isSelected = node.id === selectedGraphNodeId;
-                            const isNeighbor = neighborNodeIds.has(node.id);
-                            const dimmed =
-                              selectedGraphNodeId !== null && !isSelected && !isNeighbor;
-                            const fill = factTypeNodeColor(
-                              node.factType || graphFactType,
-                              node.color,
-                            );
-
-                            return (
-                              <g
-                                key={node.id}
-                                transform={`translate(${pos.x}, ${pos.y})`}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={node.label || node.id}
-                                onClick={() => setSelectedGraphNodeId(node.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    setSelectedGraphNodeId(node.id);
-                                  }
-                                }}
-                                style={{
-                                  cursor: "pointer",
-                                  opacity: dimmed ? 0.3 : 1,
-                                }}
-                              >
-                                {isSelected && (
-                                  <circle
-                                    r={15}
-                                    fill="none"
-                                    stroke="rgb(56 189 248)"
-                                    strokeWidth={2}
-                                    strokeOpacity={0.85}
-                                  />
-                                )}
-                                <circle
-                                  r={isSelected ? 10 : isNeighbor ? 8.5 : 7}
-                                  fill={fill}
-                                  stroke={
-                                    isSelected || isNeighbor
-                                      ? "rgb(248 250 252)"
-                                      : "rgba(15, 23, 42, 0.8)"
-                                  }
-                                  strokeWidth={isSelected ? 2 : 1.2}
-                                />
-                                <text
-                                  y={20}
-                                  textAnchor="middle"
-                                  className="fill-slate-200 text-[10px] font-medium pointer-events-none"
-                                >
-                                  {truncateLabel(node.label || node.text || node.id, 18)}
-                                </text>
-                              </g>
-                            );
-                          })}
-                        </g>
-                      </svg>
+                      <HindsightGraphView
+                        nodes={graphNodes}
+                        edges={graphEdges}
+                        positions={nodePositions}
+                        width={GRAPH_WIDTH}
+                        height={GRAPH_HEIGHT}
+                        selectedNodeId={selectedGraphNodeId}
+                        onSelectNode={setSelectedGraphNodeId}
+                      />
                     </div>
 
                     {selectedGraphNode && (
-                      <aside className="rounded-aura-lg border border-aura-border/40 bg-aura-surface/85 p-4 space-y-3 self-start xl:col-span-4">
+                      <aside className="rounded-aura-lg border border-aura-border/40 bg-aura-surface/85 p-4 space-y-3 self-start xl:col-span-3">
                         <div className="flex items-start justify-between gap-2 border-b border-aura-border/40 pb-2">
                           <div className="min-w-0 space-y-1">
                             <h4 className="truncate text-sm font-semibold text-aura-primary">

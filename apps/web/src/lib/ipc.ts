@@ -2530,6 +2530,12 @@ export const hermesApi = {
       useCli,
       sessionId: sessionId ?? null,
     }),
+  /**
+   * Stops an in-flight reply. The CLI child is killed and the stream emits
+   * its final `done` event, so the UI settles like a normal end.
+   */
+  cancel: (requestId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hermes_chat_cancel", { requestId }),
 };
 
 export const aiApi = {
@@ -2559,6 +2565,22 @@ export const hindsightExploreApi = {
       mission: input.mission ?? null,
       background: input.background ?? null,
     }),
+  /** Renames a bank or changes its mission/background. */
+  bankUpdate: (input: {
+    bankId: string;
+    name?: string | null;
+    mission?: string | null;
+    background?: string | null;
+  }): Promise<HindsightBankSummary> =>
+    wrapInvoke<HindsightBankSummary>("hindsight_bank_update", {
+      bankId: input.bankId,
+      name: input.name ?? null,
+      mission: input.mission ?? null,
+      background: input.background ?? null,
+    }),
+  /** Deletes a bank and everything it holds. */
+  bankDelete: (bankId: string): Promise<void> =>
+    wrapInvoke<void>("hindsight_bank_delete", { bankId }),
   bankStats: (bank: string): Promise<HindsightBankStats> =>
     wrapInvoke<HindsightBankStats>("hindsight_bank_stats", { bank }),
   memoriesList: (

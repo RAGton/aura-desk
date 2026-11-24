@@ -877,6 +877,46 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       return { handled: true, result: banks };
     }
 
+    case "hindsight_bank_update": {
+      const bankId = String(args.bankId ?? args.bank_id ?? "").trim();
+      if (!bankId) throw new Error("bank_id_required");
+      const name = asStr(args.name) ?? bankId;
+      const mission = asStr(args.mission);
+      const background = asStr(args.background);
+      if (allowLiveProxyFetch()) {
+        // The daemon updates a bank with the same PUT that creates one.
+        await fetchHindsightWrite("PUT", `/v1/default/banks/${encodeURIComponent(bankId)}`, {
+          name,
+          ...(mission
+            ? { mission, retain_mission: mission, reflect_mission: mission }
+            : {}),
+          ...(background ? { background } : {}),
+        });
+      }
+      return {
+        handled: true,
+        result: {
+          id: bankId,
+          name,
+          totalNodes: 0,
+          totalLinks: 0,
+          totalDocuments: 0,
+        } satisfies HindsightBankSummary,
+      };
+    }
+
+    case "hindsight_bank_delete": {
+      const bankId = String(args.bankId ?? args.bank_id ?? "").trim();
+      if (!bankId) throw new Error("bank_id_required");
+      if (allowLiveProxyFetch()) {
+        await fetchHindsightWrite(
+          "DELETE",
+          `/v1/default/banks/${encodeURIComponent(bankId)}`,
+        );
+      }
+      return { handled: true, result: null };
+    }
+
     case "hindsight_bank_create": {
       const bankId = String(args.bankId ?? args.bank_id ?? "").trim();
       if (!bankId) throw new Error("bank_id_required");
@@ -1884,6 +1924,11 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       }
       saveBrowserDb(db);
       return { handled: true, result: before - db.chatMessages.length };
+    }
+
+    case "hermes_chat_cancel": {
+      // The browser build answers synchronously — there is nothing to stop.
+      return { handled: true, result: false };
     }
 
     case "hermes_chat_send": {

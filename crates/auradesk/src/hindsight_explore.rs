@@ -224,6 +224,9 @@ pub struct HindsightGraphNode {
     pub context: Option<String>,
     pub entities: Vec<String>,
     pub color: Option<String>,
+    /// Cognitive layer of the memory (`episodic`, `semantic`, ...). The UI
+    /// colours the nodes by layer, so it has to survive the normalization.
+    pub fact_type: Option<String>,
 }
 
 /// An edge of the memory graph.
@@ -747,6 +750,11 @@ fn normalize_graph(raw: &Value) -> HindsightGraphPayload {
                     entities: loose_strings(data.get("entities").unwrap_or(&Value::Null)),
                     color: data
                         .get("color")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    fact_type: data
+                        .get("factType")
+                        .or_else(|| data.get("fact_type"))
                         .and_then(Value::as_str)
                         .map(str::to_string),
                 })
@@ -1340,6 +1348,37 @@ pub fn bank_create(
         total_links: stats.as_ref().map(|s| s.total_links).unwrap_or(0),
         total_documents: stats.as_ref().map(|s| s.total_documents).unwrap_or(0),
     })
+}
+
+/// Renames a bank or changes its mission/background.
+///
+/// The daemon updates a bank with the same `PUT` that creates one, so this
+/// is the create path restricted to an existing bank id.
+pub fn bank_update(
+    db: &Db,
+    bank_id: &str,
+    name: Option<&str>,
+    mission: Option<&str>,
+    background: Option<&str>,
+) -> Result<HindsightBankSummary, String> {
+    let clean_id = bank_id.trim();
+    if clean_id.is_empty() {
+        return Err("bank_id_required".to_string());
+    }
+    // Reuse the create/update path — it is the same PUT on the daemon.
+    bank_create(db, clean_id, name, mission, background)
+}
+
+/// Deletes a bank and everything it holds (`DELETE /v1/default/banks/{bank}`).
+pub fn bank_delete(db: &Db, bank_id: &str) -> Result<(), String> {
+    let clean_id = bank_id.trim();
+    if clean_id.is_empty() {
+        return Err("bank_id_required".to_string());
+    }
+    let (client, cfg) = explore_context(db)?;
+    let path = bank_path(clean_id);
+    let req = client.delete(endpoint_url(&cfg.base_url, &path));
+    send_status_ok(req).map_err(|err| format!("hindsight_bank_delete: {err}"))
 }
 
 /// Creates a new mental model in `bank` (`POST /v1/default/banks/{bank}/mental-models`).

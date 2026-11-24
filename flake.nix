@@ -145,6 +145,13 @@
           # to install a container runtime by hand.
           runtimeDependencies = [ pkgs.podman ];
 
+          # `runtimeDependencies` is not picked up by the Rust wrapper, so the
+          # runtime is put on the PATH explicitly — the app shells out to
+          # podman to provision the voice containers.
+          makeWrapperArgs = [
+            "--prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.podman ]}"
+          ];
+
           meta = {
             description = "AuraDesk desktop productivity application";
             homepage = "https://github.com/RAGton/aura-desk";

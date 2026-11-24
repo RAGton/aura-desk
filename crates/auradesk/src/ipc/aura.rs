@@ -59,6 +59,43 @@ pub async fn hindsight_bank_create(
     .map_err(|e| format!("hindsight_bank_create join: {e}"))?
 }
 
+/// Renames a bank or changes its mission/background.
+#[tauri::command]
+pub async fn hindsight_bank_update(
+    state: State<'_, AppState>,
+    bank_id: String,
+    name: Option<String>,
+    mission: Option<String>,
+    background: Option<String>,
+) -> Result<HindsightBankSummary, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::bank_update(
+            &db,
+            &bank_id,
+            name.as_deref(),
+            mission.as_deref(),
+            background.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("hindsight_bank_update join: {e}"))?
+}
+
+/// Deletes a bank and everything it holds.
+#[tauri::command]
+pub async fn hindsight_bank_delete(
+    state: State<'_, AppState>,
+    bank_id: String,
+) -> Result<(), String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::bank_delete(&db, &bank_id)
+    })
+    .await
+    .map_err(|e| format!("hindsight_bank_delete join: {e}"))?
+}
+
 #[tauri::command]
 pub async fn hindsight_bank_stats(
     state: State<'_, AppState>,

@@ -1,7 +1,25 @@
 /**
- * Utilities for extracting model reasoning/thought blocks (Antigravity/DeepSeek/Gemini style)
- * and preparing clean text for natural Brazilian Portuguese speech synthesis.
+ * Utilities for extracting model reasoning/thought blocks and preparing
+ * clean text for natural Brazilian Portuguese speech synthesis.
+ *
+ * Reasoning models expose their chain of thought under several tag names.
+ * The ones observed in the wild, and therefore supported here:
+ *
+ *   `<think>`      MiniMax, Qwen, DeepSeek, GLM
+ *   `<thought>`    Anthropic-style, Gemini-style, Hermes
+ *   `<thinking>`   GPT-5 style, older Hermes builds
+ *   `<reasoning>`  some open-weights models
+ *   `<reflection>` self-critique passes
+ *
+ * A block that is still open (the model is still streaming) is treated as a
+ * thought too, so the reasoning never leaks into the visible answer.
  */
+
+/** Tag names that open a reasoning block. */
+const THOUGHT_TAGS = ["think", "thought", "thinking", "reasoning", "reflection"];
+
+/** Matches an opening tag of any supported kind. */
+const OPEN_TAG = new RegExp(`<(${THOUGHT_TAGS.join("|")})\\s*>`, "i");
 
 export interface ParsedAuraMessage {
   thought: string | null;
@@ -10,48 +28,67 @@ export interface ParsedAuraMessage {
 }
 
 /**
- * Extracts `<thought>` or `<thinking>` blocks from raw model output.
- * Handles both completed blocks and streaming unclosed blocks.
+ * Extracts the reasoning blocks from raw model output.
+ *
+ * Handles completed blocks, blocks that are still streaming, and several
+ * blocks in the same message. Text outside the blocks is the answer.
  */
 export function parseAuraMessageThought(rawText: string): ParsedAuraMessage {
   if (!rawText) {
     return { thought: null, answer: "", isThinking: false };
   }
 
-  // 1. Closed tag: <thought>...</thought> or <thinking>...</thinking>
-  const closedMatch = rawText.match(/<(thought|thinking)>([\s\S]*?)<\/\1>/i);
-  if (closedMatch) {
-    const thought = closedMatch[2].trim();
-    const answer = rawText.replace(/<(thought|thinking)>[\s\S]*?<\/\1>/gi, "").trim();
-    return {
-      thought: thought.length > 0 ? thought : null,
-      answer,
-      isThinking: false,
-    };
+  const thoughts: string[] = [];
+  let answer = "";
+  let isThinking = false;
+  let cursor = 0;
+
+  for (;;) {
+    const rest = rawText.slice(cursor);
+    const open = OPEN_TAG.exec(rest);
+    if (!open) {
+      // Everything left is answer text.
+      answer += rest;
+      break;
+    }
+
+    // Text before the tag belongs to the answer.
+    answer += rest.slice(0, open.index);
+
+    const tag = open[1].toLowerCase();
+    const contentStart = cursor + open.index + open[0].length;
+
+    // Find the matching closing tag. When it is missing the block is still
+    // being streamed.
+    const closeRe = new RegExp(`</${tag}\\s*>`, "i");
+    const afterContent = rawText.slice(contentStart);
+    const close = closeRe.exec(afterContent);
+
+    if (!close) {
+      const openThought = afterContent.trim();
+      if (openThought) thoughts.push(openThought);
+      isThinking = true;
+      break;
+    }
+
+    const thought = afterContent.slice(0, close.index).trim();
+    if (thought) thoughts.push(thought);
+    cursor = contentStart + close.index + close[0].length;
   }
 
-  // 2. Open / Streaming tag: <thought>... without matching closing tag
-  const openMatch = rawText.match(/<(thought|thinking)>([\s\S]*)$/i);
-  if (openMatch) {
-    const thought = openMatch[2].trim();
-    const answer = rawText.replace(/<(thought|thinking)>[\s\S]*$/gi, "").trim();
-    return {
-      thought: thought.length > 0 ? thought : null,
-      answer,
-      isThinking: true,
-    };
-  }
+  const thought = thoughts.length > 0 ? thoughts.join("\n\n") : null;
 
   return {
-    thought: null,
-    answer: rawText,
-    isThinking: false,
+    thought,
+    answer: answer.trim(),
+    isThinking,
   };
 }
 
 /**
  * Strips code blocks, raw markdown formatting, and URLs so SpeechSynthesis
- * produces pleasant, conversational Brazilian Portuguese audio without reading syntax.
+ * produces pleasant, conversational Brazilian Portuguese audio without reading
+ * syntax.
  */
 export function cleanTextForSpeech(text: string): string {
   if (!text) return "";

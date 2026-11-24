@@ -828,7 +828,12 @@
       "clear": "Clara",
       "balanced": "Equilibrada",
       "solid": "Sólida"
-    }
+    },
+    "stopGenerating": "Parar",
+    "regenerate": "Gerar de novo",
+    "editMessage": "Editar",
+    "resend": "Enviar de novo",
+    "jumpToLatest": "Mensagem mais recente"
   },
   "sessions": {
     "title": "Centro de Conversas & Context Engine",
@@ -939,7 +944,10 @@
       "experience": "Grafo Experience",
       "observation": "Grafo Observation",
       "linkAll": "Todos os Links",
-      "filterPlaceholder": "Filtrar nós do grafo por texto ou contexto..."
+      "filterPlaceholder": "Filtrar nós do grafo por texto ou contexto...",
+      "nodeLimit": "Nós exibidos",
+      "nodeLimitValue": "{{limit}} nós",
+      "showing": "Exibindo {{shown}} de {{total}} nós"
     },
     "createBank": {
       "button": "Novo Banco",
@@ -1002,6 +1010,33 @@
       "title": "Operações em Background & Consolidação",
       "subtitle": "Histórico em tempo real de retenções, consolidações de observações e atualização de modelos mentais.",
       "empty": "Nenhuma operação recente registrada neste banco."
+    },
+    "graph": {
+      "zoomIn": "Aproximar",
+      "zoomOut": "Afastar",
+      "resetView": "Restaurar visão"
+    },
+    "stats": {
+      "pendingConsolidation": "Consolidação pendente",
+      "failedConsolidation": "Consolidação com falha",
+      "failedOperations": "Operações com falha",
+      "lastConsolidatedAt": "Última consolidação",
+      "lastMemoryWriteAt": "Última escrita",
+      "linksByType": "Links por tipo"
+    },
+    "health": {
+      "online": "Hindsight online",
+      "offline": "Hindsight offline",
+      "banks": "bancos",
+      "localMemories": "Memórias locais",
+      "dailyMaintenance": "Manutenção diária",
+      "lastMaintenance": "Última execução",
+      "on": "sim",
+      "off": "não"
+    },
+    "banks": {
+      "rename": "Renomear",
+      "delete": "Excluir"
     }
   },
   "knowledgePanel": {
