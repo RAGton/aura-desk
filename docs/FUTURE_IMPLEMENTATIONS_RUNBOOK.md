@@ -7,6 +7,39 @@
 
 ---
 
+## Backlog Detalhado no GitHub Issues (2026-11-24)
+
+Este runbook descreve a visão. O trabalho acionável — com critérios de aceite, dependências e o que já foi feito — vive em issues. As abaixo foram abertas em 2026-11-24 a partir da auditoria do código e do runtime de agente.
+
+| Issue | Tema | Prioridade | Status |
+|---|---|---|---|
+| [#22](https://github.com/RAGton/aura-desk/issues/22) | Runtime de agente: loop, planner, orchestrator, executor de ferramentas | alta | pronto |
+| [#23](https://github.com/RAGton/aura-desk/issues/23) | Engine de skills autônomo (descoberta, versionamento, avaliação, aprovação) | média | backlog |
+| [#24](https://github.com/RAGton/aura-desk/issues/24) | Interface de memória desacoplada + loop de aprendizado pós-tarefa | alta | pronto |
+| [#25](https://github.com/RAGton/aura-desk/issues/25) | Registro unificado de capacidades (MCP stdio/HTTP, skills, plugins) | alta | pronto |
+| [#26](https://github.com/RAGton/aura-desk/issues/26) | Context Engine: orçamento de tokens, compressão, checkpoints, linhagem | alta | backlog |
+| [#27](https://github.com/RAGton/aura-desk/issues/27) | Normalização de saída por API — o raciocínio do modelo não pode vazar | alta | pronto |
+| [#28](https://github.com/RAGton/aura-desk/issues/28) | Bootstrap do LightRAG validado numa instalação limpa | média | pronto |
+| [#29](https://github.com/RAGton/aura-desk/issues/29) | Welcome Wizard retomável, persistente e idempotente | média | backlog |
+| [#30](https://github.com/RAGton/aura-desk/issues/30) | Aura Control Center: observabilidade do agente | baixa | backlog |
+| [#31](https://github.com/RAGton/aura-desk/issues/31) | Superfície do Hindsight ainda inacessível da UI | média | pronto |
+| [#32](https://github.com/RAGton/aura-desk/issues/32) | Classificador de emoção por modelo (ONNX) — requer aprovação da dependência | baixa | bloqueado |
+| [#33](https://github.com/RAGton/aura-desk/issues/33) | Acabamento do chat: bubbles, estados com ação, atalhos | média | pronto |
+| [#34](https://github.com/RAGton/aura-desk/issues/34) | Ambiente de homologação (VM) para validar a instalação | média | backlog |
+| [#35](https://github.com/RAGton/aura-desk/issues/35) | E2E da galáxia falha por captura antes do canvas estabilizar | média | pronto |
+
+### O que a auditoria de 2026-11-24 já mudou
+
+- **Vazamento de raciocínio corrigido.** O provider MiniMax emite `<think>`; o parser só conhecia `<thought>`/`<thinking>`. Agora todos os formatos são reconhecidos, inclusive bloco ainda em streaming.
+- **Parar a geração passou a parar de verdade.** O filho do CLI é rastreado e morto; o botão e o Esc encerram a resposta.
+- **Ações de resposta no padrão das IAs de referência:** regenerar, editar e reenviar, voltar à mensagem mais recente.
+- **Grafo do Hindsight refeito.** Era branco sobre branco no tema claro (some e não desenhava); virou componente próprio com zoom, arraste, nó por grau, aresta por peso, legenda e tooltip.
+- **`fact_type` passou a chegar ao nó** — antes a cor por camada era uma mentira.
+- **Bancos do Hindsight agora podem ser renomeados e excluídos** — antes dava para criar e nunca remover.
+- **Limites do grafo e do recall viraram settings** (`hindsight.graph_node_limit`, `hindsight.recall_top_k`) com migration.
+
+---
+
 ## Visão Geral dos 5 Pilares Principais + Sugestões Estratégicas
 
 | Pilar | Módulo Alvo | Objetivo Principal | Migração SQLite Prevista |

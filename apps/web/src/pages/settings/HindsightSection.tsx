@@ -11,7 +11,6 @@ import {
 import { Badge, Button, Input, Switch } from "@/components/ui";
 import {
   hindsightApi,
-  settingsApi,
   type HindsightRecallItem,
   type HindsightStatus,
 } from "@/lib/ipc";
@@ -54,26 +53,16 @@ export function HindsightSection({
     void refreshStatus();
   }, [refreshStatus]);
 
-  // Load the persisted graph and recall limits.
+  // The limits follow the section's own settings flow: the parent holds the
+  // values and persists them through onSave.
   useEffect(() => {
-    let active = true;
-    void Promise.all([
-      settingsApi.get("hindsight.recall_top_k"),
-      settingsApi.get("hindsight.graph_node_limit"),
-    ])
-      .then(([topK, nodeLimit]) => {
-        if (!active) return;
-        if (typeof topK === "number" && topK > 0) setRecallTopK(topK);
-        if (typeof nodeLimit === "number" && nodeLimit > 0)
-          setGraphNodeLimit(nodeLimit);
-      })
-      .catch(() => {
-        // Keep the defaults when the settings cannot be read.
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    const topK = values["hindsight.recall_top_k"];
+    if (typeof topK === "number" && topK > 0) setRecallTopK(topK);
+    const nodeLimit = values["hindsight.graph_node_limit"];
+    if (typeof nodeLimit === "number" && nodeLimit > 0) {
+      setGraphNodeLimit(nodeLimit);
+    }
+  }, [values]);
 
   const enabled = values["hindsight.enabled"] !== false;
   const autoCreateBanks = values["hindsight.auto_create_banks"] !== false;
@@ -328,8 +317,10 @@ export function HindsightSection({
             onChange={(e) => {
               const value = Number(e.target.value);
               setRecallTopK(value);
-              void settingsApi.set("hindsight.recall_top_k", value).catch(() => {});
+              onChange("hindsight.recall_top_k", value);
             }}
+            onMouseUp={() => onSave("hindsight.recall_top_k", recallTopK)}
+            onTouchEnd={() => onSave("hindsight.recall_top_k", recallTopK)}
             className="w-full accent-violet-400 cursor-pointer"
           />
         </label>
@@ -351,8 +342,10 @@ export function HindsightSection({
             onChange={(e) => {
               const value = Number(e.target.value);
               setGraphNodeLimit(value);
-              void settingsApi.set("hindsight.graph_node_limit", value).catch(() => {});
+              onChange("hindsight.graph_node_limit", value);
             }}
+            onMouseUp={() => onSave("hindsight.graph_node_limit", graphNodeLimit)}
+            onTouchEnd={() => onSave("hindsight.graph_node_limit", graphNodeLimit)}
             className="w-full accent-violet-400 cursor-pointer"
           />
         </label>
