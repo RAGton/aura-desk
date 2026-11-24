@@ -19,6 +19,7 @@ import {
   Sparkles,
   Square,
   Terminal,
+  Trash2,
   Volume2,
   X,
 } from "lucide-react";
@@ -1377,19 +1378,19 @@ export function AuraChatPanel({
       >
         {/* Header */}
         <div className={`flex items-center justify-between border-b border-sky-400/15 px-4 py-3 shrink-0 ${transparency.header}`}>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-sky-400" aria-hidden="true" />
-            <span className="text-xs font-semibold text-slate-100">
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles className="h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
+            <span className="truncate text-xs font-semibold text-slate-100">
               {t("hermes.chatTitle")}
             </span>
             {messages.length > 0 && (
-              <Badge variant="neutral" className="text-[10px] px-1.5 py-0 h-4 rounded-full">
+              <Badge variant="neutral" className="h-4 shrink-0 rounded-full px-1.5 py-0 text-[10px]">
                 {messages.length}
               </Badge>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1">
             {/* Dock position + transparency */}
             <div className="relative" ref={layoutMenuRef}>
               <Button
@@ -1485,9 +1486,12 @@ export function AuraChatPanel({
                 setMessages([]);
                 void aiApi?.chatClear?.(activeSessionId).catch(() => {});
               }}
-              className="h-7 px-2 text-[11px] text-slate-300 hover:text-white rounded-full"
+              className="h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+              aria-label={t("hermes.clearChat")}
+              title={t("hermes.clearChat")}
             >
-              {t("hermes.clearChat")}
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden lg:inline">{t("hermes.clearChat")}</span>
             </Button>
 
             {showTranscript && (
@@ -1496,10 +1500,14 @@ export function AuraChatPanel({
                 size="sm"
                 variant="ghost"
                 onClick={() => setShowTranscript(false)}
-                className="h-7 px-2 text-[11px] text-slate-300 hover:text-white rounded-full"
+                className="h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+                aria-label={t("hermes.voice.hideTranscript")}
+                title={t("hermes.voice.hideTranscript")}
               >
                 <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("hermes.voice.hideTranscript")}
+                <span className="hidden lg:inline">
+                  {t("hermes.voice.hideTranscript")}
+                </span>
               </Button>
             )}
           </div>
