@@ -11,6 +11,7 @@ import {
 import { Badge, Button, Input, Switch } from "@/components/ui";
 import {
   hindsightApi,
+  settingsApi,
   type HindsightRecallItem,
   type HindsightStatus,
 } from "@/lib/ipc";
@@ -35,6 +36,10 @@ export function HindsightSection({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [recallQuery, setRecallQuery] = useState("");
   const [recallResults, setRecallResults] = useState<HindsightRecallItem[] | null>(null);
+  // How many memories a recall returns — persisted as a setting.
+  const [recallTopK, setRecallTopK] = useState(8);
+  // How many nodes the knowledge graph shows — persisted as a setting.
+  const [graphNodeLimit, setGraphNodeLimit] = useState(60);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -48,6 +53,27 @@ export function HindsightSection({
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  // Load the persisted graph and recall limits.
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      settingsApi.get("hindsight.recall_top_k"),
+      settingsApi.get("hindsight.graph_node_limit"),
+    ])
+      .then(([topK, nodeLimit]) => {
+        if (!active) return;
+        if (typeof topK === "number" && topK > 0) setRecallTopK(topK);
+        if (typeof nodeLimit === "number" && nodeLimit > 0)
+          setGraphNodeLimit(nodeLimit);
+      })
+      .catch(() => {
+        // Keep the defaults when the settings cannot be read.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const enabled = values["hindsight.enabled"] !== false;
   const autoCreateBanks = values["hindsight.auto_create_banks"] !== false;
@@ -75,7 +101,11 @@ export function HindsightSection({
     setBusy("recall");
     setFeedback(null);
     try {
-      const items = await hindsightApi.recall(recallQuery.trim(), defaultBank, 8);
+      const items = await hindsightApi.recall(
+        recallQuery.trim(),
+        defaultBank,
+        recallTopK
+      );
       setRecallResults(items);
     } catch (err) {
       setFeedback(String(err));
@@ -277,6 +307,55 @@ export function HindsightSection({
             ? t("settings.hindsight.lastMaintenance", { date: status.lastMaintenanceDate })
             : t("settings.hindsight.neverMaintained")}
         </span>
+      </div>
+
+      {/* Retrieval and graph limits */}
+      <div className="grid gap-3 pt-3 border-t border-slate-800/60 sm:grid-cols-2">
+        <label className="space-y-1">
+          <span className="flex items-center justify-between text-[11px] text-slate-400">
+            {t("settings.hindsight.recallTopK")}
+            <span className="font-semibold text-slate-200 tabular-nums">
+              {recallTopK}
+            </span>
+          </span>
+          <input
+            type="range"
+            min={1}
+            max={50}
+            step={1}
+            value={recallTopK}
+            aria-label={t("settings.hindsight.recallTopK")}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              setRecallTopK(value);
+              void settingsApi.set("hindsight.recall_top_k", value).catch(() => {});
+            }}
+            className="w-full accent-violet-400 cursor-pointer"
+          />
+        </label>
+
+        <label className="space-y-1">
+          <span className="flex items-center justify-between text-[11px] text-slate-400">
+            {t("settings.hindsight.graphNodeLimit")}
+            <span className="font-semibold text-slate-200 tabular-nums">
+              {graphNodeLimit}
+            </span>
+          </span>
+          <input
+            type="range"
+            min={25}
+            max={200}
+            step={25}
+            value={graphNodeLimit}
+            aria-label={t("settings.hindsight.graphNodeLimit")}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              setGraphNodeLimit(value);
+              void settingsApi.set("hindsight.graph_node_limit", value).catch(() => {});
+            }}
+            className="w-full accent-violet-400 cursor-pointer"
+          />
+        </label>
       </div>
 
       {/* Recall test */}

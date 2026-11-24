@@ -107,6 +107,10 @@ pub enum SettingsKey {
     HindsightDailyMaintenance,
     /// UTC date (YYYY-MM-DD) of the last completed daily memory maintenance run.
     HindsightLastMaintenanceDate,
+    /// How many nodes the knowledge graph shows at once.
+    HindsightGraphNodeLimit,
+    /// How many memories a recall returns.
+    HindsightRecallTopK,
 }
 
 impl SettingsKey {
@@ -162,6 +166,8 @@ impl SettingsKey {
             Self::HindsightAutoCreateBanks => "hindsight.auto_create_banks",
             Self::HindsightDailyMaintenance => "hindsight.daily_maintenance",
             Self::HindsightLastMaintenanceDate => "hindsight.last_maintenance_date",
+            Self::HindsightGraphNodeLimit => "hindsight.graph_node_limit",
+            Self::HindsightRecallTopK => "hindsight.recall_top_k",
         }
     }
 

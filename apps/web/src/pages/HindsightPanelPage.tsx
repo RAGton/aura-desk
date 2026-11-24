@@ -37,6 +37,7 @@ import {
 import {
   hindsightApi,
   hindsightExploreApi,
+  settingsApi,
   type HindsightBankStats,
   type HindsightBankSummary,
   type HindsightDirective,
@@ -282,7 +283,8 @@ export function HindsightPanelPage({
   const [graphFactType, setGraphFactType] = useState<CognitiveLayerFilter>("");
   const [graphQuery, setGraphQuery] = useState("");
   const [graphLinkTypeFilter, setGraphLinkTypeFilter] = useState("");
-  // How many nodes the graph shows. The backend clamps this to 200.
+  // How many nodes the graph shows. The backend clamps this to 200. The
+  // value is persisted as a setting so it survives a restart.
   const [graphNodeLimit, setGraphNodeLimit] = useState(60);
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
 
@@ -337,6 +339,24 @@ export function HindsightPanelPage({
   useEffect(() => {
     void loadBanks();
   }, [loadBanks]);
+
+  // The persisted graph limits.
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      settingsApi.get("hindsight.graph_node_limit"),
+    ])
+      .then(([limit]) => {
+        if (!active) return;
+        if (typeof limit === "number" && limit > 0) setGraphNodeLimit(limit);
+      })
+      .catch(() => {
+        // Keep the defaults when the settings cannot be read.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // The daemon's own health, so the screen can say what is wrong instead of
   // showing an empty list.
@@ -536,6 +556,12 @@ export function HindsightPanelPage({
   };
 
   /** Renames a bank. The id never changes — only its display name. */
+  /** Keeps the graph size between sessions. */
+  const handleGraphNodeLimitChange = useCallback((limit: number) => {
+    setGraphNodeLimit(limit);
+    void settingsApi.set("hindsight.graph_node_limit", limit).catch(() => {});
+  }, []);
+
   const handleRenameBank = async () => {
     const bankId = editingBankId;
     const name = editingBankName.trim();
@@ -2184,7 +2210,7 @@ export function HindsightPanelPage({
                       <Select
                         containerClassName="w-full sm:w-36"
                         value={String(graphNodeLimit)}
-                        onChange={(e) => setGraphNodeLimit(Number(e.target.value))}
+                        onChange={(e) => handleGraphNodeLimitChange(Number(e.target.value))}
                         aria-label={t("hindsightPanel.graphLayers.nodeLimit")}
                       >
                         {[25, 60, 100, 150, 200].map((limit) => (

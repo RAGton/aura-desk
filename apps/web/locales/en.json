@@ -616,7 +616,9 @@
       "testRecallButton": "Recall memory",
       "emptyRecall": "No matching memories found.",
       "guideTitle": "First-time setup guide (Windows, Linux, and macOS)",
-      "guideBody": "Even without Hindsight installed, Aura works out of the box using the built-in SQLite memory store. To enable the full Hindsight daemon with Mental Models & memory graphs: 1) Configure an AI model (local Ollama or online API key); 2) Click Install local Hindsight (isolated Python/uv inside your user data folder); 3) Click Start daemon."
+      "guideBody": "Even without Hindsight installed, Aura works out of the box using the built-in SQLite memory store. To enable the full Hindsight daemon with Mental Models & memory graphs: 1) Configure an AI model (local Ollama or online API key); 2) Click Install local Hindsight (isolated Python/uv inside your user data folder); 3) Click Start daemon.",
+      "recallTopK": "Memories per recall",
+      "graphNodeLimit": "Nodes in the knowledge graph"
     },
     "updates": {
       "title": "Updates & Crash Logs",

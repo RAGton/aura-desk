@@ -125,7 +125,9 @@ fn validate(key: SettingsKey, value: &Value) -> Result<(), CoreError> {
         | SettingsKey::RoutineBreakIntervalMin
         | SettingsKey::AlertsMaxQueueSize
         | SettingsKey::ProposalsTtlHours
-        | SettingsKey::DesktopIdleThresholdMin => {
+        | SettingsKey::DesktopIdleThresholdMin
+        | SettingsKey::HindsightGraphNodeLimit
+        | SettingsKey::HindsightRecallTopK => {
             value.is_number() && value.as_u64().is_some_and(|n| n > 0)
         }
         SettingsKey::AppAutostart

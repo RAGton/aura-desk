@@ -616,7 +616,9 @@
       "testRecallButton": "Consultar memória",
       "emptyRecall": "Nenhuma memória encontrada para essa consulta.",
       "guideTitle": "Guia rápido de configuração (Windows, Linux e macOS)",
-      "guideBody": "Sem o Hindsight instalado, a Aura já funciona normalmente usando o banco SQLite embutido. Para ativar o motor completo com Mental Models e grafos de memória: 1) Configure um provedor de IA (local via Ollama ou chave online); 2) Clique em Instalar Hindsight local (usa Python/uv isolado no seu usuário); 3) Clique em Iniciar daemon."
+      "guideBody": "Sem o Hindsight instalado, a Aura já funciona normalmente usando o banco SQLite embutido. Para ativar o motor completo com Mental Models e grafos de memória: 1) Configure um provedor de IA (local via Ollama ou chave online); 2) Clique em Instalar Hindsight local (usa Python/uv isolado no seu usuário); 3) Clique em Iniciar daemon.",
+      "recallTopK": "Memórias por recuperação",
+      "graphNodeLimit": "Nós no grafo de conhecimento"
     },
     "updates": {
       "title": "Atualizações & Logs de Crash",
