@@ -307,8 +307,53 @@ describe("AuraChatPanel", () => {
     }
   });
 
-  it("creates a dedicated new chat session when clicking + New chat session", async () => {
+  it("walks the prompt history with the arrow keys and documents the shortcuts", async () => {
     renderPanel();
+
+    const input = screen.getByPlaceholderText(
+      /create task: Review sprint backlog/i
+    ) as HTMLInputElement;
+
+    const send = async (text: string) => {
+      fireEvent.change(input, { target: { value: text } });
+      fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+      // Wait for the turn to settle before sending the next one.
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /^Send$/i })).toBeInTheDocument();
+      });
+    };
+
+    await send("first prompt");
+    await send("second prompt");
+
+    // The shortcuts are written down under the composer.
+    expect(screen.getByText("sends")).toBeInTheDocument();
+    expect(screen.getByText("history")).toBeInTheDocument();
+    expect(screen.getByText("commands")).toBeInTheDocument();
+
+    // ↑ recalls the last prompt, and again the one before it.
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("second prompt");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("first prompt");
+
+    // ↓ walks forward again.
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("second prompt");
+
+    // And past the end it gives back the draft that was being typed.
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("");
+
+    // Typing by hand leaves the history behind.
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("second prompt");
+    fireEvent.change(input, { target: { value: "half typed" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("second prompt");
+  });
+
+  it("creates a dedicated new chat session when clicking + New chat session", async () => {    renderPanel();
 
     fireEvent.click(screen.getByTestId("aura-status-menu-btn"));
     const newBtn = await screen.findByTestId("aura-new-session-btn");

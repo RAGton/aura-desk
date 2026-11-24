@@ -191,6 +191,18 @@ export function AuraChatPanel({
   const historyLoadedRef = useRef(false);
   const [useCli, setUseCli] = useState(false);
   const [prompt, setPrompt] = useState("");
+  // The prompts already sent in this session, so ↑/↓ can walk through them.
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const historyIndexRef = useRef<number | null>(null);
+  const historyDraftRef = useRef("");
+  /**
+   * The exact text the history just put in the field.
+   *
+   * React does not fire `onChange` for a value it sets itself, so the field
+   * compares what it receives against this to tell a recall apart from a
+   * keystroke by the reader.
+   */
+  const historyProgrammaticRef = useRef<string | null>(null);
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<AuraChatMessage[]>([]);
   const [showTranscript, setShowTranscript] = useState(true);
@@ -748,6 +760,9 @@ export function AuraChatPanel({
 
       sendingRef.current = true;
       lastPromptRef.current = raw;
+      setPromptHistory((prev) => (prev[prev.length - 1] === raw ? prev : [...prev, raw]));
+      historyIndexRef.current = null;
+      historyDraftRef.current = "";
       setSending(true);
       setErrorMsg(null);
       setFeedback(null);
@@ -887,6 +902,51 @@ export function AuraChatPanel({
     e.preventDefault();
     void sendPrompt();
   };
+
+  /**
+   * Walks the prompt history with ↑/↓, the way a shell does it.
+   *
+   * ↑ goes back to the previous prompt, ↓ walks forward again and the last
+   * ↓ restores whatever was being typed before the first ↑.
+   */
+  const handlePromptKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      const list = promptHistory;
+      if (list.length === 0) return;
+      event.preventDefault();
+
+      const current = historyIndexRef.current;
+      if (event.key === "ArrowUp") {
+        if (current === null) {
+          historyDraftRef.current = prompt;
+          const next = list.length - 1;
+          historyIndexRef.current = next;
+          historyProgrammaticRef.current = list[next];
+          setPrompt(list[next]);
+        } else if (current > 0) {
+          const next = current - 1;
+          historyIndexRef.current = next;
+          historyProgrammaticRef.current = list[next];
+          setPrompt(list[next]);
+        }
+        return;
+      }
+
+      if (current === null) return;
+      if (current < list.length - 1) {
+        const next = current + 1;
+        historyIndexRef.current = next;
+        historyProgrammaticRef.current = list[next];
+        setPrompt(list[next]);
+      } else {
+        historyIndexRef.current = null;
+        historyProgrammaticRef.current = historyDraftRef.current;
+        setPrompt(historyDraftRef.current);
+      }
+    },
+    [prompt, promptHistory]
+  );
 
   const stopAndSaveWavCapture = useCallback(async () => {
     const sampleRate = audioCtxRef.current?.sampleRate ?? 16_000;
@@ -1932,7 +1992,16 @@ export function AuraChatPanel({
               containerClassName="flex-1 min-w-[120px]"
               className="border-0 bg-transparent px-2 py-1 text-xs text-slate-100 placeholder:text-slate-400 focus-visible:ring-0"
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                // Typing by hand leaves the history — the next ↑ starts over.
+                if (historyProgrammaticRef.current !== e.target.value) {
+                  historyIndexRef.current = null;
+                  historyDraftRef.current = "";
+                }
+                historyProgrammaticRef.current = null;
+                setPrompt(e.target.value);
+              }}
+              onKeyDown={handlePromptKeyDown}
               placeholder={t("hermes.chatPlaceholder")}
               aria-label={t("hermes.chatTitle")}
             />
@@ -1964,6 +2033,34 @@ export function AuraChatPanel({
               </Button>
             )}
           </form>
+
+          {/* The shortcuts are written down, so nobody has to guess them. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-0.5 text-[10px] text-slate-500">
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                Enter
+              </kbd>
+              {t("hermes.shortcutSend")}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                ↑
+              </kbd>
+              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                ↓
+              </kbd>
+              {t("hermes.shortcutHistory")}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                Ctrl
+              </kbd>
+              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                K
+              </kbd>
+              {t("hermes.shortcutCommands")}
+            </span>
+          </div>
         </div>
       </div>
     </div>
