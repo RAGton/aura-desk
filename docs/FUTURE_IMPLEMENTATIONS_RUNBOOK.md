@@ -46,6 +46,18 @@ Este runbook descreve a visão. O trabalho acionável — com critérios de acei
 - **O histórico do composer** — ↑ e ↓ percorrem os prompts já enviados na sessão, e o rascunho volta intacto ao passar do primeiro para o último. Os atalhos ficaram escritos embaixo do composer em vez de serem adivinhados.
 - **O header do chat para de quebrar em tela estreita** — o título trunca, os botões viram ícones e o rótulo some abaixo de `lg`.
 
+### A instalação no NixOS passou a declarar os dois stacks (2026-11-25)
+
+- **`programs.auradesk.raglight`** — o serviço de conhecimento é declarado na instalação: `uv` e `python3` para o provisionamento, as bibliotecas nativas que as wheels carregam em runtime e as pastas que ele indexa. A declaração chega ao app por `AURADESK_RAGLIGHT_*` no ambiente, e vale enquanto o valor não foi mudado à mão em Ajustes.
+- **`programs.auradesk.voice.pullImages`** — as duas imagens da voz são baixadas no login para o store rootless do usuário, que é o store que o app usa. Um unit de sistema encheria o store rootful e o app ainda baixaria tudo.
+- **`docs/NIXOS_INSTALLATION.md`** — a página que explica o todo: o que cada declaração traz, a regra de precedência e como conferir que valeu.
+
+### A tela do RAGLight ficou utilizável (2026-11-25)
+
+- A aba LightRAG agora diz **qual serviço** ela está falando (LightRAG ou RAGLight gerenciado) e oferece o próximo passo na própria página: instalar, iniciar, parar ou reindexar.
+- As abas e a busca só aparecem com o serviço no ar — serviço morto não é consultado.
+- A seção de Ajustes virou **três passos numerados** (instalar → iniciar → indexar), cada um com uma linha explicando o que faz; o passo impossível agora diz por quê.
+
 ---
 
 ## Visão Geral dos 5 Pilares Principais + Sugestões Estratégicas
