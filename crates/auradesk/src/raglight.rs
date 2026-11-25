@@ -243,7 +243,7 @@ pub fn parse_folder_list(raw: &str) -> Vec<String> {
 pub fn load_config(db: &Db) -> RaglightConfig {
     let settings = SettingsService::new(db);
     let folders_raw = read_str(&settings, SettingsKey::RaglightFolders, "");
-    RaglightConfig {
+    let mut config = RaglightConfig {
         enabled: read_bool(&settings, SettingsKey::RaglightEnabled, false),
         mode: read_str(&settings, SettingsKey::RaglightMode, "managed_local"),
         base_url: read_str(
@@ -261,6 +261,151 @@ pub fn load_config(db: &Db) -> RaglightConfig {
         llm_model: read_str(&settings, SettingsKey::RaglightLlmModel, "qwen3:0.6b"),
         vector_store: read_str(&settings, SettingsKey::RaglightVectorStore, "chroma"),
         folders: parse_folder_list(&folders_raw),
+    };
+    apply_env_overrides(&mut config, &settings);
+    config
+}
+
+/// Reads a value from the environment, ignoring an empty one.
+fn env_str(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Reads a boolean from the environment.
+fn env_bool(name: &str) -> Option<bool> {
+    env_str(name).map(|v| {
+        matches!(
+            v.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+/// The stored value of a setting, or `None` when it was never written.
+fn stored_str(settings: &SettingsService, key: SettingsKey) -> Option<String> {
+    settings
+        .get(key)
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// The stored value of a boolean setting, or `None` when it was never written.
+fn stored_bool(settings: &SettingsService, key: SettingsKey) -> Option<bool> {
+    settings.get(key).ok().flatten().and_then(|v| v.as_bool())
+}
+
+/// Replaces a string setting with the environment value, but only while the
+/// stored value still is the built-in default.
+///
+/// The migration seeds every setting with its default, so "was it changed?"
+/// can only be answered by comparing with that default — and that is the
+/// right question anyway: the installation declares the service until the
+/// reader overrides it by hand.
+fn override_str(
+    target: &mut String,
+    settings: &SettingsService,
+    key: SettingsKey,
+    default: &str,
+    env_name: &str,
+) {
+    let stored = stored_str(settings, key).unwrap_or_else(|| default.to_string());
+    if stored != default {
+        return;
+    }
+    if let Some(value) = env_str(env_name) {
+        *target = value;
+    }
+}
+
+/// The boolean counterpart of [`override_str`].
+fn override_bool(
+    target: &mut bool,
+    settings: &SettingsService,
+    key: SettingsKey,
+    default: bool,
+    env_name: &str,
+) {
+    let stored = stored_bool(settings, key).unwrap_or(default);
+    if stored != default {
+        return;
+    }
+    if let Some(value) = env_bool(env_name) {
+        *target = value;
+    }
+}
+
+/// Applies the environment overrides on top of the stored settings.
+///
+/// This is how a NixOS installation declares the knowledge service: the
+/// flake writes `AURADESK_RAGLIGHT_*` into the session and the app picks
+/// them up.
+///
+/// The machine's declaration wins only while the reader has not said
+/// otherwise: a setting that still holds its built-in default is replaced
+/// by the environment, and one that was changed by hand is left alone.
+pub fn apply_env_overrides(config: &mut RaglightConfig, settings: &SettingsService) {
+    override_bool(
+        &mut config.enabled,
+        settings,
+        SettingsKey::RaglightEnabled,
+        false,
+        "AURADESK_RAGLIGHT_ENABLED",
+    );
+    override_str(
+        &mut config.base_url,
+        settings,
+        SettingsKey::RaglightBaseUrl,
+        "http://127.0.0.1:8000",
+        "AURADESK_RAGLIGHT_BASE_URL",
+    );
+    override_str(
+        &mut config.provider,
+        settings,
+        SettingsKey::RaglightProvider,
+        "ollama",
+        "AURADESK_RAGLIGHT_PROVIDER",
+    );
+    override_str(
+        &mut config.vector_store,
+        settings,
+        SettingsKey::RaglightVectorStore,
+        "chroma",
+        "AURADESK_RAGLIGHT_VECTOR_STORE",
+    );
+    override_str(
+        &mut config.embedding_model,
+        settings,
+        SettingsKey::RaglightEmbeddingModel,
+        "nomic-embed-text",
+        "AURADESK_RAGLIGHT_EMBEDDING_MODEL",
+    );
+    override_str(
+        &mut config.llm_model,
+        settings,
+        SettingsKey::RaglightLlmModel,
+        "qwen3:0.6b",
+        "AURADESK_RAGLIGHT_LLM_MODEL",
+    );
+    override_str(
+        &mut config.api_key,
+        settings,
+        SettingsKey::RaglightApiKey,
+        "",
+        "AURADESK_RAGLIGHT_API_KEY",
+    );
+    if !config.folders.is_empty() {
+        return;
+    }
+    if let Some(value) = env_str("AURADESK_RAGLIGHT_FOLDERS") {
+        let folders = parse_folder_list(&value);
+        if !folders.is_empty() {
+            config.folders = folders;
+        }
     }
 }
 
@@ -1676,8 +1821,45 @@ mod tests {
     }
 
     #[test]
-    fn writes_managed_raglight_config_and_server_script() {
+    fn the_machine_declaration_fills_the_defaults_and_the_reader_wins_over_it() {
         let db = Db::open_in_memory().unwrap();
+        let settings = SettingsService::new(&db);
+
+        // The migration seeds every setting with its default, so the
+        // environment may take over — until the reader changes it.
+        let cfg = load_config(&db);
+        assert_eq!(cfg.provider, "ollama");
+        assert_eq!(cfg.vector_store, "chroma");
+        assert!(cfg.folders.is_empty());
+
+        std::env::set_var("AURADESK_RAGLIGHT_PROVIDER", "openai");
+        std::env::set_var("AURADESK_RAGLIGHT_VECTOR_STORE", "qdrant");
+        std::env::set_var("AURADESK_RAGLIGHT_FOLDERS", "/home/u/docs;/home/u/notes");
+
+        let declared = load_config(&db);
+        assert_eq!(declared.provider, "openai");
+        assert_eq!(declared.vector_store, "qdrant");
+        assert_eq!(
+            declared.folders,
+            vec!["/home/u/docs".to_string(), "/home/u/notes".to_string()]
+        );
+
+        // A value the reader chose by hand is left alone.
+        settings
+            .set(SettingsKey::RaglightProvider, serde_json::json!("local"))
+            .expect("provider setting");
+        let overridden = load_config(&db);
+        assert_eq!(overridden.provider, "local");
+        assert_eq!(overridden.vector_store, "qdrant");
+
+        std::env::remove_var("AURADESK_RAGLIGHT_PROVIDER");
+        std::env::remove_var("AURADESK_RAGLIGHT_VECTOR_STORE");
+        std::env::remove_var("AURADESK_RAGLIGHT_FOLDERS");
+
+    }
+
+    #[test]
+    fn writes_managed_raglight_config_and_server_script() {        let db = Db::open_in_memory().unwrap();
         let cfg = load_config(&db);
         let tmp =
             std::env::temp_dir().join(format!("auradesk_raglight_test_{}", std::process::id()));

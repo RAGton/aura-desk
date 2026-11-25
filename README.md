@@ -62,6 +62,12 @@ The application owns the containers (rootless podman, running as the desktop
 user) and starts them on launch, so there is nothing to configure by hand and
 no systemd unit fighting for the same host port.
 
+On NixOS the knowledge service (RAGLight) is declared in the same place:
+`raglight.enable` brings the toolchain and the shared libraries its wheels
+need, and the folders it indexes. See
+[docs/NIXOS_INSTALLATION.md](docs/NIXOS_INSTALLATION.md) for the whole
+picture — both stacks declared at install time.
+
 Brazilian Portuguese voices: `pf_dora` (female), `pm_alex` and `pm_santa`
 (male). English: `af_heart`, `af_bella`, `am_michael`, and 30 more — the
 full catalogue is listed in the voice settings panel.

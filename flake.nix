@@ -256,6 +256,53 @@
             sttContainerPort = 8000;
             sttModel = "deepdml/faster-whisper-large-v3-turbo-ct2";
             sttModelSize = "large-v3-turbo";
+
+            # The knowledge service (RAGLight) is installed by the app into
+            # its own virtual environment. What the machine has to provide is
+            # the toolchain and the shared libraries the wheels need.
+            raglightProvider = "ollama";
+            raglightVectorStore = "chroma";
+            raglightBaseUrl = "http://127.0.0.1:8000";
+
+            # Native libraries the Python wheels of the knowledge service
+            # load at runtime. Without them the app installs everything and
+            # then fails on the first import.
+            raglightRuntimeLibs = with pkgs; [
+              stdenv.cc.cc.lib
+              zlib
+              openssl
+              curl
+              libxml2
+              icu
+              readline
+              ncurses
+              util-linux
+              krb5
+              zstd
+              lz4
+              xz
+              bzip2
+              sqlite
+              libffi
+              gmp
+            ];
+
+            # Pulls the voice images into the user's rootless podman store,
+            # so the first launch of the app does not wait for a download.
+            voiceImagePull = pkgs.writeShellApplication {
+              name = "auradesk-voice-images";
+              runtimeInputs = [ pkgs.podman ];
+              text = ''
+                for image in ${cfg.voice.image} ${cfg.voice.stt.image}; do
+                  if podman image exists "$image"; then
+                    echo "auradesk: $image already present"
+                  else
+                    echo "auradesk: pulling $image"
+                    podman pull "$image" || echo "auradesk: failed to pull $image"
+                  fi
+                done
+              '';
+            };
           in
           {
             options.programs.auradesk = {
@@ -285,6 +332,15 @@
                   default = voiceHostPort;
                   description = "Host port the voice service is published on (loopback only).";
                 };
+                pullImages = lib.mkOption {
+                  type = lib.types.bool;
+                  default = true;
+                  description = ''
+                    Pull the voice images into the user's rootless podman
+                    store at login, so the first launch of the application
+                    does not wait for a download of about a gigabyte.
+                  '';
+                };
                 stt = {
                   enable = lib.mkEnableOption "AuraDesk local speech-to-text service (Whisper)";
                   image = lib.mkOption {
@@ -309,11 +365,49 @@
                   };
                 };
               };
+              raglight = {
+                enable = lib.mkEnableOption ''
+                  AuraDesk local knowledge service (RAGLight). Declares the
+                  toolchain the app needs to install the service and the
+                  folders it indexes.
+                '';
+                provider = lib.mkOption {
+                  type = lib.types.str;
+                  default = raglightProvider;
+                  description = "Embedding/LLM provider the knowledge service uses.";
+                };
+                vectorStore = lib.mkOption {
+                  type = lib.types.str;
+                  default = raglightVectorStore;
+                  description = "Vector store the knowledge service uses (chroma or qdrant).";
+                };
+                baseUrl = lib.mkOption {
+                  type = lib.types.str;
+                  default = raglightBaseUrl;
+                  description = "Address the knowledge service listens on.";
+                };
+                folders = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  default = [ ];
+                  description = ''
+                    Folders the knowledge service indexes. Declared here so
+                    the installation knows what the machine knows; a folder
+                    chosen by hand in Settings wins over this list.
+                  '';
+                };
+              };
             };
 
             config = lib.mkIf cfg.enable {
               environment.systemPackages = [ cfg.package ]
-                ++ lib.optional cfg.mcp.enable cfg.mcp.package;
+                ++ lib.optional cfg.mcp.enable cfg.mcp.package
+                # The knowledge service is installed by the app into its own
+                # virtual environment; `uv` is its fast path and `python3`
+                # its fallback.
+                ++ lib.optionals cfg.raglight.enable [
+                  pkgs.uv
+                  pkgs.python3
+                ];
 
               # The voice stack needs a container runtime. Enabling it here
               # removes the "install Podman first" step from the user's
@@ -325,6 +419,49 @@
               # same host port as a second, rootful podman store and the two
               # would fight over it.
               virtualisation.podman.enable = lib.mkIf cfg.voice.enable true;
+
+              # The images are pulled into the USER's rootless store, because
+              # that is the store the application uses. A system unit would
+              # fill the rootful store instead, and the app would still
+              # download everything.
+              systemd.user.services.auradesk-voice-images = lib.mkIf
+                (cfg.voice.enable && cfg.voice.pullImages)
+                {
+                  description = "Fetch the AuraDesk voice container images";
+                  wantedBy = [ "default.target" ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    RemainAfterExit = true;
+                    ExecStart = lib.getExe voiceImagePull;
+                  };
+                };
+
+              # The wheels of the knowledge service load native libraries
+              # that NixOS does not ship in the default paths.
+              programs.nix-ld = lib.mkIf cfg.raglight.enable {
+                enable = true;
+                libraries = raglightRuntimeLibs;
+              };
+
+              # What the machine declares about the knowledge service. The
+              # app reads these and uses them while the reader has not
+              # chosen differently in Settings.
+              environment.sessionVariables = lib.mkMerge (
+                lib.optionals cfg.raglight.enable [
+                  {
+                    AURADESK_RAGLIGHT_ENABLED = "true";
+                    AURADESK_RAGLIGHT_BASE_URL = cfg.raglight.baseUrl;
+                    AURADESK_RAGLIGHT_PROVIDER = cfg.raglight.provider;
+                    AURADESK_RAGLIGHT_VECTOR_STORE = cfg.raglight.vectorStore;
+                  }
+                ]
+                ++ lib.optional
+                  (cfg.raglight.enable && cfg.raglight.folders != [ ])
+                  {
+                    AURADESK_RAGLIGHT_FOLDERS =
+                      lib.concatStringsSep ";" cfg.raglight.folders;
+                  }
+              );
             };
           };
       });
