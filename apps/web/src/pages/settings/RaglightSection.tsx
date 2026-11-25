@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Check,
   Database,
   FolderOpen,
   FolderPlus,
@@ -28,6 +29,52 @@ export interface RaglightSectionProps {
   disabled: boolean;
   onChange: (key: string, value: unknown) => void;
   onSave: (key: string, value: unknown) => void;
+}
+
+/**
+ * One step of bringing the knowledge service up.
+ *
+ * The number says where it is in the sequence, the tick says it is behind
+ * us, and the line below says what the step does — so the order is never
+ * something the reader has to guess.
+ */
+function Step({
+  n,
+  done,
+  title,
+  hint,
+  children,
+}: {
+  n: number;
+  done: boolean;
+  title: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-xl border p-3 ${
+        done
+          ? "border-emerald-400/35 bg-emerald-500/10"
+          : "border-aura-border/40 bg-aura-canvas/50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+            done
+              ? "bg-emerald-400/20 text-emerald-300"
+              : "bg-aura-accent/20 text-aura-accent"
+          }`}
+        >
+          {done ? <Check className="h-3 w-3" aria-hidden="true" /> : n}
+        </span>
+        <span className="text-xs font-semibold text-aura-primary">{title}</span>
+      </div>
+      <p className="text-[11px] leading-relaxed text-aura-text-muted">{hint}</p>
+      <div className="mt-auto">{children}</div>
+    </div>
+  );
 }
 
 function parseFolderList(raw: unknown): string[] {
@@ -438,74 +485,113 @@ export function RaglightSection({
         </div>
       </div>
 
-      {/* Provisioning & Server Actions */}
-      <div className="flex flex-wrap items-center gap-2 pt-1">
+      {/* Provisioning & Server Actions
+          The three steps, in order. A flat row of four buttons left the
+          reader guessing which one comes first and which ones are even
+          possible yet. */}
+      <div className="space-y-2 pt-1" data-testid="raglight-steps">
         {mode === "managed_local" && (
-          <>
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={isWorking}
-              onClick={() => void runAction("provision", () => raglightApi.provision())}
-              className="rounded-xl text-xs font-semibold"
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Step
+              n={1}
+              done={Boolean(status?.installed)}
+              title={t("settings.raglight.stepInstall")}
+              hint={t("settings.raglight.stepInstallHint")}
             >
-              <Wrench className="h-3.5 w-3.5" />
-              {busy === "provision"
-                ? t("settings.raglight.provisioning")
-                : t("settings.raglight.provisionButton")}
-            </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={isWorking}
+                loading={busy === "provision"}
+                onClick={() =>
+                  void runAction("provision", () => raglightApi.provision())
+                }
+                className="rounded-xl text-xs font-semibold"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+                {busy === "provision"
+                  ? t("settings.raglight.provisioning")
+                  : t("settings.raglight.provisionButton")}
+              </Button>
+            </Step>
 
-            {status?.running ? (
+            <Step
+              n={2}
+              done={Boolean(status?.running)}
+              title={t("settings.raglight.stepStart")}
+              hint={t("settings.raglight.stepStartHint")}
+            >
+              {status?.running ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={isWorking}
+                  onClick={() => void runAction("stop", () => raglightApi.stop())}
+                  className="rounded-xl text-xs font-semibold"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                  {t("settings.raglight.stopButton")}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={isWorking || !status?.installed}
+                  title={
+                    status?.installed
+                      ? undefined
+                      : t("settings.raglight.stepNeedsInstall")
+                  }
+                  onClick={() => void runAction("start", () => raglightApi.start())}
+                  className="rounded-xl text-xs font-semibold"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  {busy === "start"
+                    ? t("settings.raglight.starting")
+                    : t("settings.raglight.startButton")}
+                </Button>
+              )}
+            </Step>
+
+            <Step
+              n={3}
+              done={false}
+              title={t("settings.raglight.stepIndex")}
+              hint={t("settings.raglight.stepIndexHint")}
+            >
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={isWorking}
-                onClick={() => void runAction("stop", () => raglightApi.stop())}
+                disabled={isWorking || !status?.running}
+                title={
+                  status?.running
+                    ? undefined
+                    : t("settings.raglight.stepNeedsRunning")
+                }
+                onClick={() => void runAction("ingest", () => raglightApi.ingest())}
                 className="rounded-xl text-xs font-semibold"
               >
-                <Square className="h-3.5 w-3.5" />
-                {t("settings.raglight.stopButton")}
+                <FolderSearch className="h-3.5 w-3.5" />
+                {busy === "ingest"
+                  ? t("settings.raglight.ingesting")
+                  : t("settings.raglight.ingestButton")}
               </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={isWorking}
-                onClick={() => void runAction("start", () => raglightApi.start())}
-                className="rounded-xl text-xs font-semibold"
-              >
-                <Play className="h-3.5 w-3.5" />
-                {busy === "start"
-                  ? t("settings.raglight.starting")
-                  : t("settings.raglight.startButton")}
-              </Button>
-            )}
-          </>
+            </Step>
+          </div>
         )}
 
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={isWorking}
-          onClick={() => void runAction("ingest", () => raglightApi.ingest())}
-          className="rounded-xl text-xs font-semibold"
-        >
-          <FolderSearch className="h-3.5 w-3.5" />
-          {busy === "ingest"
-            ? t("settings.raglight.ingesting")
-            : t("settings.raglight.ingestButton")}
-        </Button>
-
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={isWorking}
-          onClick={() => void refreshStatus()}
-          className="rounded-xl text-xs font-semibold"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {t("settings.raglight.refreshButton")}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={isWorking}
+            onClick={() => void refreshStatus()}
+            className="rounded-xl text-xs font-semibold"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t("settings.raglight.refreshButton")}
+          </Button>
+        </div>
       </div>
 
       {/* Quick search test against the RAGLight bank */}
