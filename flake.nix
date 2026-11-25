@@ -289,11 +289,19 @@
 
             # Pulls the voice images into the user's rootless podman store,
             # so the first launch of the app does not wait for a download.
+            #
+            # The application always runs both services — it speaks and it
+            # listens — so both images are fetched unless the speech-to-text
+            # one is turned off.
+            voiceImages = lib.optionals cfg.voice.stt.enable [
+              cfg.voice.stt.image
+            ];
+
             voiceImagePull = pkgs.writeShellApplication {
               name = "auradesk-voice-images";
               runtimeInputs = [ pkgs.podman ];
               text = ''
-                for image in ${cfg.voice.image} ${cfg.voice.stt.image}; do
+                for image in ${cfg.voice.image} ${lib.concatStringsSep " " voiceImages}; do
                   if podman image exists "$image"; then
                     echo "auradesk: $image already present"
                   else
@@ -342,7 +350,15 @@
                   '';
                 };
                 stt = {
-                  enable = lib.mkEnableOption "AuraDesk local speech-to-text service (Whisper)";
+                  enable = lib.mkOption {
+                    type = lib.types.bool;
+                    default = true;
+                    description = ''
+                      The application always listens as well as it speaks, so
+                      the speech-to-text service is on by default. Turning it
+                      off keeps the image from being fetched.
+                    '';
+                  };
                   image = lib.mkOption {
                     type = lib.types.str;
                     default = sttImage;
