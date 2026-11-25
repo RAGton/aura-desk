@@ -32,6 +32,67 @@ async function readGalaxyPixels(page: import("@playwright/test").Page): Promise<
   }, station);
 }
 
+/**
+ * A fingerprint of the galaxy frame.
+ *
+ * The station loads its topology asynchronously — the Hindsight banks and
+ * the RAGLight folders arrive after the first paint — so the canvas keeps
+ * changing for a while after the page loads. Comparing a frame taken
+ * straight away with one taken later compares two different galaxies.
+ *
+ * The `painted` count matters: an empty canvas is also "stable", so a
+ * fingerprint alone would let the test capture the void before the stars
+ * arrive.
+ */
+async function galaxySignature(
+  page: import("@playwright/test").Page
+): Promise<{ hash: string; painted: number } | null> {
+  return page.evaluate((selector) => {
+    const el = document.querySelector(selector) as HTMLElement | null;
+    if (!el) return null;
+    const canvas = el.querySelector("canvas") as HTMLCanvasElement | null;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    // FNV-1a over the whole frame.
+    let hash = 2166136261 >>> 0;
+    let painted = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      hash ^= data[i];
+      hash = Math.imul(hash, 16777619) >>> 0;
+      if (data[i] + data[i + 1] + data[i + 2] > 36) painted += 1;
+    }
+    return { hash: `${canvas.width}x${canvas.height}:${hash.toString(16)}`, painted };
+  }, station);
+}
+
+/** Waits until the galaxy has drawn its scene and stopped redrawing itself. */
+async function waitForStableGalaxy(page: import("@playwright/test").Page): Promise<void> {
+  let previous = await galaxySignature(page);
+  let stableFor = 0;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await page.waitForTimeout(400);
+    const current = await galaxySignature(page);
+    if (!current || !previous) {
+      previous = current;
+      stableFor = 0;
+      continue;
+    }
+    // The scene arrives in stages — the pyramid first, the topology a
+    // moment later — and there is a pause between the stages that is longer
+    // than a single poll. So the frame has to hold steady for a while
+    // before it counts as settled.
+    if (current.painted > 500 && current.hash === previous.hash) {
+      stableFor += 1;
+      if (stableFor >= 3) return;
+    } else {
+      stableFor = 0;
+    }
+    previous = current;
+  }
+}
+
 test.describe("galaxy theme identity", () => {
   // Reduced motion freezes the animation loop, so the galaxy renders the exact
   // same frame for every capture. That makes a pixel-perfect comparison
@@ -46,7 +107,9 @@ test.describe("galaxy theme identity", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     // Capture the galaxy frame in the dark theme — this is the reference for
-    // the galaxy's own visual identity.
+    // the galaxy's own visual identity. Wait for the scene to settle first:
+    // the topology arrives after the first paint.
+    await waitForStableGalaxy(page);
     const darkPixels = await readGalaxyPixels(page);
     expect(darkPixels).not.toBeNull();
 
@@ -90,6 +153,7 @@ test.describe("galaxy theme identity", () => {
     // global UI theme. Before the fix, the light theme swapped every star,
     // orbit and globe for its washed-out palette and the canvas was mostly
     // empty, so this comparison failed hard.
+    await waitForStableGalaxy(page);
     const lightPixels = await readGalaxyPixels(page);
     expect(lightPixels).not.toBeNull();
 

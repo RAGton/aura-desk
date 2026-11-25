@@ -2884,8 +2884,7 @@ function drawClusterNodeLabels(
   width: number,
   height: number,
   activeNodeId: string | null,
-  signalMap: Map<string, MemorySignalMode>,
-  isLight: boolean
+  signalMap: Map<string, MemorySignalMode>
 ) {
   const hasSignaledNodes = signalMap.size > 0;
   const visibility = hasSignaledNodes
@@ -2959,12 +2958,16 @@ function drawClusterNodeLabels(
     if (!isActive && !isHub) leafLabelsDrawn += 1;
 
     const alpha = visibility * (isActive ? 0.98 : isHub ? 0.88 : 0.8);
-    const bgCol = isLight ? "rgba(240, 249, 255, 0.9)" : "rgba(4, 15, 30, 0.82)";
+    // The galaxy is a deep-space surface in BOTH themes, so its labels use
+    // the space palette in both: a pale pill floating over the void. A label
+    // that followed the global UI theme would break the galaxy's own visual
+    // identity — and would be unreadable against the stars.
+    const bgCol = "rgba(4, 15, 30, 0.82)";
     const borderCol = rgba(
       isActive ? ICE_RGB : node.rgb,
       isActive ? 0.95 * alpha : isHub ? 0.68 * alpha : 0.45 * alpha
     );
-    const textCol = isLight ? "rgba(15, 23, 42, 0.95)" : "rgba(224, 249, 255, 0.96)";
+    const textCol = "rgba(224, 249, 255, 0.96)";
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -3453,6 +3456,7 @@ export function AuraPyramidStation({
   const didDragRef = useRef(false);
   const pointerLastRef = useRef({ x: 0, y: 0 });
   const reducedMotionRef = useRef(false);
+  /** The global UI theme, tracked only to know when the galaxy must repaint. */
   const isLightThemeRef = useRef(false);
   const projectedHitsRef = useRef<ProjectedHit[]>([]);
   const pyramidCenterHitRef = useRef<{ sx: number; sy: number; radius: number } | null>(null);
@@ -3702,19 +3706,27 @@ export function AuraPyramidStation({
       const { width, height, dpr } = sizeRef.current;
 
       // Two distinct themes live here:
-      //  - `isLightTheme` is the GLOBAL UI theme (read via a MutationObserver
-      //    backed ref, never by hitting the DOM on every frame). It only drives
-      //    UI overlays such as node labels, which must stay legible.
       //  - `GALAXY_LIGHT` is the GALAXY theme. The galaxy has its own visual
       //    identity and always renders in its deep-space palette, so every
-      //    cosmic body (stars, orbits, globes, pulses) uses the dark branch
-      //    regardless of the global theme.
-      const isLightTheme = isLightThemeRef.current;
+      //    cosmic body (stars, orbits, globes, pulses) AND every overlay it
+      //    draws (node labels) uses the dark branch regardless of the global
+      //    UI theme.
+      //  - The GLOBAL UI theme never reaches this canvas: the galaxy is a
+      //    deep-space surface in both themes, so what it draws must not
+      //    change when the app around it changes colour.
 
       // Smoothly lerp activity, zoom, and scroll-coupled expandProgress inside refs
-      const rate = 1 - Math.exp(-Math.max(0.001, dt) * 6.0);
-      const zoomRate = 1 - Math.exp(-Math.max(0.001, dt) * 4.4);
-      const expandRate = 1 - Math.exp(-Math.max(0.001, dt) * 2.8);
+      //
+      // With reduced motion the frame must be DETERMINISTIC: the scene is
+      // drawn once and redrawn on every resize or theme change, and every
+      // draw has to produce the very same pixels. A lerp that creeps a
+      // little on each draw would make every redraw differ from the last
+      // one — the canvas would never settle. So under reduced motion the
+      // values snap to their targets instead.
+      const still = reducedMotionRef.current;
+      const rate = still ? 1 : 1 - Math.exp(-Math.max(0.001, dt) * 6.0);
+      const zoomRate = still ? 1 : 1 - Math.exp(-Math.max(0.001, dt) * 4.4);
+      const expandRate = still ? 1 : 1 - Math.exp(-Math.max(0.001, dt) * 2.8);
       speakLevelRef.current = lerp(speakLevelRef.current, snap.speaking ? 1 : 0, rate);
       listenLevelRef.current = lerp(
         listenLevelRef.current,
@@ -4278,8 +4290,7 @@ export function AuraPyramidStation({
         width,
         height,
         snap.activeNodeId,
-        activeSignals,
-        isLightTheme
+        activeSignals
       );
 
       // Store hit-test caches
@@ -4302,11 +4313,11 @@ export function AuraPyramidStation({
     [emitCameraOrbit, spawnOpeningExplosion, spawnPulseCascade, spawnShockwave]
   );
 
-  // Track the global UI theme without touching the DOM on every animation
-  // frame: a MutationObserver keeps `isLightThemeRef` up to date, and the
-  // render loop just reads the ref. The observer also repaints the galaxy so
-  // a theme switch is reflected immediately, even when the animation loop is
-  // paused (reduced motion).
+  // Watch the global UI theme so the galaxy repaints when the app changes
+  // colour — the canvas does not change colour with it (the galaxy owns its
+  // own deep-space palette), but a repaint keeps the frame in sync with the
+  // rest of the layout, and it is what the reduced-motion path needs to stay
+  // deterministic: the repaint must produce the very same pixels.
   const drawSceneRef = useRef<((dt: number) => void) | null>(null);
   useEffect(() => {
     drawSceneRef.current = drawScene;
