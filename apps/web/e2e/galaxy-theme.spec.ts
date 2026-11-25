@@ -67,25 +67,30 @@ async function galaxySignature(
   }, station);
 }
 
-/** Waits until the galaxy has drawn its scene and stopped redrawing itself. */
+/**
+ * Waits until the galaxy has drawn its scene and stopped redrawing itself.
+ *
+ * The scene arrives in stages — the pyramid first, the topology a moment
+ * later — and the pause between the stages is longer than a single poll,
+ * and longer still when the machine is busy running the rest of the suite.
+ * So the frame has to hold steady for a good while before it counts as
+ * settled.
+ */
 async function waitForStableGalaxy(page: import("@playwright/test").Page): Promise<void> {
   let previous = await galaxySignature(page);
   let stableFor = 0;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await page.waitForTimeout(400);
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await page.waitForTimeout(500);
     const current = await galaxySignature(page);
     if (!current || !previous) {
       previous = current;
       stableFor = 0;
       continue;
     }
-    // The scene arrives in stages — the pyramid first, the topology a
-    // moment later — and there is a pause between the stages that is longer
-    // than a single poll. So the frame has to hold steady for a while
-    // before it counts as settled.
     if (current.painted > 500 && current.hash === previous.hash) {
       stableFor += 1;
-      if (stableFor >= 3) return;
+      // Six readings in a row: three seconds of a frame that does not move.
+      if (stableFor >= 6) return;
     } else {
       stableFor = 0;
     }
@@ -98,6 +103,10 @@ test.describe("galaxy theme identity", () => {
   // same frame for every capture. That makes a pixel-perfect comparison
   // between the two themes possible.
   test.use({ reducedMotion: "reduce" });
+
+  // Waiting for the scene to settle takes a few seconds, and more when the
+  // rest of the suite runs in parallel.
+  test.setTimeout(90_000);
 
   test("galaxy surface stays dark under the light theme", async ({ page }) => {
     await page.goto("/");
