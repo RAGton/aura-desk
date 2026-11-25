@@ -38,6 +38,14 @@ Este runbook descreve a visão. O trabalho acionável — com critérios de acei
 - **Bancos do Hindsight agora podem ser renomeados e excluídos** — antes dava para criar e nunca remover.
 - **Limites do grafo e do recall viraram settings** (`hindsight.graph_node_limit`, `hindsight.recall_top_k`) com migration.
 
+### O que a leva de 2026-11-25 mudou
+
+- **O daemon do Hindsight ficou editável pela interface** (issue #31). Os endpoints foram lidos do OpenAPI do daemon rodando, não adivinhados: editar o texto de uma memória, invalidá-la (o daemon não tem DELETE de memória individual — invalidar é reversível e fica guardado para auditoria) ou restaurá-la, limpar as memórias do banco e apagar um documento (os dois destrutivos com confirmação), cancelar uma operação pendente e re-enfileirar uma que falhou.
+- **As tags do banco viraram filtro** na aba Memórias, e são enviadas ao daemon como o parâmetro `tags` da lista de memórias.
+- **Um refresh da página não descarta mais a memória aberta.** A seleção é limpa quando o *banco* muda, não quando a página recarrega.
+- **O histórico do composer** — ↑ e ↓ percorrem os prompts já enviados na sessão, e o rascunho volta intacto ao passar do primeiro para o último. Os atalhos ficaram escritos embaixo do composer em vez de serem adivinhados.
+- **O header do chat para de quebrar em tela estreita** — o título trunca, os botões viram ícones e o rótulo some abaixo de `lg`.
+
 ---
 
 ## Visão Geral dos 5 Pilares Principais + Sugestões Estratégicas
