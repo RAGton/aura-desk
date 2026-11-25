@@ -33,6 +33,7 @@ import type {
   HindsightMentalModel,
   HindsightMentalModelPage,
   HindsightOperation,
+  HindsightTag,
   InstallSkillInput,
   KnowledgeDocumentDetail,
   KnowledgeDocumentEntry,
@@ -133,13 +134,22 @@ async function fetchJsonWithTimeout(url: string, timeoutMs = 3500): Promise<unkn
   }
 }
 
-async function fetchHindsight(path: string, query?: Record<string, string | number | undefined>) {
+async function fetchHindsight(
+  path: string,
+  query?: Record<string, string | number | string[] | undefined>
+) {
   const params = new URLSearchParams();
   if (query) {
     for (const [k, v] of Object.entries(query)) {
-      if (v !== undefined && v !== null && String(v).trim() !== "") {
-        params.set(k, String(v));
+      if (v === undefined || v === null) continue;
+      // An array is sent as a repeated parameter, the way FastAPI reads it.
+      if (Array.isArray(v)) {
+        for (const item of v) {
+          if (String(item).trim() !== "") params.append(k, String(item));
+        }
+        continue;
       }
+      if (String(v).trim() !== "") params.set(k, String(v));
     }
   }
   const qs = params.toString();
@@ -961,6 +971,9 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       const offset = Math.max(0, asNum(args.offset, 0));
       const query = asStr(args.query);
       const factType = asStr(args.factType ?? args.fact_type);
+      const tags = Array.isArray(args.tags)
+        ? (args.tags as unknown[]).map((t) => String(t)).filter(Boolean)
+        : [];
       if (!allowLiveProxyFetch() || !bank) {
         return {
           handled: true,
@@ -974,6 +987,7 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
           offset,
           q: query ?? undefined,
           type: factType && factType !== "all" ? factType : undefined,
+          tags: tags.length ? tags : undefined,
         }
       )) as { items?: Array<Record<string, unknown>>; total?: number; limit?: number; offset?: number };
       return {
@@ -1068,6 +1082,122 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
             occurredAt: asStr(entry.occurred_at),
             action: asStr(entry.action),
             raw: entry,
+          })
+        ),
+      };
+    }
+
+    case "hindsight_memory_update":
+    case "hindsight_memory_invalidate":
+    case "hindsight_memory_restore": {
+      const bank = String(args.bank ?? "");
+      const memoryId = String(args.memoryId ?? args.memory_id ?? "");
+      const body: Record<string, unknown> = {};
+      if (args.text !== undefined && args.text !== null) body.text = String(args.text);
+      if (args.context !== undefined && args.context !== null) {
+        body.context = String(args.context);
+      }
+      if (args.factType !== undefined && args.factType !== null) {
+        body.fact_type = String(args.factType);
+      }
+      if (args.reason !== undefined && args.reason !== null) {
+        body.reason = String(args.reason);
+      }
+      if (cmd === "hindsight_memory_invalidate") body.state = "invalidated";
+      if (cmd === "hindsight_memory_restore") body.state = "valid";
+      const raw = (await fetchHindsightWrite(
+        "PATCH",
+        `/v1/default/banks/${encodeURIComponent(bank)}/memories/${encodeURIComponent(memoryId)}`,
+        body
+      )) as Record<string, unknown>;
+      // The curation endpoint answers with a free-form body; fall back to a
+      // read so the UI always gets a complete detail.
+      const detail = (await fetchHindsight(
+        `/v1/default/banks/${encodeURIComponent(bank)}/memories/${encodeURIComponent(memoryId)}`
+      )) as Record<string, unknown>;
+      const source = raw && typeof raw === "object" && raw.id ? raw : detail;
+      return {
+        handled: true,
+        result: {
+          id: String(source?.id ?? memoryId),
+          text: String(source?.text ?? ""),
+          context: asStr(source?.context),
+          date: asStr(source?.date),
+          factType: asStr(source?.type ?? source?.fact_type),
+          documentId: asStr(source?.document_id),
+          mentionedAt: asStr(source?.mentioned_at),
+          occurredStart: asStr(source?.occurred_start),
+          occurredEnd: asStr(source?.occurred_end),
+          entities: looseStrings(source?.entities),
+          tags: looseStrings(source?.tags),
+          chunkId: asStr(source?.chunk_id),
+          state: asStr(source?.state),
+          sourceMemoryIds: looseStrings(source?.source_memory_ids),
+          sourceMemories: Array.isArray(source?.source_memories)
+            ? (source?.source_memories as Array<Record<string, unknown>>).map(
+                normalizeMemoryItem
+              )
+            : [],
+          history: [],
+        } satisfies HindsightMemoryDetail,
+      };
+    }
+
+    case "hindsight_memories_clear": {
+      const bank = String(args.bank ?? "");
+      const factType = asStr(args.factType ?? args.fact_type);
+      const qs = factType ? `?type=${encodeURIComponent(factType)}` : "";
+      const raw = await fetchHindsightWrite(
+        "DELETE",
+        `/v1/default/banks/${encodeURIComponent(bank)}/memories${qs}`
+      );
+      return { handled: true, result: raw };
+    }
+
+    case "hindsight_document_delete": {
+      const bank = String(args.bank ?? "");
+      const docId = String(args.documentId ?? args.document_id ?? "");
+      await fetchHindsightWrite(
+        "DELETE",
+        `/v1/default/banks/${encodeURIComponent(bank)}/documents/${encodeURIComponent(docId)}`
+      );
+      return { handled: true, result: true };
+    }
+
+    case "hindsight_operation_cancel": {
+      const bank = String(args.bank ?? "");
+      const opId = String(args.operationId ?? args.operation_id ?? "");
+      await fetchHindsightWrite(
+        "DELETE",
+        `/v1/default/banks/${encodeURIComponent(bank)}/operations/${encodeURIComponent(opId)}`
+      );
+      return { handled: true, result: true };
+    }
+
+    case "hindsight_operation_retry": {
+      const bank = String(args.bank ?? "");
+      const opId = String(args.operationId ?? args.operation_id ?? "");
+      await fetchHindsightWrite(
+        "POST",
+        `/v1/default/banks/${encodeURIComponent(bank)}/operations/${encodeURIComponent(opId)}/retry`
+      );
+      return { handled: true, result: true };
+    }
+
+    case "hindsight_tags_list": {
+      const bank = String(args.bank ?? "");
+      const limit = Math.min(200, Math.max(1, asNum(args.limit, 25)));
+      const query = asStr(args.query);
+      const raw = (await fetchHindsight(
+        `/v1/default/banks/${encodeURIComponent(bank)}/tags`,
+        { limit, q: query ?? undefined }
+      )) as { items?: Array<Record<string, unknown>> };
+      return {
+        handled: true,
+        result: (Array.isArray(raw?.items) ? raw.items : []).map(
+          (item): HindsightTag => ({
+            tag: String(item.tag ?? item.name ?? ""),
+            count: asNum(item.count, 0),
           })
         ),
       };

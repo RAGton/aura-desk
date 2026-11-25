@@ -27,6 +27,7 @@ import type {
   HindsightMentalModel,
   HindsightMentalModelPage,
   HindsightOperation,
+  HindsightTag,
   InstallSkillInput,
   KnowledgeDocumentDetail,
   KnowledgeDocumentsResult,
@@ -2588,12 +2589,14 @@ export const hindsightExploreApi = {
     query?: string | null,
     limit?: number,
     offset?: number,
-    factType?: string | null
+    factType?: string | null,
+    tags?: string[]
   ): Promise<HindsightMemoryPage> =>
     wrapInvoke<HindsightMemoryPage>("hindsight_memories_list", {
       bank,
       query: query ?? null,
       factType: factType ?? null,
+      tags: tags ?? [],
       limit: limit ?? null,
       offset: offset ?? null,
     }),
@@ -2615,6 +2618,56 @@ export const hindsightExploreApi = {
     wrapInvoke<HindsightMemoryHistoryEntry[]>("hindsight_memory_history", {
       bank,
       memoryId,
+    }),
+  memoryUpdate: (input: {
+    bank: string;
+    memoryId: string;
+    text?: string | null;
+    context?: string | null;
+    factType?: string | null;
+  }): Promise<HindsightMemoryDetail> =>
+    wrapInvoke<HindsightMemoryDetail>("hindsight_memory_update", {
+      bank: input.bank,
+      memoryId: input.memoryId,
+      text: input.text ?? null,
+      context: input.context ?? null,
+      factType: input.factType ?? null,
+    }),
+  memoryInvalidate: (input: {
+    bank: string;
+    memoryId: string;
+    reason?: string | null;
+  }): Promise<HindsightMemoryDetail> =>
+    wrapInvoke<HindsightMemoryDetail>("hindsight_memory_invalidate", {
+      bank: input.bank,
+      memoryId: input.memoryId,
+      reason: input.reason ?? null,
+    }),
+  memoryRestore: (bank: string, memoryId: string): Promise<HindsightMemoryDetail> =>
+    wrapInvoke<HindsightMemoryDetail>("hindsight_memory_restore", {
+      bank,
+      memoryId,
+    }),
+  memoriesClear: (bank: string, factType?: string | null): Promise<unknown> =>
+    wrapInvoke<unknown>("hindsight_memories_clear", {
+      bank,
+      factType: factType ?? null,
+    }),
+  documentDelete: (bank: string, documentId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hindsight_document_delete", { bank, documentId }),
+  operationCancel: (bank: string, operationId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hindsight_operation_cancel", { bank, operationId }),
+  operationRetry: (bank: string, operationId: string): Promise<boolean> =>
+    wrapInvoke<boolean>("hindsight_operation_retry", { bank, operationId }),
+  tagsList: (
+    bank: string,
+    query?: string | null,
+    limit?: number
+  ): Promise<HindsightTag[]> =>
+    wrapInvoke<HindsightTag[]>("hindsight_tags_list", {
+      bank,
+      query: query ?? null,
+      limit: limit ?? null,
     }),
   documentsList: (
     bank: string,

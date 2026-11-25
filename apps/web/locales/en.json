@@ -1030,7 +1030,26 @@
     "operations": {
       "title": "Background Operations & Consolidation",
       "subtitle": "Real-time log of retentions, observation consolidations, and mental model refreshes.",
-      "empty": "No recent operations recorded for this bank."
+      "empty": "No recent operations recorded for this bank.",
+      "cancel": "Cancel operation",
+      "retry": "Retry operation"
+    },
+    "tags": {
+      "label": "Tags:",
+      "all": "All"
+    },
+    "memory": {
+      "edit": "Edit",
+      "editTitle": "Edit memory",
+      "save": "Save",
+      "invalidate": "Invalidate",
+      "restore": "Restore",
+      "clearAll": "Clear memories",
+      "confirmClear": "Confirm wipe"
+    },
+    "documents": {
+      "delete": "Delete document",
+      "confirmDelete": "Confirm delete"
     },
     "graph": {
       "zoomIn": "Zoom in",

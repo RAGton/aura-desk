@@ -207,8 +207,13 @@ export interface HindsightOperation {
   errorMessage?: string | null;
 }
 
-export interface HindsightGlobalSearchHit {
-  id: string;
+/** A tag in use inside a bank, with how many memories carry it. */
+export interface HindsightTag {
+  tag: string;
+  count: number;
+}
+
+export interface HindsightGlobalSearchHit {  id: string;
   bankId: string;
   bankName: string;
   text: string;

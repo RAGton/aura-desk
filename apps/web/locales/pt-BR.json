@@ -1030,7 +1030,26 @@
     "operations": {
       "title": "Operações em Background & Consolidação",
       "subtitle": "Histórico em tempo real de retenções, consolidações de observações e atualização de modelos mentais.",
-      "empty": "Nenhuma operação recente registrada neste banco."
+      "empty": "Nenhuma operação recente registrada neste banco.",
+      "cancel": "Cancelar operação",
+      "retry": "Repetir operação"
+    },
+    "tags": {
+      "label": "Tags:",
+      "all": "Todas"
+    },
+    "memory": {
+      "edit": "Editar",
+      "editTitle": "Editar memória",
+      "save": "Salvar",
+      "invalidate": "Invalidar",
+      "restore": "Restaurar",
+      "clearAll": "Limpar memórias",
+      "confirmClear": "Confirmar limpeza"
+    },
+    "documents": {
+      "delete": "Apagar documento",
+      "confirmDelete": "Confirmar apagar"
     },
     "graph": {
       "zoomIn": "Aproximar",

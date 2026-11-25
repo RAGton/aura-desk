@@ -50,6 +50,14 @@ vi.mock("../lib/ipc", async (importOriginal) => {
       directiveDelete: vi.fn(),
       operationsList: vi.fn(),
       bankConsolidate: vi.fn(),
+      tagsList: vi.fn(),
+      memoryUpdate: vi.fn(),
+      memoryInvalidate: vi.fn(),
+      memoryRestore: vi.fn(),
+      memoriesClear: vi.fn(),
+      documentDelete: vi.fn(),
+      operationCancel: vi.fn(),
+      operationRetry: vi.fn(),
     },
   };
 });
@@ -420,6 +428,20 @@ function setupOnlineMocks() {
   mockExplore.directiveDelete.mockResolvedValue(true);
   mockExplore.operationsList.mockResolvedValue(OPERATIONS_ESTUDOS);
   mockExplore.bankConsolidate.mockResolvedValue(true);
+  mockExplore.tagsList.mockResolvedValue([
+    { tag: "profile:aura", count: 90 },
+    { tag: "subsystem:core", count: 71 },
+  ]);
+  mockExplore.memoryUpdate.mockResolvedValue(MEMORY_DETAIL_EST_1);
+  mockExplore.memoryInvalidate.mockResolvedValue({
+    ...MEMORY_DETAIL_EST_1,
+    state: "invalidated",
+  });
+  mockExplore.memoryRestore.mockResolvedValue(MEMORY_DETAIL_EST_1);
+  mockExplore.memoriesClear.mockResolvedValue(true);
+  mockExplore.documentDelete.mockResolvedValue(true);
+  mockExplore.operationCancel.mockResolvedValue(true);
+  mockExplore.operationRetry.mockResolvedValue(true);
 }
 
 describe("HindsightPanelPage", () => {
@@ -465,7 +487,14 @@ describe("HindsightPanelPage", () => {
     // Initial bank ("estudos") stats breakdown and memories
     await waitFor(() => {
       expect(mockExplore.bankStats).toHaveBeenCalledWith("estudos");
-      expect(mockExplore.memoriesList).toHaveBeenCalledWith("estudos", null, 50, 0, null);
+      expect(mockExplore.memoriesList).toHaveBeenCalledWith(
+        "estudos",
+        null,
+        50,
+        0,
+        null,
+        [],
+      );
     });
 
     expect(await screen.findByText("Pending operations: 2")).toBeInTheDocument();
@@ -487,6 +516,7 @@ describe("HindsightPanelPage", () => {
         50,
         0,
         "world",
+        [],
       );
     });
 
@@ -522,6 +552,7 @@ describe("HindsightPanelPage", () => {
         50,
         0,
         "world",
+        [],
       );
     });
 
@@ -776,6 +807,124 @@ describe("HindsightPanelPage", () => {
     fireEvent.click(screen.getByTestId("hindsight-consolidate-btn"));
     await waitFor(() => {
       expect(mockExplore.bankConsolidate).toHaveBeenCalledWith("arquitetura-cloud");
+    });
+  });
+
+  it("curates a memory, filters by tag, deletes a document and acts on a pending operation", async () => {
+    setupOnlineMocks();
+    // A pending and a failed operation, so both actions have something to do.
+    mockExplore.operationsList.mockResolvedValue([
+      {
+        id: "op-pending",
+        bankId: "estudos",
+        operationType: "consolidate",
+        status: "pending",
+        createdAt: "2026-11-22T10:00:00Z",
+        updatedAt: "2026-11-22T10:00:05Z",
+        errorMessage: null,
+      },
+      {
+        id: "op-failed",
+        bankId: "estudos",
+        operationType: "reflect",
+        status: "failed",
+        createdAt: "2026-11-22T10:00:00Z",
+        updatedAt: "2026-11-22T10:00:05Z",
+        errorMessage: "llm timeout",
+      },
+    ]);
+
+    render(<HindsightPanelPage />);
+    expect(await screen.findByText("Real Banks (2)")).toBeInTheDocument();
+
+    // 1. The tags of the bank show up as a filter.
+    await waitFor(() => {
+      expect(mockExplore.tagsList).toHaveBeenCalledWith("estudos", null, 60);
+    });
+    const tagFilter = await screen.findByTestId("hindsight-tag-filter");
+    fireEvent.click(within(tagFilter).getByText("profile:aura"));
+
+    await waitFor(() => {
+      expect(mockExplore.memoriesList).toHaveBeenCalledWith(
+        "estudos",
+        null,
+        50,
+        0,
+        null,
+        ["profile:aura"],
+      );
+    });
+
+    // 2. The open memory can be edited.
+    fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
+    await waitFor(() => {
+      expect(mockExplore.memoryGet).toHaveBeenCalledWith("estudos", "mem-est-1");
+    });
+
+    fireEvent.click(screen.getByTestId("hindsight-memory-edit"));
+    const editor = screen.getByLabelText("Edit memory");
+    fireEvent.change(editor, { target: { value: "Rewritten fact." } });
+    fireEvent.click(screen.getByTestId("hindsight-memory-save"));
+
+    await waitFor(() => {
+      expect(mockExplore.memoryUpdate).toHaveBeenCalledWith({
+        bank: "estudos",
+        memoryId: "mem-est-1",
+        text: "Rewritten fact.",
+      });
+    });
+
+    // 3. And invalidated — which is how a fact leaves the recall.
+    fireEvent.click(await screen.findByTestId("hindsight-memory-invalidate"));
+    await waitFor(() => {
+      expect(mockExplore.memoryInvalidate).toHaveBeenCalledWith({
+        bank: "estudos",
+        memoryId: "mem-est-1",
+        reason: null,
+      });
+    });
+
+    // 4. Wiping the memories asks for a confirmation first.
+    fireEvent.click(screen.getByTestId("hindsight-clear-memories"));
+    expect(mockExplore.memoriesClear).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("hindsight-clear-memories-confirm"));
+    await waitFor(() => {
+      expect(mockExplore.memoriesClear).toHaveBeenCalledWith("estudos", null);
+    });
+
+    // 5. A document can be deleted — also behind a confirmation.
+    fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
+    fireEvent.click(await screen.findByRole("button", { name: /doc-est-1/i }));
+    await waitFor(() => {
+      expect(mockExplore.documentGet).toHaveBeenCalledWith("estudos", "doc-est-1");
+    });
+
+    fireEvent.click(screen.getByTestId("hindsight-document-delete"));
+    expect(mockExplore.documentDelete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("hindsight-document-delete-confirm"));
+    await waitFor(() => {
+      expect(mockExplore.documentDelete).toHaveBeenCalledWith(
+        "estudos",
+        "doc-est-1",
+      );
+    });
+
+    // 6. A pending operation can be stopped and a failed one retried.
+    fireEvent.click(screen.getByRole("tab", { name: "Directives & Operations" }));
+    fireEvent.click(await screen.findByTestId("hindsight-operation-cancel"));
+    await waitFor(() => {
+      expect(mockExplore.operationCancel).toHaveBeenCalledWith(
+        "estudos",
+        "op-pending",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("hindsight-operation-retry"));
+    await waitFor(() => {
+      expect(mockExplore.operationRetry).toHaveBeenCalledWith(
+        "estudos",
+        "op-failed",
+      );
     });
   });
 

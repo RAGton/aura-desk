@@ -7,6 +7,7 @@ import {
 import {
   Activity,
   AlertTriangle,
+  Ban,
   Brain,
   Clock,
   Database,
@@ -22,6 +23,7 @@ import {
   Tag,
   Pencil,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 
@@ -54,6 +56,7 @@ import {
   type HindsightMentalModel,
   type HindsightOperation,
   type HindsightStatus,
+  type HindsightTag,
 } from "../lib/ipc";
 
 export interface HindsightPanelPageProps {
@@ -258,6 +261,16 @@ export function HindsightPanelPage({
   const [memoryQuery, setMemoryQuery] = useState("");
   const [selectedMemory, setSelectedMemory] = useState<HindsightMemoryDetail | null>(null);
   const [loadingMemoryDetail, setLoadingMemoryDetail] = useState(false);
+  // The tags the daemon knows about — the natural way to browse memories.
+  const [bankTags, setBankTags] = useState<HindsightTag[]>([]);
+  const [memoryTagFilter, setMemoryTagFilter] = useState("");
+  const [memoryEditorOpen, setMemoryEditorOpen] = useState(false);
+  const [memoryEditorText, setMemoryEditorText] = useState("");
+  const [memoryBusyId, setMemoryBusyId] = useState<string | null>(null);
+  const [documentBusyId, setDocumentBusyId] = useState<string | null>(null);
+  const [operationBusyId, setOperationBusyId] = useState<string | null>(null);
+  /** The action waiting for a second click to be confirmed. */
+  const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
 
   const [showRetainForm, setShowRetainForm] = useState(false);
   const [retainContent, setRetainContent] = useState("");
@@ -382,14 +395,22 @@ export function HindsightPanelPage({
   }, [initialBank, banks]);
 
   // Clear stale inspections and load active bank stats when bank changes
+  // Switching bank clears what was open — but a plain refresh must not:
+  // the reader who just edited a memory keeps it on screen.
   useEffect(() => {
     setSelectedMemory(null);
     setSelectedDocument(null);
     setSelectedEntity(null);
     setSelectedGraphNodeId(null);
+    setMemoryEditorOpen(false);
+    setMemoryTagFilter("");
+    setPendingConfirm(null);
+  }, [selectedBank]);
 
+  useEffect(() => {
     if (!selectedBank) {
       setBankStats(null);
+      setBankTags([]);
       return;
     }
 
@@ -405,6 +426,17 @@ export function HindsightPanelPage({
       })
       .finally(() => {
         if (active) setLoadingStats(false);
+      });
+
+    // The tags of the bank — the fastest way to find the memories that
+    // belong to a subject.
+    void hindsightExploreApi
+      .tagsList(selectedBank, null, 60)
+      .then((tags) => {
+        if (active) setBankTags(Array.isArray(tags) ? tags : []);
+      })
+      .catch(() => {
+        if (active) setBankTags([]);
       });
 
     return () => {
@@ -428,6 +460,7 @@ export function HindsightPanelPage({
           50,
           0,
           memoryFactType || null,
+          memoryTagFilter ? [memoryTagFilter] : [],
         )
         .then((page) => {
           if (active) setMemories(Array.isArray(page?.items) ? page.items : []);
@@ -545,6 +578,7 @@ export function HindsightPanelPage({
     refreshNonce,
     memoryFactType,
     memoryQuery,
+    memoryTagFilter,
     graphFactType,
     graphNodeLimit,
     graphQuery,
@@ -671,6 +705,123 @@ export function HindsightPanelPage({
       setTabError(err instanceof Error ? err.message : String(err));
     } finally {
       setRetainingMemory(false);
+    }
+  };
+
+  /**
+   * Saves the edited text of the open memory.
+   *
+   * The daemon re-embeds the memory and drops what it derived, so the list
+   * is reloaded afterwards to show the new truth.
+   */
+  const handleSaveMemoryText = async () => {
+    if (!selectedBank || !selectedMemory) return;
+    const text = memoryEditorText.trim();
+    if (!text) return;
+
+    setMemoryBusyId(selectedMemory.id);
+    setTabError(null);
+    try {
+      const updated = await hindsightExploreApi.memoryUpdate({
+        bank: selectedBank,
+        memoryId: selectedMemory.id,
+        text,
+      });
+      setSelectedMemory(updated);
+      setMemoryEditorOpen(false);
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMemoryBusyId(null);
+    }
+  };
+
+  /**
+   * Takes a memory out of circulation — or puts it back.
+   *
+   * The daemon has no hard delete for a single memory: invalidating is the
+   * reversible way, and the fact is kept for audit.
+   */
+  const handleToggleMemoryState = async (restore: boolean) => {
+    if (!selectedBank || !selectedMemory) return;
+
+    setMemoryBusyId(selectedMemory.id);
+    setTabError(null);
+    try {
+      const updated = restore
+        ? await hindsightExploreApi.memoryRestore(selectedBank, selectedMemory.id)
+        : await hindsightExploreApi.memoryInvalidate({
+            bank: selectedBank,
+            memoryId: selectedMemory.id,
+            reason: null,
+          });
+      setSelectedMemory(updated);
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMemoryBusyId(null);
+    }
+  };
+
+  /** Wipes every memory of the bank. The daemon cannot undo this. */
+  const handleClearMemories = async () => {
+    if (!selectedBank) return;
+
+    setMemoryBusyId("__clear__");
+    setTabError(null);
+    try {
+      await hindsightExploreApi.memoriesClear(selectedBank, null);
+      setSelectedMemory(null);
+      setMemoryEditorOpen(false);
+      setPendingConfirm(null);
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMemoryBusyId(null);
+    }
+  };
+
+  /** Deletes a document and the memories that came from it. */
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!selectedBank) return;
+
+    setDocumentBusyId(documentId);
+    setTabError(null);
+    try {
+      await hindsightExploreApi.documentDelete(selectedBank, documentId);
+      if (selectedDocument?.id === documentId) setSelectedDocument(null);
+      setPendingConfirm(null);
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDocumentBusyId(null);
+    }
+  };
+
+  /** Cancels a queued or running operation, or puts a failed one back in line. */
+  const handleOperationAction = async (
+    operationId: string,
+    action: "cancel" | "retry"
+  ) => {
+    if (!selectedBank) return;
+
+    setOperationBusyId(operationId);
+    setTabError(null);
+    try {
+      if (action === "cancel") {
+        await hindsightExploreApi.operationCancel(selectedBank, operationId);
+      } else {
+        await hindsightExploreApi.operationRetry(selectedBank, operationId);
+      }
+      setRefreshNonce((n) => n + 1);
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOperationBusyId(null);
     }
   };
 
@@ -1552,15 +1703,50 @@ export function HindsightPanelPage({
                         })}
                       </div>
 
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        data-testid="hindsight-retain-btn"
-                        onClick={() => setShowRetainForm((v) => !v)}
-                      >
-                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("hindsightPanel.retainForm.button")}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Wiping the memories of a bank cannot be undone, so
+                            it asks for a second click to confirm. */}
+                        {pendingConfirm === "clear-memories" ? (
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              loading={memoryBusyId === "__clear__"}
+                              data-testid="hindsight-clear-memories-confirm"
+                              onClick={() => void handleClearMemories()}
+                            >
+                              {t("hindsightPanel.memory.confirmClear")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setPendingConfirm(null)}
+                            >
+                              {t("hindsightPanel.createBank.cancel")}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            data-testid="hindsight-clear-memories"
+                            onClick={() => setPendingConfirm("clear-memories")}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                            {t("hindsightPanel.memory.clearAll")}
+                          </Button>
+                        )}
+
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          data-testid="hindsight-retain-btn"
+                          onClick={() => setShowRetainForm((v) => !v)}
+                        >
+                          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t("hindsightPanel.retainForm.button")}
+                        </Button>
+                      </div>
                     </div>
 
                     <Input
@@ -1569,6 +1755,61 @@ export function HindsightPanelPage({
                       placeholder={t("hindsightPanel.graphLayers.filterPlaceholder")}
                       aria-label={t("hindsightPanel.graphLayers.filterPlaceholder")}
                     />
+
+                    {/* The tags of the bank — the quickest way to narrow the
+                        memories down to a subject. */}
+                    {bankTags.length > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5"
+                        data-testid="hindsight-tag-filter"
+                      >
+                        <span className="text-[11px] text-aura-text-muted">
+                          {t("hindsightPanel.tags.label")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setMemoryTagFilter("")}
+                          className={`rounded-aura-sm px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                            memoryTagFilter === ""
+                              ? "bg-aura-accent text-aura-inverse"
+                              : "bg-aura-canvas/60 text-aura-secondary hover:text-aura-primary"
+                          }`}
+                        >
+                          {t("hindsightPanel.tags.all")}
+                        </button>
+                        {bankTags.map((tag) => {
+                          const active = memoryTagFilter === tag.tag;
+                          return (
+                            <button
+                              key={tag.tag}
+                              type="button"
+                              onClick={() =>
+                                setMemoryTagFilter(active ? "" : tag.tag)
+                              }
+                              title={tag.tag}
+                              className={`inline-flex items-center gap-1 rounded-aura-sm px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                                active
+                                  ? "bg-aura-accent text-aura-inverse"
+                                  : "bg-aura-canvas/60 text-aura-secondary hover:text-aura-primary"
+                              }`}
+                            >
+                              <span className="max-w-[160px] truncate">
+                                {tag.tag}
+                              </span>
+                              <span
+                                className={
+                                  active
+                                    ? "text-aura-inverse/70"
+                                    : "text-aura-text-muted"
+                                }
+                              >
+                                {tag.count}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {showRetainForm && (
                       <form
@@ -1780,6 +2021,87 @@ export function HindsightPanelPage({
                             {selectedMemory.text}
                           </div>
 
+                          {/* Curation: edit the fact, take it out of
+                              circulation, or bring it back. */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {memoryEditorOpen ? (
+                              <>
+                                <Textarea
+                                  value={memoryEditorText}
+                                  onChange={(e) =>
+                                    setMemoryEditorText(e.target.value)
+                                  }
+                                  rows={4}
+                                  aria-label={t("hindsightPanel.memory.editTitle")}
+                                  className="flex-1"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  loading={memoryBusyId === selectedMemory.id}
+                                  disabled={!memoryEditorText.trim()}
+                                  data-testid="hindsight-memory-save"
+                                  onClick={() => void handleSaveMemoryText()}
+                                >
+                                  {t("hindsightPanel.memory.save")}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setMemoryEditorOpen(false)}
+                                >
+                                  {t("hindsightPanel.createBank.cancel")}
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  data-testid="hindsight-memory-edit"
+                                  onClick={() => {
+                                    setMemoryEditorText(selectedMemory.text);
+                                    setMemoryEditorOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                                  {t("hindsightPanel.memory.edit")}
+                                </Button>
+
+                                {selectedMemory.state === "invalidated" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    loading={memoryBusyId === selectedMemory.id}
+                                    data-testid="hindsight-memory-restore"
+                                    onClick={() =>
+                                      void handleToggleMemoryState(true)
+                                    }
+                                  >
+                                    <Undo2
+                                      className="h-3.5 w-3.5"
+                                      aria-hidden="true"
+                                    />
+                                    {t("hindsightPanel.memory.restore")}
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    loading={memoryBusyId === selectedMemory.id}
+                                    data-testid="hindsight-memory-invalidate"
+                                    onClick={() =>
+                                      void handleToggleMemoryState(false)
+                                    }
+                                  >
+                                    <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+                                    {t("hindsightPanel.memory.invalidate")}
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                          </div>
+
                           {selectedMemory.entities.length > 0 && (
                             <div className="space-y-1.5">
                               <div className="text-xs font-semibold text-aura-secondary">
@@ -1956,14 +2278,54 @@ export function HindsightPanelPage({
                       <span className="truncate font-mono text-xs font-semibold text-aura-accent">
                         {selectedDocument?.id ?? "..."}
                       </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setSelectedDocument(null)}
-                      >
-                        <X className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("hindsightPanel.closeDetail")}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {selectedDocument &&
+                          (pendingConfirm === `doc:${selectedDocument.id}` ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                loading={documentBusyId === selectedDocument.id}
+                                data-testid="hindsight-document-delete-confirm"
+                                onClick={() =>
+                                  void handleDeleteDocument(selectedDocument.id)
+                                }
+                              >
+                                {t("hindsightPanel.documents.confirmDelete")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setPendingConfirm(null)}
+                              >
+                                {t("hindsightPanel.createBank.cancel")}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              data-testid="hindsight-document-delete"
+                              onClick={() =>
+                                setPendingConfirm(`doc:${selectedDocument.id}`)
+                              }
+                            >
+                              <Trash2
+                                className="h-3.5 w-3.5 text-aura-danger"
+                                aria-hidden="true"
+                              />
+                              {t("hindsightPanel.documents.delete")}
+                            </Button>
+                          ))}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSelectedDocument(null)}
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t("hindsightPanel.closeDetail")}
+                        </Button>
+                      </div>
                     </div>
 
                     {loadingDocumentDetail ? (
@@ -2754,6 +3116,42 @@ export function HindsightPanelPage({
                               <p className="font-mono text-[11px] text-aura-danger break-all">
                                 {op.errorMessage}
                               </p>
+                            )}
+                            {/* A pending operation can be stopped; a failed
+                                one can be put back in line. */}
+                            {op.status !== "completed" && (
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                {op.status === "failed" ||
+                                op.status === "cancelled" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    loading={operationBusyId === op.id}
+                                    data-testid="hindsight-operation-retry"
+                                    onClick={() =>
+                                      void handleOperationAction(op.id, "retry")
+                                    }
+                                  >
+                                    <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                                    {t("hindsightPanel.operations.retry")}
+                                  </Button>
+                                ) : null}
+                                {op.status === "pending" ||
+                                op.status === "processing" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    loading={operationBusyId === op.id}
+                                    data-testid="hindsight-operation-cancel"
+                                    onClick={() =>
+                                      void handleOperationAction(op.id, "cancel")
+                                    }
+                                  >
+                                    <Ban className="h-3 w-3" aria-hidden="true" />
+                                    {t("hindsightPanel.operations.cancel")}
+                                  </Button>
+                                ) : null}
+                              </div>
                             )}
                           </div>
                         ))}

@@ -17,7 +17,7 @@ use crate::hindsight_explore::{
     HindsightDocumentPage, HindsightEntityDetail, HindsightEntityPage, HindsightGalaxySnapshot,
     HindsightGlobalSearchHit, HindsightGraphPayload, HindsightMemoryDetail,
     HindsightMemoryHistoryEntry, HindsightMemoryPage, HindsightMentalModel,
-    HindsightMentalModelPage, HindsightOperation,
+    HindsightMentalModelPage, HindsightOperation, HindsightTag,
 };
 use crate::raglight::{
     KnowledgeDocumentDetail, KnowledgeDocumentsResult, KnowledgeExplorerOverview,
@@ -113,16 +113,18 @@ pub async fn hindsight_memories_list(
     bank: String,
     query: Option<String>,
     fact_type: Option<String>,
+    tags: Option<Vec<String>>,
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<HindsightMemoryPage, String> {
     let db = db_from(&state);
     tauri::async_runtime::spawn_blocking(move || {
-        crate::hindsight_explore::memories_list_filtered(
+        crate::hindsight_explore::memories_list_by_tags(
             &db,
             &bank,
             query.as_deref(),
             fact_type.as_deref(),
+            tags.as_deref().unwrap_or(&[]),
             limit,
             offset,
         )
@@ -182,8 +184,131 @@ pub async fn hindsight_memory_history(
 }
 
 #[tauri::command]
-pub async fn hindsight_documents_list(
+pub async fn hindsight_memory_update(
     state: State<'_, AppState>,
+    bank: String,
+    memory_id: String,
+    text: Option<String>,
+    context: Option<String>,
+    fact_type: Option<String>,
+) -> Result<HindsightMemoryDetail, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::memory_update(
+            &db,
+            &bank,
+            &memory_id,
+            text.as_deref(),
+            context.as_deref(),
+            fact_type.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("hindsight_memory_update join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_memory_invalidate(
+    state: State<'_, AppState>,
+    bank: String,
+    memory_id: String,
+    reason: Option<String>,
+) -> Result<HindsightMemoryDetail, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::memory_invalidate(&db, &bank, &memory_id, reason.as_deref())
+    })
+    .await
+    .map_err(|e| format!("hindsight_memory_invalidate join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_memory_restore(
+    state: State<'_, AppState>,
+    bank: String,
+    memory_id: String,
+) -> Result<HindsightMemoryDetail, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::memory_restore(&db, &bank, &memory_id)
+    })
+    .await
+    .map_err(|e| format!("hindsight_memory_restore join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_memories_clear(
+    state: State<'_, AppState>,
+    bank: String,
+    fact_type: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::memories_clear(&db, &bank, fact_type.as_deref())
+    })
+    .await
+    .map_err(|e| format!("hindsight_memories_clear join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_document_delete(
+    state: State<'_, AppState>,
+    bank: String,
+    document_id: String,
+) -> Result<bool, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::document_delete(&db, &bank, &document_id)
+    })
+    .await
+    .map_err(|e| format!("hindsight_document_delete join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_operation_cancel(
+    state: State<'_, AppState>,
+    bank: String,
+    operation_id: String,
+) -> Result<bool, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::operation_cancel(&db, &bank, &operation_id)
+    })
+    .await
+    .map_err(|e| format!("hindsight_operation_cancel join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_operation_retry(
+    state: State<'_, AppState>,
+    bank: String,
+    operation_id: String,
+) -> Result<bool, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::operation_retry(&db, &bank, &operation_id)
+    })
+    .await
+    .map_err(|e| format!("hindsight_operation_retry join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_tags_list(
+    state: State<'_, AppState>,
+    bank: String,
+    query: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<HindsightTag>, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::hindsight_explore::tags_list(&db, &bank, query.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| format!("hindsight_tags_list join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn hindsight_documents_list(    state: State<'_, AppState>,
     bank: String,
     query: Option<String>,
     limit: Option<usize>,

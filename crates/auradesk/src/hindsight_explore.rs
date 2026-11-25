@@ -95,7 +95,7 @@ pub struct HindsightMemoryPage {
 }
 
 /// A memory unit with the relations that back it up.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HindsightMemoryDetail {
     pub id: String,
@@ -370,6 +370,7 @@ struct RawMemoryItem {
 
 #[derive(Debug, Deserialize)]
 struct RawMemoryDetail {
+    #[serde(default)]
     id: String,
     #[serde(default)]
     text: String,
@@ -1015,6 +1016,22 @@ pub fn memories_list_filtered(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<HindsightMemoryPage, String> {
+    memories_list_by_tags(db, bank, query, fact_type, &[], limit, offset)
+}
+
+/// Lists memory units of a bank, also filtered by tags.
+///
+/// The daemon takes the tags as a repeated query parameter and matches a
+/// memory that carries any of them.
+pub fn memories_list_by_tags(
+    db: &Db,
+    bank: &str,
+    query: Option<&str>,
+    fact_type: Option<&str>,
+    tags: &[String],
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<HindsightMemoryPage, String> {
     let (client, cfg) = explore_context(db)?;
     let path = format!("{}/memories/list", bank_path(bank));
     let limit = clamp_limit(limit);
@@ -1029,6 +1046,12 @@ pub fn memories_list_filtered(
         .filter(|ft| !ft.is_empty() && *ft != "all")
     {
         params.push(("type", ft.to_ascii_lowercase()));
+    }
+    for tag in tags {
+        let clean = tag.trim();
+        if !clean.is_empty() {
+            params.push(("tags", clean.to_string()));
+        }
     }
     let raw: RawMemoryPage = get_json(&client, &endpoint_url(&cfg.base_url, &path), &params)
         .map_err(|err| format!("hindsight_memories_list: {err}"))?;
@@ -1069,6 +1092,273 @@ pub fn memory_history(
     let raw: Value = get_json(&client, &endpoint_url(&cfg.base_url, &path), &[])
         .map_err(|err| format!("hindsight_memory_history: {err}"))?;
     Ok(normalize_history(&raw))
+}
+
+/// A tag used inside a bank, with how many memories carry it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HindsightTag {
+    pub tag: String,
+    pub count: i64,
+}
+
+/// Lists the tags in use in `bank` (`GET /v1/default/banks/{bank}/tags`).
+///
+/// The daemon supports a wildcard query; it is passed through untouched so
+/// the UI can filter by `user:*` or `*-fred`.
+pub fn tags_list(
+    db: &Db,
+    bank: &str,
+    query: Option<&str>,
+    limit: Option<usize>,
+) -> Result<Vec<HindsightTag>, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!("{}/tags", bank_path(bank));
+    let mut params: Vec<(&str, String)> = vec![(
+        "limit",
+        limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT).to_string(),
+    )];
+    if let Some(q) = query.map(str::trim).filter(|s| !s.is_empty()) {
+        params.push(("q", q.to_string()));
+    }
+    let raw: Value = get_json(&client, &endpoint_url(&cfg.base_url, &path), &params)
+        .map_err(|err| format!("hindsight_tags_list: {err}"))?;
+    let items = raw
+        .get("items")
+        .or_else(|| raw.get("tags"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(items.iter().map(normalize_tag).collect())
+}
+
+/// Turns one raw tag entry into the stable model.
+fn normalize_tag(item: &Value) -> HindsightTag {
+    HindsightTag {
+        tag: item
+            .get("tag")
+            .or_else(|| item.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        count: item
+            .get("count")
+            .or_else(|| item.get("usage_count"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+    }
+}
+
+/// Edits a memory (`PATCH /v1/default/banks/{bank}/memories/{memory_id}`).
+///
+/// Only the fields that are passed change; `None` leaves the rest alone.
+pub fn memory_update(
+    db: &Db,
+    bank: &str,
+    memory_id: &str,
+    text: Option<&str>,
+    context: Option<&str>,
+    fact_type: Option<&str>,
+) -> Result<HindsightMemoryDetail, String> {
+    let mut payload = serde_json::Map::new();
+    if let Some(t) = text.map(str::trim).filter(|s| !s.is_empty()) {
+        payload.insert("text".to_string(), Value::String(t.to_string()));
+    }
+    if let Some(c) = context {
+        payload.insert("context".to_string(), Value::String(c.to_string()));
+    }
+    if let Some(ft) = fact_type.map(str::trim).filter(|s| !s.is_empty()) {
+        payload.insert("fact_type".to_string(), Value::String(ft.to_string()));
+    }
+    if payload.is_empty() {
+        return Err("memory_update_nothing_to_change".to_string());
+    }
+    let raw: Value = patch_json(
+        db,
+        bank,
+        memory_id,
+        &Value::Object(payload),
+    )
+    .map_err(|err| format!("hindsight_memory_update: {err}"))?;
+    Ok(memory_detail_from_value(&raw, memory_id))
+}
+
+/// Soft-retires a memory: it stops being recalled but is kept for audit.
+///
+/// The daemon has no hard delete for a single memory — the only destructive
+/// call wipes the whole bank — so invalidation is the reversible way to take
+/// a fact out of circulation.
+pub fn memory_invalidate(
+    db: &Db,
+    bank: &str,
+    memory_id: &str,
+    reason: Option<&str>,
+) -> Result<HindsightMemoryDetail, String> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("state".to_string(), Value::String("invalidated".to_string()));
+    if let Some(r) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+        payload.insert("reason".to_string(), Value::String(r.to_string()));
+    }
+    let raw: Value = patch_json(
+        db,
+        bank,
+        memory_id,
+        &Value::Object(payload),
+    )
+    .map_err(|err| format!("hindsight_memory_invalidate: {err}"))?;
+    Ok(memory_detail_from_value(&raw, memory_id))
+}
+
+/// Brings an invalidated memory back into circulation.
+pub fn memory_restore(
+    db: &Db,
+    bank: &str,
+    memory_id: &str,
+) -> Result<HindsightMemoryDetail, String> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("state".to_string(), Value::String("valid".to_string()));
+    let raw: Value = patch_json(
+        db,
+        bank,
+        memory_id,
+        &Value::Object(payload),
+    )
+    .map_err(|err| format!("hindsight_memory_restore: {err}"))?;
+    Ok(memory_detail_from_value(&raw, memory_id))
+}
+
+/// Wipes the memories of a bank (`DELETE /v1/default/banks/{bank}/memories`).
+///
+/// This is the only destructive memory call the daemon exposes; it cannot be
+/// undone, so the UI asks for a confirmation before calling it.
+pub fn memories_clear(
+    db: &Db,
+    bank: &str,
+    fact_type: Option<&str>,
+) -> Result<Value, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!("{}/memories", bank_path(bank));
+    let mut params: Vec<(&str, String)> = Vec::new();
+    if let Some(ft) = fact_type.map(str::trim).filter(|s| !s.is_empty()) {
+        params.push(("type", ft.to_string()));
+    }
+    let url = append_query(&endpoint_url(&cfg.base_url, &path), &params);
+    let response = client
+        .delete(url)
+        .send()
+        .map_err(|err| format!("hindsight_offline: {err}"))?;
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if !status.is_success() {
+        let snippet: String = body.chars().take(200).collect();
+        return Err(format!(
+            "hindsight_http_error: {} {}",
+            status.as_u16(),
+            snippet.trim()
+        ));
+    }
+    Ok(serde_json::from_str::<Value>(&body).unwrap_or(Value::Null))
+}
+
+/// Deletes a document and the memories that came from it.
+///
+/// The daemon cascades: the document, its memory units and their links all
+/// go away. The operation cannot be undone.
+pub fn document_delete(db: &Db, bank: &str, document_id: &str) -> Result<bool, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!(
+        "{}/documents/{}",
+        bank_path(bank),
+        encode_path_segment(document_id)
+    );
+    send_status_ok(client.delete(endpoint_url(&cfg.base_url, &path)))
+        .map_err(|err| format!("hindsight_document_delete: {err}"))?;
+    Ok(true)
+}
+
+/// Cancels a queued or running operation (`DELETE .../operations/{id}`).
+pub fn operation_cancel(db: &Db, bank: &str, operation_id: &str) -> Result<bool, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!(
+        "{}/operations/{}",
+        bank_path(bank),
+        encode_path_segment(operation_id)
+    );
+    send_status_ok(client.delete(endpoint_url(&cfg.base_url, &path)))
+        .map_err(|err| format!("hindsight_operation_cancel: {err}"))?;
+    Ok(true)
+}
+
+/// Re-queues a failed or cancelled operation (`POST .../operations/{id}/retry`).
+pub fn operation_retry(db: &Db, bank: &str, operation_id: &str) -> Result<bool, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!(
+        "{}/operations/{}/retry",
+        bank_path(bank),
+        encode_path_segment(operation_id)
+    );
+    send_status_ok(client.post(endpoint_url(&cfg.base_url, &path)))
+        .map_err(|err| format!("hindsight_operation_retry: {err}"))?;
+    Ok(true)
+}
+
+/// PATCHes a memory unit and returns the daemon's answer.
+fn patch_json(
+    db: &Db,
+    bank: &str,
+    memory_id: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let (client, cfg) = explore_context(db)?;
+    let path = format!(
+        "{}/memories/{}",
+        bank_path(bank),
+        encode_path_segment(memory_id)
+    );
+    send_json(
+        client
+            .patch(endpoint_url(&cfg.base_url, &path))
+            .json(payload),
+    )
+}
+
+/// Turns whatever the daemon answered for a memory into the stable model.
+///
+/// The PATCH endpoint answers with a free-form object; when it carries no
+/// usable body the memory is read back so the UI still gets a detail.
+fn memory_detail_from_value(raw: &Value, memory_id: &str) -> HindsightMemoryDetail {
+    let mut payload = raw.clone();
+    if let Some(obj) = payload.as_object_mut() {
+        // The curation endpoint answers with a free-form body; the id is
+        // always known, even when the payload leaves it out.
+        obj.entry("id")
+            .or_insert_with(|| Value::String(memory_id.to_string()));
+        // The daemon says `type` in a memory unit and `fact_type` in a
+        // summary; accept both.
+        if !obj.contains_key("type") {
+            if let Some(fact_type) = obj.get("fact_type").cloned() {
+                obj.insert("type".to_string(), fact_type);
+            }
+        }
+    }
+    match serde_json::from_value::<RawMemoryDetail>(payload) {
+        Ok(parsed) => {
+            let mut detail = normalize_memory_detail(&parsed);
+            if detail.id.is_empty() {
+                detail.id = memory_id.to_string();
+            }
+            detail
+        }
+        Err(_) => HindsightMemoryDetail {
+            id: memory_id.to_string(),
+            text: raw
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            ..Default::default()
+        },
+    }
 }
 
 /// Lists documents of a bank, optionally filtered by free text.
@@ -2165,8 +2455,53 @@ mod tests {
     }
 
     #[test]
-    fn clamps_the_requested_page_size() {
-        assert_eq!(clamp_limit(None), DEFAULT_PAGE_LIMIT);
+    fn normalizes_the_tags_of_a_bank() {
+        let item = normalize_tag(&serde_json::json!({ "tag": "profile:aura", "count": 90 }));
+        assert_eq!(item.tag, "profile:aura");
+        assert_eq!(item.count, 90);
+
+        // The daemon also answers with `name` and a float count.
+        let alt = normalize_tag(&serde_json::json!({ "name": "subsystem:core", "usage_count": 7 }));
+        assert_eq!(alt.tag, "subsystem:core");
+        assert_eq!(alt.count, 7);
+
+        let empty = normalize_tag(&serde_json::json!({}));
+        assert_eq!(empty.tag, "");
+        assert_eq!(empty.count, 0);
+    }
+
+    #[test]
+    fn reads_the_curation_answer_of_a_memory() {
+        // The daemon answers the PATCH with the memory unit itself, using
+        // `type` for the cognitive layer.
+        let raw = serde_json::json!({
+            "id": "m-1",
+            "text": "A etiqueta vale 42.",
+            "type": "world",
+            "state": "invalidated",
+            "entities": ["fortinet"],
+            "tags": ["profile:aura"]
+        });
+        let detail = memory_detail_from_value(&raw, "m-1");
+        assert_eq!(detail.id, "m-1");
+        assert_eq!(detail.text, "A etiqueta vale 42.");
+        assert_eq!(detail.fact_type.as_deref(), Some("world"));
+        assert_eq!(detail.state.as_deref(), Some("invalidated"));
+        assert_eq!(detail.entities, vec!["fortinet".to_string()]);
+        assert_eq!(detail.tags, vec!["profile:aura".to_string()]);
+    }
+
+    #[test]
+    fn keeps_the_memory_id_when_the_curation_answer_omits_it() {
+        let raw = serde_json::json!({ "text": "sem id", "fact_type": "experience" });
+        let detail = memory_detail_from_value(&raw, "m-9");
+        assert_eq!(detail.id, "m-9");
+        assert_eq!(detail.text, "sem id");
+        assert_eq!(detail.fact_type.as_deref(), Some("experience"));
+    }
+
+    #[test]
+    fn clamps_the_requested_page_size() {        assert_eq!(clamp_limit(None), DEFAULT_PAGE_LIMIT);
         assert_eq!(clamp_limit(Some(0)), 1);
         assert_eq!(clamp_limit(Some(10)), 10);
         assert_eq!(clamp_limit(Some(10_000)), MAX_PAGE_LIMIT);
