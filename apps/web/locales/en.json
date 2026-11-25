@@ -1097,6 +1097,18 @@
       "search": "Global Search"
     },
     "searchPlaceholder": "Query documents, entities, and relations...",
+    "documentsFilter": "Filter indexed documents...",
+    "service": {
+      "lightrag": "LightRAG",
+      "raglight": "Managed RAGLight",
+      "raglightLabel": "Knowledge service",
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "install": "Install RAGLight",
+      "start": "Start RAGLight",
+      "stop": "Stop RAGLight",
+      "ingest": "Re-index folders"
+    },
     "searchAction": "Search",
     "documentsCount": "Documents",
     "entitiesCount": "Entities",

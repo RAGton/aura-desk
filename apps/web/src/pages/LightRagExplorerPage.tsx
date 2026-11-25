@@ -5,19 +5,23 @@ import {
   ArrowRight,
   CheckCircle2,
   Compass,
+  Download,
   FileText,
   FolderOpen,
   GitBranch,
   Network,
+  Play,
   RefreshCw,
   Search,
   Settings,
+  Square,
   X,
 } from "lucide-react";
 
 import { Badge, Button, EmptyState, Input, Skeleton } from "../components/ui";
 import {
   knowledgeApi,
+  raglightApi,
   type KnowledgeDocumentDetail,
   type KnowledgeDocumentsResult,
   type KnowledgeEntityEntry,
@@ -25,6 +29,7 @@ import {
   type KnowledgeGraphPayload,
   type KnowledgeRelationEntry,
   type KnowledgeSearchResult,
+  type RaglightStatus,
 } from "../lib/ipc";
 
 export interface LightRagExplorerPageProps {
@@ -199,6 +204,13 @@ export function LightRagExplorerPage({
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [overviewError, setOverviewError] = useState<string | null>(null);
 
+  // The managed service (RAGLight) has its own lifecycle: install, start,
+  // stop, index. The page drives it directly instead of only pointing the
+  // reader at Settings.
+  const [raglightStatus, setRaglightStatus] = useState<RaglightStatus | null>(null);
+  const [serviceBusy, setServiceBusy] = useState<string | null>(null);
+  const [serviceMessage, setServiceMessage] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<KnowledgeTab>("documents");
   const [refreshNonce, setRefreshNonce] = useState(0);
 
@@ -239,7 +251,39 @@ export function LightRagExplorerPage({
     } finally {
       setLoadingOverview(false);
     }
+    // The managed service has its own state; the overview alone does not say
+    // whether RAGLight is even installed yet.
+    try {
+      setRaglightStatus(await raglightApi.status());
+    } catch {
+      setRaglightStatus(null);
+    }
   }, []);
+
+  /** Runs one of the service lifecycle actions and reports what happened. */
+  const runServiceAction = useCallback(
+    async (action: "provision" | "start" | "stop" | "ingest") => {
+      setServiceBusy(action);
+      setServiceMessage(null);
+      try {
+        const result =
+          action === "provision"
+            ? await raglightApi.provision()
+            : action === "start"
+              ? await raglightApi.start()
+              : action === "stop"
+                ? await raglightApi.stop()
+                : await raglightApi.ingest();
+        setServiceMessage(result?.message ?? null);
+        await loadOverview();
+      } catch (err) {
+        setServiceMessage(err instanceof Error ? err.message : String(err));
+      } finally {
+        setServiceBusy(null);
+      }
+    },
+    [loadOverview]
+  );
 
   useEffect(() => {
     void loadOverview();
@@ -247,7 +291,7 @@ export function LightRagExplorerPage({
 
   // Load documents when documents tab is active
   useEffect(() => {
-    if (activeTab !== "documents") return;
+    if (activeTab !== "documents" || !overview?.online) return;
     let active = true;
     setLoadingDocs(true);
     setDocError(null);
@@ -271,11 +315,12 @@ export function LightRagExplorerPage({
     return () => {
       active = false;
     };
-  }, [activeTab, docQuery, refreshNonce]);
+  }, [activeTab, docQuery, refreshNonce, overview?.online]);
 
   // Load graph (entities & relations) when entities or graph tab is active
   useEffect(() => {
-    if (activeTab !== "entities" && activeTab !== "graph") return;
+    if ((activeTab !== "entities" && activeTab !== "graph") || !overview?.online)
+      return;
     let active = true;
     setLoadingGraph(true);
     setGraphError(null);
@@ -296,7 +341,7 @@ export function LightRagExplorerPage({
     return () => {
       active = false;
     };
-  }, [activeTab, refreshNonce]);
+  }, [activeTab, refreshNonce, overview?.online]);
 
   const handleRefresh = () => {
     setRefreshNonce((n) => n + 1);
@@ -318,7 +363,7 @@ export function LightRagExplorerPage({
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
-    if (!q) return;
+    if (!q || !overview?.online) return;
     setSearching(true);
     setSearchError(null);
     try {
@@ -412,7 +457,7 @@ export function LightRagExplorerPage({
     <div className="space-y-5">
       {/* Header */}
       <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-xl font-bold text-aura-primary">
             <Compass className="h-5 w-5 text-aura-accent" aria-hidden="true" />
             {t("knowledgePanel.title")}
@@ -420,6 +465,17 @@ export function LightRagExplorerPage({
           <p className="mt-1 text-xs text-aura-text-muted">
             {t("knowledgePanel.subtitle")}
           </p>
+          {/* Which of the two services this page is talking about. The title
+              names both, and that alone left the reader guessing. */}
+          {overview && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Badge variant={overview.online ? "success" : "warning"}>
+                {overview.serviceKind === "lightrag"
+                  ? t("knowledgePanel.service.lightrag")
+                  : t("knowledgePanel.service.raglight")}
+              </Badge>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -530,11 +586,27 @@ export function LightRagExplorerPage({
 
             {overview.configuredFolders.length > 0 && (
               <div className="space-y-1.5 border-t border-aura-border/40 pt-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-aura-secondary">
-                  <FolderOpen className="h-3.5 w-3.5 text-aura-accent" aria-hidden="true" />
-                  {t("knowledgePanel.configuredFolders", {
-                    count: overview.configuredFolders.length,
-                  })}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-aura-secondary">
+                    <FolderOpen className="h-3.5 w-3.5 text-aura-accent" aria-hidden="true" />
+                    {t("knowledgePanel.configuredFolders", {
+                      count: overview.configuredFolders.length,
+                    })}
+                  </div>
+                  {/* Re-index the authorized folders without leaving the
+                      page — the reader came here to look at the knowledge. */}
+                  {raglightStatus?.installed && raglightStatus.running && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={serviceBusy === "ingest"}
+                      data-testid="knowledge-ingest"
+                      onClick={() => void runServiceAction("ingest")}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("knowledgePanel.service.ingest")}
+                    </Button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {overview.configuredFolders.map((folder) => (
@@ -546,6 +618,11 @@ export function LightRagExplorerPage({
                     </span>
                   ))}
                 </div>
+                {serviceMessage && (
+                  <p className="font-mono text-xs text-aura-secondary break-all">
+                    {serviceMessage}
+                  </p>
+                )}
               </div>
             )}
           </section>
@@ -590,6 +667,72 @@ export function LightRagExplorerPage({
               </Button>
             </div>
 
+            {/* The next step, right here: the managed service can be
+                installed and started without leaving the page. */}
+            {raglightStatus && (
+              <div
+                className="space-y-3 border-t border-aura-warning/25 pt-3"
+                data-testid="knowledge-service-actions"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-aura-secondary">
+                    {t("knowledgePanel.service.raglightLabel")}
+                  </span>
+                  <Badge variant={raglightStatus.installed ? "success" : "warning"}>
+                    {raglightStatus.installed
+                      ? t("knowledgePanel.service.installed")
+                      : t("knowledgePanel.service.notInstalled")}
+                  </Badge>
+                  <span className="font-mono text-xs text-aura-text-muted">
+                    {raglightStatus.baseUrl}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {!raglightStatus.installed ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      loading={serviceBusy === "provision"}
+                      data-testid="knowledge-install-service"
+                      onClick={() => void runServiceAction("provision")}
+                    >
+                      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("knowledgePanel.service.install")}
+                    </Button>
+                  ) : !raglightStatus.running ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      loading={serviceBusy === "start"}
+                      data-testid="knowledge-start-service"
+                      onClick={() => void runServiceAction("start")}
+                    >
+                      <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("knowledgePanel.service.start")}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={serviceBusy === "stop"}
+                      data-testid="knowledge-stop-service"
+                      onClick={() => void runServiceAction("stop")}
+                    >
+                      <Square className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("knowledgePanel.service.stop")}
+                    </Button>
+                  )}
+                </div>
+
+                {serviceMessage && (
+                  <p className="font-mono text-xs text-aura-secondary break-all">
+                    {serviceMessage}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-1.5 border-t border-aura-warning/25 pt-3">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-aura-secondary">
                 <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
@@ -618,43 +761,47 @@ export function LightRagExplorerPage({
         )
       ) : null}
 
-      {/* Sub-tabs */}
-      <div
-        role="tablist"
-        aria-label={t("knowledgePanel.title")}
-        className="flex flex-wrap items-center gap-1.5 rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-1.5"
-      >
-        {tabItems.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-aura-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                isActive
-                  ? "bg-aura-accent text-aura-inverse shadow-sm"
-                  : "text-aura-secondary hover:bg-aura-muted/40 hover:text-aura-primary"
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Sub-tabs — only once there is something behind them. With the
+          service down, four empty tabs and a search that cannot answer are
+          just noise; the panel above already says what to do. */}
+      {overview?.online ? (
+        <div
+          role="tablist"
+          aria-label={t("knowledgePanel.title")}
+          className="flex flex-wrap items-center gap-1.5 rounded-aura-lg border border-aura-border/40 bg-aura-surface/75 p-1.5"
+        >
+          {tabItems.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-aura-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "bg-aura-accent text-aura-inverse shadow-sm"
+                    : "text-aura-secondary hover:bg-aura-muted/40 hover:text-aura-primary"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/* Documents Sub-tab */}
-      {activeTab === "documents" && (
+      {overview?.online && activeTab === "documents" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Input
               containerClassName="flex-1 min-w-[220px]"
               value={docQuery}
               onChange={(e) => setDocQuery(e.target.value)}
-              placeholder={t("knowledgePanel.searchPlaceholder")}
-              aria-label={t("knowledgePanel.searchPlaceholder")}
+              placeholder={t("knowledgePanel.documentsFilter")}
+              aria-label={t("knowledgePanel.documentsFilter")}
             />
           </div>
 
@@ -830,7 +977,7 @@ export function LightRagExplorerPage({
       )}
 
       {/* Entities & Relations Sub-tab */}
-      {activeTab === "entities" && (
+      {overview?.online && activeTab === "entities" && (
         <div className="space-y-4">
           <Input
             value={entityFilter}
@@ -1003,7 +1150,7 @@ export function LightRagExplorerPage({
       )}
 
       {/* Knowledge Graph SVG Sub-tab */}
-      {activeTab === "graph" && (
+      {overview?.online && activeTab === "graph" && (
         <div className="space-y-4">
           {graphError && (
             <div
@@ -1230,7 +1377,7 @@ export function LightRagExplorerPage({
       )}
 
       {/* Global Search Sub-tab */}
-      {activeTab === "search" && (
+      {overview?.online && activeTab === "search" && (
         <div className="space-y-4">
           <form
             onSubmit={handleSearch}

@@ -25,12 +25,39 @@ vi.mock("../lib/ipc", async (importOriginal) => {
       graph: vi.fn(),
       search: vi.fn(),
     },
+    raglightApi: {
+      ...actual.raglightApi,
+      status: vi.fn(),
+      provision: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      ingest: vi.fn(),
+    },
   };
 });
 
-import { knowledgeApi } from "../lib/ipc";
+import { knowledgeApi, raglightApi, type RaglightStatus } from "../lib/ipc";
 
 const mockKnowledge = vi.mocked(knowledgeApi);
+const mockRaglight = vi.mocked(raglightApi);
+
+const RAGLIGHT_STATUS: RaglightStatus = {
+  enabled: true,
+  mode: "managed",
+  baseUrl: "http://127.0.0.1:8765",
+  provider: "ollama",
+  embeddingModel: "nomic-embed-text",
+  llmModel: "llama3",
+  vectorStore: "chroma",
+  folders: ["/home/ragton/Docs/Architecture"],
+  hasApiKey: false,
+  installed: false,
+  running: false,
+  managedPid: null,
+  venvPath: "/home/ragton/.local/share/auradesk/raglight/.venv",
+  dbPath: "/home/ragton/.local/share/auradesk/raglight/db",
+  pythonTool: null,
+};
 
 const OFFLINE_OVERVIEW: KnowledgeExplorerOverview = {
   serviceKind: "offline",
@@ -192,6 +219,17 @@ describe("LightRagExplorerPage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRaglight.status.mockResolvedValue(RAGLIGHT_STATUS);
+    const actionResult = (message: string) => ({
+      ok: true,
+      message,
+      outputTail: "",
+      status: RAGLIGHT_STATUS,
+    });
+    mockRaglight.provision.mockResolvedValue(actionResult("raglight_provisioned"));
+    mockRaglight.start.mockResolvedValue(actionResult("raglight_started"));
+    mockRaglight.stop.mockResolvedValue(actionResult("raglight_stopped"));
+    mockRaglight.ingest.mockResolvedValue(actionResult("raglight_ingested"));
   });
 
   it("renders honest offline diagnostics, configured folders, Settings action, and zero fake documents", async () => {
@@ -233,12 +271,10 @@ describe("LightRagExplorerPage", () => {
     ).toBeInTheDocument();
 
     // Verify zero fake documents appear
-    expect(
-      await screen.findByText("No data available while the service is disconnected."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("No LightRAG service reachable")).toBeInTheDocument();
     expect(screen.queryByText("AuraDesk Zero-Trust IPC Guide")).not.toBeInTheDocument();
     expect(mockKnowledge.documentGet).not.toHaveBeenCalled();
+    // A dead service is not asked for anything.
+    expect(mockKnowledge.documentsList).not.toHaveBeenCalled();
 
     // Verify Configure in Settings button triggers onOpenSettings
     fireEvent.click(
@@ -246,12 +282,19 @@ describe("LightRagExplorerPage", () => {
     );
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
 
-    // Entities tab also stays honestly empty while offline
-    fireEvent.click(screen.getByRole("tab", { name: "Entities & Relations" }));
-    expect(
-      await screen.findByText("No data available while the service is disconnected."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Graph unavailable while offline")).toBeInTheDocument();
+    // The tabs are hidden while the service is down: empty tabs and a
+    // search that cannot answer are noise, and the panel above already
+    // says what to do.
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+
+    // The next step is offered right here: install the managed service.
+    const actions = await screen.findByTestId("knowledge-service-actions");
+    fireEvent.click(
+      within(actions).getByRole("button", { name: "Install RAGLight" }),
+    );
+    await waitFor(() => {
+      expect(mockRaglight.provision).toHaveBeenCalled();
+    });
   });
 
   it("loads documents list and inspects original content and entities via documentGet when online", async () => {

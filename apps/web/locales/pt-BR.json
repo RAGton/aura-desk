@@ -1097,6 +1097,18 @@
       "search": "Busca Global"
     },
     "searchPlaceholder": "Consultar documentos, entidades e relações...",
+    "documentsFilter": "Filtrar documentos indexados...",
+    "service": {
+      "lightrag": "LightRAG",
+      "raglight": "RAGLight gerenciado",
+      "raglightLabel": "Serviço de conhecimento",
+      "installed": "Instalado",
+      "notInstalled": "Não instalado",
+      "install": "Instalar RAGLight",
+      "start": "Iniciar RAGLight",
+      "stop": "Parar RAGLight",
+      "ingest": "Reindexar pastas"
+    },
     "searchAction": "Consultar",
     "documentsCount": "Documentos",
     "entitiesCount": "Entidades",
