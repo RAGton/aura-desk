@@ -1,8 +1,10 @@
 //! Application layer: use cases and orchestration. No I/O in this layer;
 //! depends on `domain` and on `infrastructure` for persistence.
 
+pub mod agent_runtime;
 pub mod agents;
 pub mod alerts;
+pub mod capability_registry;
 pub mod chat;
 pub mod context_engine;
 pub mod daily_plans;

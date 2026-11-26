@@ -1,7 +1,9 @@
 //! Domain layer: pure entities and value objects, no I/O.
 
+pub mod agent_runtime;
 pub mod ai;
 pub mod alert;
+pub mod capability_registry;
 pub mod daily_plan;
 pub mod desktop;
 pub mod github;

@@ -1822,6 +1822,14 @@ mod tests {
 
     #[test]
     fn the_machine_declaration_fills_the_defaults_and_the_reader_wins_over_it() {
+        let prev_provider = std::env::var_os("AURADESK_RAGLIGHT_PROVIDER");
+        let prev_vector = std::env::var_os("AURADESK_RAGLIGHT_VECTOR_STORE");
+        let prev_folders = std::env::var_os("AURADESK_RAGLIGHT_FOLDERS");
+
+        std::env::remove_var("AURADESK_RAGLIGHT_PROVIDER");
+        std::env::remove_var("AURADESK_RAGLIGHT_VECTOR_STORE");
+        std::env::remove_var("AURADESK_RAGLIGHT_FOLDERS");
+
         let db = Db::open_in_memory().unwrap();
         let settings = SettingsService::new(&db);
 
@@ -1856,6 +1864,15 @@ mod tests {
         std::env::remove_var("AURADESK_RAGLIGHT_VECTOR_STORE");
         std::env::remove_var("AURADESK_RAGLIGHT_FOLDERS");
 
+        if let Some(v) = prev_provider {
+            std::env::set_var("AURADESK_RAGLIGHT_PROVIDER", v);
+        }
+        if let Some(v) = prev_vector {
+            std::env::set_var("AURADESK_RAGLIGHT_VECTOR_STORE", v);
+        }
+        if let Some(v) = prev_folders {
+            std::env::set_var("AURADESK_RAGLIGHT_FOLDERS", v);
+        }
     }
 
     #[test]

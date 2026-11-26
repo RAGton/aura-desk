@@ -3,13 +3,17 @@
 
 use std::sync::Arc;
 
+use auradesk_core::application::agent_runtime::{AgentLoop, RegistryToolExecutor};
 use auradesk_core::application::agents::{
     AgentBotRecord, AgentOrchestratorService, AgentRunRecord, AgentSkillRecord, AgentToolEntry,
     AgentsOverview, InstallSkillInput, McpPluginRecord, UpsertBotInput, UpsertMcpPluginInput,
 };
+use auradesk_core::application::capability_registry::CapabilityRegistryService;
 use auradesk_core::application::chat::ChatService;
 use auradesk_core::application::context_engine::{ContextEngineService, ContextInspection};
+use auradesk_core::domain::agent_runtime::AgentExecutionSummary;
 use auradesk_core::domain::ai::ChatSession;
+use auradesk_core::domain::capability_registry::{SelectedCapability, UnifiedCapability};
 use tauri::State;
 
 use crate::hindsight_explore::{
@@ -890,4 +894,71 @@ pub fn agents_mcp_plugins_delete(
     AgentOrchestratorService::new(&db)
         .delete_mcp_plugin(&plugin_id)
         .map_err(|e| format!("agents_mcp_plugins_delete: {e}"))
+}
+
+#[tauri::command]
+pub fn agents_capabilities_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<UnifiedCapability>, String> {
+    let db = db_from(&state);
+    let service = CapabilityRegistryService::load_unified(&db)
+        .map_err(|e| format!("load capabilities: {e}"))?;
+    Ok(service.registry().list_all())
+}
+
+#[tauri::command]
+pub fn agents_capabilities_select(
+    state: State<'_, AppState>,
+    intent: String,
+    max_tools: Option<usize>,
+) -> Result<Vec<SelectedCapability>, String> {
+    let db = db_from(&state);
+    let service = CapabilityRegistryService::load_unified(&db)
+        .map_err(|e| format!("load capabilities: {e}"))?;
+    Ok(service.select_tools(&intent, max_tools.unwrap_or(5)))
+}
+
+#[tauri::command]
+pub async fn agents_run_execute(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<AgentExecutionSummary, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut loop_inst = AgentLoop::restore_from_db(&db, &run_id)
+            .map_err(|e| format!("restore run: {e}"))?;
+        let mut reg_svc = CapabilityRegistryService::load_unified(&db)
+            .map_err(|e| format!("load capabilities: {e}"))?;
+        let mut executor = RegistryToolExecutor::new(reg_svc.registry_mut());
+        let summary = loop_inst
+            .run(&mut executor)
+            .map_err(|e| format!("run agent: {e}"))?;
+        loop_inst.persist_to_db(&db).map_err(|e| format!("persist run: {e}"))?;
+        Ok(summary)
+    })
+    .await
+    .map_err(|e| format!("agents_run_execute join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn agents_run_resume(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<AgentExecutionSummary, String> {
+    let db = db_from(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut loop_inst = AgentLoop::restore_from_db(&db, &run_id)
+            .map_err(|e| format!("restore run: {e}"))?;
+        loop_inst.resume();
+        let mut reg_svc = CapabilityRegistryService::load_unified(&db)
+            .map_err(|e| format!("load capabilities: {e}"))?;
+        let mut executor = RegistryToolExecutor::new(reg_svc.registry_mut());
+        let summary = loop_inst
+            .run(&mut executor)
+            .map_err(|e| format!("run agent: {e}"))?;
+        loop_inst.persist_to_db(&db).map_err(|e| format!("persist run: {e}"))?;
+        Ok(summary)
+    })
+    .await
+    .map_err(|e| format!("agents_run_resume join: {e}"))?
 }
