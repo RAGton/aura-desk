@@ -5,6 +5,7 @@ import {
   Database,
   Droplets,
   GitBranch,
+  Layers,
   Monitor,
   Palette,
   RefreshCw,
@@ -34,6 +35,7 @@ export type SettingsSectionKey =
   | "ai"
   | "hindsight"
   | "raglight"
+  | "plugins"
   | "system";
 
 export interface SettingsSectionNavDef {
@@ -449,6 +451,13 @@ export const SETTINGS_SECTIONS: SettingsSectionNavDef[] = [
     labelKey: "settings.nav.raglight",
     descriptionKey: "settings.navDesc.raglight",
     icon: Database,
+    groups: [],
+  },
+  {
+    key: "plugins",
+    labelKey: "settings.nav.plugins",
+    descriptionKey: "settings.navDesc.plugins",
+    icon: Layers,
     groups: [],
   },
   {

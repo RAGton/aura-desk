@@ -554,3 +554,80 @@ export interface SelectedCapability {
   relevanceScore: number;
   reason: string;
 }
+
+export interface PrivatePluginPermission {
+  permission: string;
+  granted: boolean;
+  granted_at?: string | null;
+}
+
+export interface PrivatePluginCapability {
+  name: string;
+  description: string;
+  required_permission?: string | null;
+  human_confirmation_required: boolean;
+}
+
+export interface PrivatePluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  contract_version: string;
+  description: string;
+  author: string;
+  homepage: string;
+  permissions: string[];
+  capabilities: PrivatePluginCapability[];
+  settings_schema?: Record<string, unknown> | null;
+}
+
+export interface PrivatePluginRecord {
+  id: string;
+  name: string;
+  version: string;
+  contract_version: string;
+  description: string;
+  author: string;
+  homepage: string;
+  install_path: string;
+  entrypoint: string;
+  enabled: boolean;
+  installed_at: string;
+  updated_at: string;
+  permissions: PrivatePluginPermission[];
+}
+
+export interface PrivatePluginAuditEntry {
+  id: string;
+  plugin_id: string;
+  action: string;
+  resource: string;
+  status: string;
+  user_confirmed: boolean;
+  details_json: string;
+  created_at: string;
+}
+
+export interface NormalizedPluginEvent {
+  event_id: string;
+  plugin_id: string;
+  event_type: string;
+  resource_id: string;
+  title: string;
+  summary: string;
+  severity: "info" | "low" | "medium" | "high" | "critical" | string;
+  timestamp: string;
+  raw_data: Record<string, unknown>;
+}
+
+export type EventDispatchResult =
+  | { Accepted: NormalizedPluginEvent }
+  | { Deduplicated: { event_id: string } };
+
+export interface ExecutePluginActionInput {
+  plugin_id: string;
+  action: string;
+  params: Record<string, unknown>;
+  confirmed_by_user?: boolean;
+}
+

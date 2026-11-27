@@ -7,6 +7,7 @@ pub mod capability_registry;
 pub mod daily_plan;
 pub mod desktop;
 pub mod github;
+pub mod plugin;
 pub mod pomodoro;
 pub mod project;
 pub mod reminder;

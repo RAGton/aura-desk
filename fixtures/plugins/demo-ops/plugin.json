@@ -1,0 +1,33 @@
+{
+  "id": "demo-ops",
+  "name": "Demo Ops Plugin",
+  "version": "1.0.0",
+  "contract_version": "1.0",
+  "description": "Plugin de demonstração e testes da Fundação de Plugins (Fase 1)",
+  "author": "AuraDesk Team",
+  "homepage": "https://auradesk.local",
+  "permissions": [
+    "read_tickets",
+    "write_ticket_comment"
+  ],
+  "capabilities": [
+    {
+      "name": "fetch_tickets",
+      "description": "Lê lista de chamados simulados sem alterar nada",
+      "required_permission": "read_tickets",
+      "human_confirmation_required": false
+    },
+    {
+      "name": "add_comment",
+      "description": "Adiciona comentário em chamado simulado (requer confirmação explícita)",
+      "required_permission": "write_ticket_comment",
+      "human_confirmation_required": true
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "mock_delay_ms": { "type": "number", "default": 100 }
+    }
+  }
+}

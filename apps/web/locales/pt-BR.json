@@ -343,6 +343,7 @@
       "ai": "Aura IA & GitHub",
       "hindsight": "Memória Hindsight",
       "raglight": "RAGLight Arquivos",
+      "plugins": "Plugins Privados",
       "system": "Sistema & Backup"
     },
     "navDesc": {
@@ -353,6 +354,7 @@
       "ai": "Provedor de IA, chave de API, instruções da Aura e integração GitHub.",
       "hindsight": "Memória episódica, bancos de memória, manutenção diária e recall.",
       "raglight": "Banco vetorial de arquivos locais, pastas indexadas e servidor RAGLight.",
+      "plugins": "Central de integrações corporativas privadas N2, permissões e cofre.",
       "system": "Atualizações via GitHub Releases, logs de diagnóstico e backup .zip."
     },
     "groups": {
@@ -711,8 +713,11 @@
     "copyCode": "Copiar código",
     "copied": "Copiado",
     "copyMessage": "Copiar mensagem",
+    "copyMessageShort": "Copiar",
     "speakMessage": "Ouvir em voz alta",
+    "speakMessageShort": "Ouvir",
     "stopSpeaking": "Parar voz",
+    "stopSpeakingShort": "Parar",
     "thoughtThinking": "Aura está pensando...",
     "thoughtLines": "Raciocínio ({{count}} linhas)",
     "voiceConfigTitle": "Configuração de Voz da Aura",
@@ -755,7 +760,35 @@
       "liveUnsupported": "Reconhecimento de voz ao vivo indisponível neste navegador — capturando nota em WAV.",
       "toggleTranscript": "Conversa ({{count}})",
       "hideTranscript": "Ocultar conversa",
-      "showTranscript": "Mostrar conversa"
+      "showTranscript": "Mostrar conversa",
+      "autoSpeakOn": "Aura fala respostas (ativo)",
+      "autoSpeakOff": "Ativar resposta por voz",
+      "speakOnlyShort": "Voz"
+    },
+    "sidebar": {
+      "title": "Conversas e Projetos",
+      "toggle": "Conversas e pastas",
+      "newChat": "Novo chat",
+      "searchPlaceholder": "Buscar conversas...",
+      "allChats": "Todas as conversas",
+      "generalContext": "Contexto geral",
+      "projectsTitle": "Projetos",
+      "newProject": "Novo",
+      "projectNamePlaceholder": "Nome do projeto / pasta",
+      "projectContextPlaceholder": "Contexto opcional...",
+      "bankLinkLabel": "Memória Hindsight",
+      "bankModeCreate": "Criar novo banco",
+      "bankModeExisting": "Vincular banco existente",
+      "bankModeNone": "Sem banco dedicado",
+      "bankSelectLabel": "Banco Hindsight",
+      "bankIdPlaceholder": "id-do-banco",
+      "createProject": "Criar",
+      "noProjects": "Crie pastas para separar contextos e vincular bancos.",
+      "recentsTitle": "Recentes",
+      "noChats": "Nenhuma conversa neste filtro.",
+      "newChatInProject": "Nova conversa em {{name}}",
+      "deleteProject": "Remover pasta",
+      "moveToProject": "Mover para pasta"
     },
     "proposals": {
       "title": "Fila de Aprovação de Propostas",
@@ -811,6 +844,7 @@
       "dimension4d": "Camada 4D",
       "standby": "Órbita estável",
       "listeningState": "Captando entrada",
+      "thinkingState": "Aura pensando",
       "speakingState": "Aura respondendo",
       "memoriesOrbiting": "{{count}} memórias em órbita 3D",
       "selectNodeHint": "Passe o mouse ou clique em um orbe Hindsight na galáxia para inspecionar",
@@ -854,6 +888,7 @@
     "chatLayoutMenu": "Layout do painel",
     "chatDockLabel": "Posição",
     "chatTransparencyLabel": "Transparência",
+    "chatSizeLabel": "Tamanho",
     "chatDock": {
       "left": "Esquerda",
       "right": "Direita",
@@ -864,8 +899,14 @@
       "balanced": "Equilibrada",
       "solid": "Sólida"
     },
+    "chatSize": {
+      "compact": "Compacto",
+      "normal": "Normal",
+      "wide": "Largo"
+    },
     "stopGenerating": "Parar",
     "regenerate": "Gerar de novo",
+    "regenerateShort": "Refazer",
     "editMessage": "Editar",
     "resend": "Enviar de novo",
     "jumpToLatest": "Mensagem mais recente",

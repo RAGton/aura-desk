@@ -409,8 +409,17 @@ pub fn apply_env_overrides(config: &mut RaglightConfig, settings: &SettingsServi
     }
 }
 
+pub const PREFERRED_PYTHON_VERSION: &str = "3.12";
+
 pub fn raglight_root(data_dir: &Path) -> PathBuf {
     data_dir.join("raglight")
+}
+
+pub fn raglight_package_spec(vector_store: &str) -> &'static str {
+    match vector_store.trim().to_ascii_lowercase().as_str() {
+        "qdrant" => "raglight[qdrant]",
+        _ => "raglight[chroma]",
+    }
 }
 
 pub fn venv_python_path(data_dir: &Path) -> PathBuf {
@@ -421,20 +430,77 @@ pub fn venv_python_path(data_dir: &Path) -> PathBuf {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        venv.join("bin").join("python")
+        let bin = venv.join("bin");
+        let primary = bin.join("python");
+        if primary.is_file() {
+            return primary;
+        }
+        let fallback = bin.join("python3");
+        if fallback.is_file() {
+            return fallback;
+        }
+        primary
     }
 }
 
-fn venv_pip_path(data_dir: &Path) -> PathBuf {
+/// Candidate `site-packages` directories inside `<data_dir>/raglight/.venv`.
+pub fn venv_site_packages_dirs(data_dir: &Path) -> Vec<PathBuf> {
     let venv = raglight_root(data_dir).join(".venv");
     #[cfg(target_os = "windows")]
     {
-        venv.join("Scripts").join("pip.exe")
+        let sp = venv.join("Lib").join("site-packages");
+        if sp.is_dir() {
+            vec![sp]
+        } else {
+            Vec::new()
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        venv.join("bin").join("pip")
+        let mut dirs = Vec::new();
+        for lib_name in ["lib", "lib64"] {
+            let lib_dir = venv.join(lib_name);
+            let Ok(entries) = fs::read_dir(&lib_dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                if name.to_string_lossy().starts_with("python") {
+                    let sp = entry.path().join("site-packages");
+                    if sp.is_dir() && !dirs.contains(&sp) {
+                        dirs.push(sp);
+                    }
+                }
+            }
+        }
+        dirs
     }
+}
+
+/// Returns `true` only when the virtualenv has a Python interpreter AND the
+/// core RAGLight runtime packages (`raglight`, `fastapi`, `uvicorn`) installed.
+pub fn is_venv_installed(data_dir: &Path) -> bool {
+    if !venv_python_path(data_dir).is_file() {
+        return false;
+    }
+    venv_site_packages_dirs(data_dir).into_iter().any(|sp| {
+        sp.join("raglight").is_dir()
+            && sp.join("fastapi").is_dir()
+            && sp.join("uvicorn").is_dir()
+    })
+}
+
+/// Python interpreter specifier passed to `uv venv --python`.
+/// Uses `AURADESK_RAGLIGHT_PYTHON` when valid (e.g. NixOS store Python 3.12),
+/// falling back to `"3.12"` so `uv` resolves or fetches portable Python 3.12
+/// across Linux, macOS, and Windows.
+pub fn preferred_uv_python() -> String {
+    if let Some(py) = env_str("AURADESK_RAGLIGHT_PYTHON") {
+        if Path::new(&py).is_file() {
+            return py;
+        }
+    }
+    PREFERRED_PYTHON_VERSION.to_string()
 }
 
 fn find_in_path(names: &[&str]) -> Option<String> {
@@ -450,13 +516,51 @@ fn find_in_path(names: &[&str]) -> Option<String> {
     None
 }
 
+fn detect_system_python_cmd() -> Option<(String, Vec<String>)> {
+    if let Some(py) = env_str("AURADESK_RAGLIGHT_PYTHON") {
+        if Path::new(&py).is_file() {
+            return Some((py, Vec::new()));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(py312) = find_in_path(&["python3.12.exe"]) {
+            return Some((py312, Vec::new()));
+        }
+        if let Some(py_launcher) = find_in_path(&["py.exe"]) {
+            if Command::new(&py_launcher)
+                .args(["-3.12", "--version"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                return Some((py_launcher, vec!["-3.12".to_string()]));
+            }
+        }
+        find_in_path(&["python.exe", "python3.exe", "py.exe"]).map(|bin| (bin, Vec::new()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let candidates = ["python3.12", "python3.11", "python3.13", "python3", "python"];
+        find_in_path(&candidates).map(|bin| (bin, Vec::new()))
+    }
+}
+
 fn detect_python_tool() -> Option<String> {
     #[cfg(target_os = "windows")]
-    let candidates = ["uv.exe", "uv", "python.exe", "python3.exe", "py.exe"];
+    let candidates = [
+        "uv.exe",
+        "uv",
+        "python3.12.exe",
+        "py.exe",
+        "python.exe",
+        "python3.exe",
+    ];
     #[cfg(not(target_os = "windows"))]
-    let candidates = ["uv", "python3", "python"];
+    let candidates = ["uv", "python3.12", "python3.11", "python3", "python"];
 
     find_in_path(&candidates)
+        .or_else(|| env_str("AURADESK_RAGLIGHT_PYTHON").filter(|p| Path::new(p).is_file()))
 }
 
 fn check_health(base_url: &str, api_key: &str) -> bool {
@@ -488,7 +592,7 @@ pub fn status(db: &Db, data_dir: &Path, manager: &RaglightManager) -> RaglightSt
     let root = raglight_root(data_dir);
     let venv = root.join(".venv");
     let db_path = root.join("db");
-    let installed = venv_python_path(data_dir).is_file() && root.join("server.py").is_file();
+    let installed = is_venv_installed(data_dir);
     let managed_pid = manager.managed_pid();
     let running = check_health(&cfg.base_url, &cfg.api_key);
 
@@ -553,15 +657,18 @@ pub fn provision_and_install(
 
     let mut logs = Vec::new();
     let uv_bin = find_in_path(&["uv", "uv.exe"]);
-
-    let extras = match cfg.vector_store.as_str() {
-        "qdrant" => "raglight[qdrant,ollama,documents]",
-        _ => "raglight[chroma,ollama,documents]",
-    };
+    let pkg_spec = raglight_package_spec(&cfg.vector_store);
 
     if let Some(uv) = uv_bin {
+        let uv_python = preferred_uv_python();
         let out_venv = Command::new(&uv)
-            .args(["venv", &venv_dir.display().to_string()])
+            .args([
+                "venv",
+                "--clear",
+                "--python",
+                &uv_python,
+                &venv_dir.display().to_string(),
+            ])
             .output()
             .map_err(|e| format!("uv_venv_spawn: {e}"))?;
         logs.push(String::from_utf8_lossy(&out_venv.stdout).to_string());
@@ -582,7 +689,7 @@ pub fn provision_and_install(
                 "install",
                 "--python",
                 &py.display().to_string(),
-                extras,
+                pkg_spec,
                 "fastapi",
                 "uvicorn",
             ])
@@ -590,7 +697,7 @@ pub fn provision_and_install(
             .map_err(|e| format!("uv_pip_spawn: {e}"))?;
         logs.push(String::from_utf8_lossy(&out_pip.stdout).to_string());
         logs.push(String::from_utf8_lossy(&out_pip.stderr).to_string());
-        let ok = out_pip.status.success();
+        let ok = out_pip.status.success() && is_venv_installed(data_dir);
         return Ok(RaglightActionResult {
             ok,
             message: if ok {
@@ -603,11 +710,13 @@ pub fn provision_and_install(
         });
     }
 
-    let py_sys = find_in_path(&["python3", "python", "python.exe", "py.exe"])
-        .ok_or_else(|| "python_or_uv_not_found".to_string())?;
+    let (py_sys, mut venv_args) =
+        detect_system_python_cmd().ok_or_else(|| "python_or_uv_not_found".to_string())?;
+    venv_args.extend(["-m".to_string(), "venv".to_string(), "--clear".to_string()]);
+    venv_args.push(venv_dir.display().to_string());
 
     let out_venv = Command::new(&py_sys)
-        .args(["-m", "venv", &venv_dir.display().to_string()])
+        .args(&venv_args)
         .output()
         .map_err(|e| format!("python_venv_spawn: {e}"))?;
     logs.push(String::from_utf8_lossy(&out_venv.stdout).to_string());
@@ -621,14 +730,22 @@ pub fn provision_and_install(
         });
     }
 
-    let pip = venv_pip_path(data_dir);
-    let out_pip = Command::new(&pip)
-        .args(["install", "--upgrade", extras, "fastapi", "uvicorn"])
+    let py = venv_python_path(data_dir);
+    let out_pip = Command::new(&py)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            pkg_spec,
+            "fastapi",
+            "uvicorn",
+        ])
         .output()
         .map_err(|e| format!("pip_install_spawn: {e}"))?;
     logs.push(String::from_utf8_lossy(&out_pip.stdout).to_string());
     logs.push(String::from_utf8_lossy(&out_pip.stderr).to_string());
-    let ok = out_pip.status.success();
+    let ok = out_pip.status.success() && is_venv_installed(data_dir);
 
     Ok(RaglightActionResult {
         ok,
@@ -649,11 +766,11 @@ pub fn start_server(
     manager: &RaglightManager,
 ) -> Result<RaglightActionResult, String> {
     let cfg = load_config(db);
-    let root = write_managed_files(&cfg, data_dir)?;
-    let py = venv_python_path(data_dir);
-    if !py.is_file() {
+    if !is_venv_installed(data_dir) {
         return Err("raglight_not_installed".to_string());
     }
+    let root = write_managed_files(&cfg, data_dir)?;
+    let py = venv_python_path(data_dir);
 
     let port = extract_port(&cfg.base_url).unwrap_or(8000);
     let mut cmd = Command::new(&py);
@@ -662,6 +779,15 @@ pub fn start_server(
         .env("RAGLIGHT_PORT", port.to_string())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+
+    #[cfg(target_os = "linux")]
+    if let Some(ld_extra) = env_str("AURADESK_RAGLIGHT_LD_LIBRARY_PATH") {
+        let merged = match std::env::var("LD_LIBRARY_PATH") {
+            Ok(existing) if !existing.trim().is_empty() => format!("{ld_extra}:{existing}"),
+            _ => ld_extra,
+        };
+        cmd.env("LD_LIBRARY_PATH", merged);
+    }
 
     if !cfg.api_key.is_empty() {
         cmd.env("RAGLIGHT_API_KEY", &cfg.api_key);
@@ -1672,59 +1798,49 @@ def load_cfg() -> dict:
     return {}
 
 
-def get_pipeline():
+def get_pipeline(folders_override: Optional[List[str]] = None):
     global _pipeline
-    if _pipeline is not None:
+    if _pipeline is not None and not folders_override:
         return _pipeline
 
     cfg = load_cfg()
-    provider = cfg.get("provider", "ollama")
+    provider = str(cfg.get("provider", "ollama")).lower()
     emb_model = cfg.get("embedding_model", "nomic-embed-text")
     llm_model = cfg.get("llm_model", "qwen3:0.6b")
-    vector_store_kind = cfg.get("vector_store", "chroma")
+    vector_store_kind = str(cfg.get("vector_store", "chroma")).lower()
     persist_dir = cfg.get("persist_directory", "./db")
+    folders = folders_override if folders_override is not None else (cfg.get("folders") or [])
 
-    from raglight import RAGPipeline
-    from raglight.integrations import default_registries
+    from raglight import RAGConfig, RAGPipeline, Settings
+    from raglight.config.vector_store_config import VectorStoreConfig
+    from raglight.models.data_source_model import FolderSource
 
     if provider == "openai":
-        from raglight.integrations.openai import OpenAIEmbeddings, OpenAILLM
-        embeddings = OpenAIEmbeddings(model_name=emb_model)
-        llm = OpenAILLM(model_name=llm_model)
-    elif provider == "gemini":
-        from raglight.integrations.google import GoogleEmbeddings, GoogleLLM
-        embeddings = GoogleEmbeddings(model_name=emb_model)
-        llm = GoogleLLM(model_name=llm_model)
+        provider_const = Settings.OPENAI
+    elif provider in ("gemini", "google", "google_gemini"):
+        provider_const = Settings.GOOGLE_GEMINI
     elif provider == "mistral":
-        from raglight.integrations.mistral import MistralEmbeddings, MistralLLM
-        embeddings = MistralEmbeddings(model_name=emb_model)
-        llm = MistralLLM(model_name=llm_model)
+        provider_const = Settings.MISTRAL
     else:
-        from raglight.integrations.ollama import OllamaEmbeddings, OllamaLLM
-        embeddings = OllamaEmbeddings(model_name=emb_model)
-        llm = OllamaLLM(model_name=llm_model)
+        provider_const = Settings.OLLAMA
 
-    if vector_store_kind == "qdrant":
-        from raglight.integrations.qdrant import QdrantVectorStore
-        vector_store = QdrantVectorStore(
-            collection_name="auradesk_files",
-            embeddings_model=embeddings,
-            persist_directory=persist_dir,
-        )
-    else:
-        from raglight.integrations.chroma import ChromaVectorStore
-        vector_store = ChromaVectorStore(
-            collection_name="auradesk_files",
-            embeddings_model=embeddings,
-            persist_directory=persist_dir,
-        )
+    db_const = Settings.QDRANT if vector_store_kind == "qdrant" else Settings.CHROMA
+    sources = [FolderSource(path=str(f)) for f in folders if Path(f).is_dir()]
 
-    _pipeline = RAGPipeline(
-        llm=llm,
-        embeddings=embeddings,
-        vector_store=vector_store,
-        document_processors=default_registries.document_processors,
+    vs_cfg = VectorStoreConfig(
+        embedding_model=emb_model,
+        persist_directory=persist_dir,
+        provider=provider_const,
+        database=db_const,
+        collection_name="auradesk_files",
     )
+    rag_cfg = RAGConfig(
+        llm=llm_model,
+        provider=provider_const,
+        knowledge_base=sources,
+    )
+
+    _pipeline = RAGPipeline(config=rag_cfg, vector_store_config=vs_cfg)
     return _pipeline
 
 
@@ -1772,17 +1888,16 @@ def graph():
 
 @app.post("/ingest")
 def ingest(req: IngestRequest):
-    from raglight.models import FolderSource
-
     cfg = load_cfg()
     folders = req.folders or cfg.get("folders") or []
-    existing = [f for f in folders if Path(f).exists()]
+    existing = [f for f in folders if Path(f).is_dir()]
     if not existing:
         return {"ok": False, "indexed": 0, "error": "no_existing_folders"}
-    pipe = get_pipeline()
-    sources = [FolderSource(f) for f in existing]
-    result = pipe.ingest(sources)
-    return {"ok": True, "folders": existing, "result": str(result)}
+    pipe = get_pipeline(existing)
+    vs = pipe.get_vector_store()
+    for folder in existing:
+        vs.ingest(data_path=folder)
+    return {"ok": True, "folders": existing}
 
 
 @app.post("/query")
@@ -1791,15 +1906,19 @@ def query_rag(req: QueryRequest):
     if not q:
         return {"answer": "", "sources": []}
     pipe = get_pipeline()
-    resp = pipe.generate(q)
+    answer = pipe.generate(q)
     sources = []
-    for s in getattr(resp, "sources", []) or []:
-        meta = getattr(s, "metadata", None)
-        if isinstance(meta, dict) and meta.get("source"):
-            sources.append(str(meta["source"]))
-        else:
-            sources.append(str(s))
-    return {"answer": getattr(resp, "answer", str(resp)), "sources": sources[: req.top_k]}
+    try:
+        docs = pipe.get_vector_store().similarity_search(q, k=max(1, req.top_k))
+        for d in docs or []:
+            meta = getattr(d, "metadata", None)
+            if isinstance(meta, dict) and meta.get("source"):
+                src = str(meta["source"])
+                if src not in sources:
+                    sources.append(src)
+    except Exception:
+        pass
+    return {"answer": answer if isinstance(answer, str) else getattr(answer, "answer", str(answer)), "sources": sources[: req.top_k]}
 
 
 if __name__ == "__main__":
@@ -1941,5 +2060,63 @@ mod tests {
         assert!(denied.is_err());
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn detects_installed_only_when_required_packages_exist_in_venv() {
+        let base =
+            std::env::temp_dir().join(format!("auradesk_rag_venv_check_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+
+        // 1. Missing venv -> false
+        assert!(!is_venv_installed(&base));
+
+        // 2. Empty venv python with empty site-packages -> false (catches failed uv pip install)
+        let py = venv_python_path(&base);
+        fs::create_dir_all(py.parent().unwrap()).unwrap();
+        fs::write(&py, "").unwrap();
+        #[cfg(target_os = "windows")]
+        let sp = raglight_root(&base).join(".venv").join("Lib").join("site-packages");
+        #[cfg(not(target_os = "windows"))]
+        let sp = raglight_root(&base)
+            .join(".venv")
+            .join("lib")
+            .join("python3.12")
+            .join("site-packages");
+        fs::create_dir_all(&sp).unwrap();
+        assert!(!is_venv_installed(&base));
+
+        // 3. Partial packages -> false
+        fs::create_dir_all(sp.join("raglight")).unwrap();
+        assert!(!is_venv_installed(&base));
+
+        // 4. All required packages installed (even before server.py is generated) -> true
+        fs::create_dir_all(sp.join("fastapi")).unwrap();
+        fs::create_dir_all(sp.join("uvicorn")).unwrap();
+        assert!(is_venv_installed(&base));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn builds_valid_raglight_package_specs_and_prefers_python_312() {
+        assert_eq!(raglight_package_spec("chroma"), "raglight[chroma]");
+        assert_eq!(raglight_package_spec("qdrant"), "raglight[qdrant]");
+        assert_eq!(raglight_package_spec("other"), "raglight[chroma]");
+
+        let prev = std::env::var_os("AURADESK_RAGLIGHT_PYTHON");
+        std::env::remove_var("AURADESK_RAGLIGHT_PYTHON");
+        assert_eq!(preferred_uv_python(), PREFERRED_PYTHON_VERSION);
+
+        let fake_py = std::env::temp_dir().join(format!("auradesk_py312_{}", std::process::id()));
+        fs::write(&fake_py, "").unwrap();
+        std::env::set_var("AURADESK_RAGLIGHT_PYTHON", &fake_py);
+        assert_eq!(preferred_uv_python(), fake_py.display().to_string());
+
+        let _ = fs::remove_file(&fake_py);
+        std::env::remove_var("AURADESK_RAGLIGHT_PYTHON");
+        if let Some(v) = prev {
+            std::env::set_var("AURADESK_RAGLIGHT_PYTHON", v);
+        }
     }
 }

@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
   AudioLines,
+  Brain,
   Check,
   ChevronDown,
+  ChevronUp,
   Copy,
+  FolderOpen,
   Info,
   Layers,
   MessageSquare,
   Mic,
+  PanelLeft,
   PanelRight,
   Pencil,
   Plus,
@@ -21,8 +25,11 @@ import {
   Terminal,
   Trash2,
   Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
+
+import type { ChatSession } from "../../lib/auraTypes";
 
 import { AuraPyramidStation } from "../../components/AuraPyramidStation";
 import { Badge, Button, Input, Switch } from "../../components/ui";
@@ -54,6 +61,7 @@ import { parseAuraMessageThought } from "./auraThoughtParser";
 import {
   DEFAULT_VOICE_SETTINGS,
   loadVoiceSettings,
+  saveVoiceSettings,
   speakAuraUtterance,
   stopAuraSpeech,
   type AuraVoiceSettings,
@@ -69,8 +77,8 @@ import {
   warmAuraSttService,
 } from "./auraSpeechToText";
 import {
-  CHAT_CENTERED_WIDTH,
-  CHAT_COLUMN_WIDTH,
+  chatPanelWidthClass,
+  chatSideOverlayInsetPx,
   chatTransparencyClasses,
   loadChatLayout,
   saveChatLayout,
@@ -78,6 +86,47 @@ import {
 } from "./auraChatLayout";
 import type { AuraToneAnalysis } from "./auraToneAnalyzer";
 import { AuraVoiceSettingsModal } from "./AuraVoiceSettingsModal";
+import { AuraChatSidebar, type CreateProjectPayload } from "./AuraChatSidebar";
+import {
+  assignSessionToProject,
+  createChatProject,
+  deleteChatProject,
+  loadChatProjects,
+  saveChatProjects,
+  type AuraChatProject,
+  type AuraChatProjectsState,
+} from "./auraChatProjects";
+
+const SIDEBAR_OPEN_STORAGE_KEY = "auradesk_chat_sidebar_open";
+
+function loadInitialSidebarOpen(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = window.localStorage?.getItem(SIDEBAR_OPEN_STORAGE_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    // ignore storage read errors
+  }
+  return window.innerWidth >= 1100;
+}
+
+function isGenericSessionTitle(title: string | undefined | null): boolean {
+  const clean = (title ?? "").trim();
+  if (!clean) return true;
+  if (
+    clean === "Aura Main Session" ||
+    clean === "sessions.defaultTitle" ||
+    clean === "sessions.newTitle" ||
+    clean === "sessions.untitledSession" ||
+    clean === "default"
+  ) {
+    return true;
+  }
+  return /^(session|sess[aã]o|nova conversa|new chat|aura session|aura-\d{4}-\d{2}-\d{2}|chat)\b/i.test(
+    clean
+  );
+}
 
 /** Formats the time of a message for the footer. */
 function formatMessageTime(iso: string): string {
@@ -225,6 +274,21 @@ export function AuraChatPanel({
   const [galaxySnapshot, setGalaxySnapshot] = useState<HindsightGalaxySnapshot | null>(null);
   const [contextInspection, setContextInspection] = useState<ContextInspection | null>(null);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(loadInitialSidebarOpen);
+  const setSidebarOpenPersisted = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    setSidebarOpen((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      try {
+        window.localStorage?.setItem(SIDEBAR_OPEN_STORAGE_KEY, resolved ? "1" : "0");
+      } catch {
+        // ignore storage write errors
+      }
+      return resolved;
+    });
+  }, []);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [projectsState, setProjectsState] = useState<AuraChatProjectsState>(loadChatProjects);
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState<string | null>(null);
   const [raglightStatus, setRaglightStatus] = useState<RaglightStatus | null>(null);
   const historyLoadedRef = useRef(false);
   const [useCli, setUseCli] = useState(false);
@@ -261,6 +325,7 @@ export function AuraChatPanel({
   const [voiceSettings, setVoiceSettings] = useState<AuraVoiceSettings>(loadVoiceSettings);
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
 
   // Neural voice (local Kokoro service). `voiceServiceReady` gates the
   // engine: when the container is not running we fall back to the browser
@@ -412,8 +477,28 @@ export function AuraChatPanel({
   const stopSpeechSynthesis = useCallback(() => {
     stopAuraSpeech();
     speechQueueRef.current?.stop();
-    if (mountedRef.current) setLiveSpeaking(false);
+    if (mountedRef.current) {
+      setLiveSpeaking(false);
+      setSpeakingMsgId(null);
+    }
   }, []);
+
+  useEffect(() => {
+    liveVoiceRef.current?.setPaused(liveSpeaking);
+    if (!liveSpeaking) {
+      setSpeakingMsgId(null);
+    }
+  }, [liveSpeaking]);
+
+  const toggleAutoSpeak = useCallback(() => {
+    const nextEnabled = !voiceSettings.autoSpeak;
+    const next = { ...voiceSettings, autoSpeak: nextEnabled };
+    setVoiceSettings(next);
+    saveVoiceSettings(next);
+    if (!nextEnabled) {
+      stopSpeechSynthesis();
+    }
+  }, [stopSpeechSynthesis, voiceSettings]);
 
   /**
    * True when the local neural voice can be used: the user picked the
@@ -523,10 +608,18 @@ export function AuraChatPanel({
   );
 
   const handleSpeakMessage = useCallback(
-    (text: string) => {
+    (text: string, msgId?: string) => {
+      if (msgId && speakingMsgId === msgId && liveSpeaking) {
+        stopSpeechSynthesis();
+        return;
+      }
+
       const parsed = parseAuraMessageThought(text);
       const answer = parsed.answer || parsed.thought || "";
       if (!answer.trim()) return;
+
+      stopSpeechSynthesis();
+      setSpeakingMsgId(msgId ?? null);
 
       const queue = ensureSpeechQueue(true);
       if (queue) {
@@ -543,15 +636,28 @@ export function AuraChatPanel({
           if (mountedRef.current) setLiveSpeaking(true);
         },
         () => {
-          if (mountedRef.current) setLiveSpeaking(false);
+          if (mountedRef.current) {
+            setLiveSpeaking(false);
+            setSpeakingMsgId(null);
+          }
         },
         () => {
-          if (mountedRef.current) setLiveSpeaking(false);
+          if (mountedRef.current) {
+            setLiveSpeaking(false);
+            setSpeakingMsgId(null);
+          }
         },
         speechLang
       );
     },
-    [ensureSpeechQueue, speechLang, voiceSettings]
+    [
+      ensureSpeechQueue,
+      liveSpeaking,
+      speakingMsgId,
+      speechLang,
+      stopSpeechSynthesis,
+      voiceSettings,
+    ]
   );
 
   const handleCopyMessage = useCallback(async (text: string, msgId: string) => {
@@ -588,6 +694,7 @@ export function AuraChatPanel({
         persistedHistory,
         snapshotInfo,
         ctxInfo,
+        sessionsList,
       ] = await Promise.all([
         hermesApi.status().catch(() => ({ available: false, binaryPath: null })),
         aiApi?.providerStatus?.()?.catch(() => null) ?? Promise.resolve(null),
@@ -602,6 +709,7 @@ export function AuraChatPanel({
           Promise.resolve(null),
         contextEngineApi?.inspect?.(targetSession)?.catch(() => null) ??
           Promise.resolve(null),
+        sessionsApi?.list?.(null, "active")?.catch(() => null) ?? Promise.resolve(null),
       ]);
       if (!mountedRef.current) return;
       setStatus(hermesInfo);
@@ -616,6 +724,9 @@ export function AuraChatPanel({
       }
       if (ctxInfo) {
         setContextInspection(ctxInfo);
+      }
+      if (Array.isArray(sessionsList)) {
+        setSessions(sessionsList);
       }
       if (persistedHistory !== null) {
         historyLoadedRef.current = true;
@@ -639,31 +750,152 @@ export function AuraChatPanel({
     }
   }, [activeSessionId]);
 
-  const handleNewSession = useCallback(async () => {
-    if (creatingSession || !sessionsApi?.create) return;
-    setCreatingSession(true);
-    setErrorMsg(null);
-    try {
-      const created = await sessionsApi.create();
-      if (!mountedRef.current) return;
-      historyLoadedRef.current = true;
-      loadedSessionRef.current = created.id;
-      setInternalSessionId(created.id);
-      onSessionChange?.(created.id);
-      setMessages([]);
-      setFeedback(t("hermes.sessionBadge", { title: t(created.title, { defaultValue: created.title }) }));
-      const ctx = await contextEngineApi?.inspect?.(created.id)?.catch(() => null);
-      if (mountedRef.current && ctx) {
-        setContextInspection(ctx);
-      }
-    } catch (err) {
-      if (mountedRef.current) {
-        setErrorMsg(err instanceof Error ? err.message : String(err));
-      }
-    } finally {
-      if (mountedRef.current) setCreatingSession(false);
+  const availableBanks = useMemo(() => {
+    const set = new Set<string>(
+      Array.isArray(hindsightStatus?.banks) ? hindsightStatus.banks : []
+    );
+    (galaxySnapshot?.banks ?? []).forEach((b) => {
+      if (b.id) set.add(b.id);
+    });
+    projectsState.projects.forEach((p) => {
+      if (p.bankId) set.add(p.bankId);
+    });
+    return Array.from(set);
+  }, [galaxySnapshot?.banks, hindsightStatus?.banks, projectsState.projects]);
+
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId) ?? null,
+    [activeSessionId, sessions]
+  );
+
+  const activeSessionDisplayTitle = useMemo(() => {
+    if (activeSession && !isGenericSessionTitle(activeSession.title)) {
+      return t(activeSession.title, { defaultValue: activeSession.title });
     }
-  }, [creatingSession, onSessionChange, t]);
+    return t("hermes.chatTitle");
+  }, [activeSession, t]);
+
+  const activeSessionProject: AuraChatProject | null = useMemo(() => {
+    const pid = projectsState.sessionProjectMap[activeSessionId];
+    if (!pid) return null;
+    return projectsState.projects.find((p) => p.id === pid) ?? null;
+  }, [activeSessionId, projectsState]);
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (!sessionId) return;
+      if (sessionId === activeSessionId) {
+        setShowTranscript(true);
+        return;
+      }
+      historyLoadedRef.current = false;
+      loadedSessionRef.current = sessionId;
+      setInternalSessionId(sessionId);
+      onSessionChange?.(sessionId);
+      setMessages([]);
+      setShowTranscript(true);
+    },
+    [activeSessionId, onSessionChange]
+  );
+
+  const handleNewSession = useCallback(
+    async (projectIdOverride?: string | null) => {
+      if (creatingSession || !sessionsApi?.create) return;
+      setCreatingSession(true);
+      setErrorMsg(null);
+      try {
+        const created = await sessionsApi.create();
+        if (!mountedRef.current) return;
+        const targetProjectId =
+          projectIdOverride !== undefined
+            ? projectIdOverride
+            : selectedProjectFilter && selectedProjectFilter !== "general"
+              ? selectedProjectFilter
+              : null;
+        if (targetProjectId) {
+          setProjectsState((prev) => {
+            const next = assignSessionToProject(prev, created.id, targetProjectId);
+            saveChatProjects(next);
+            return next;
+          });
+        }
+        historyLoadedRef.current = true;
+        loadedSessionRef.current = created.id;
+        setInternalSessionId(created.id);
+        onSessionChange?.(created.id);
+        setMessages([]);
+        setShowTranscript(true);
+        setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+        setFeedback(
+          t("hermes.sessionBadge", { title: t(created.title, { defaultValue: created.title }) })
+        );
+        const ctx = await contextEngineApi?.inspect?.(created.id)?.catch(() => null);
+        if (mountedRef.current && ctx) {
+          setContextInspection(ctx);
+        }
+      } catch (err) {
+        if (mountedRef.current) {
+          setErrorMsg(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (mountedRef.current) setCreatingSession(false);
+      }
+    },
+    [creatingSession, onSessionChange, selectedProjectFilter, t]
+  );
+
+  const handleCreateProject = useCallback(
+    async (payload: CreateProjectPayload) => {
+      let resolvedBankId = payload.bankId;
+      if (payload.bankMode === "create" && resolvedBankId) {
+        await hindsightExploreApi
+          ?.bankCreate?.({
+            bankId: resolvedBankId,
+            name: payload.name,
+            mission: payload.contextNote || null,
+          })
+          .catch(() => null);
+      }
+      let createdProjectId = "";
+      setProjectsState((prev) => {
+        const { state: next, project } = createChatProject(prev, {
+          name: payload.name,
+          bankId: resolvedBankId,
+          contextNote: payload.contextNote,
+        });
+        createdProjectId = project.id;
+        saveChatProjects(next);
+        return next;
+      });
+      if (createdProjectId) {
+        setSelectedProjectFilter(createdProjectId);
+      }
+      if (payload.bankMode === "create" && resolvedBankId) {
+        void loadData();
+      }
+    },
+    [loadData]
+  );
+
+  const handleDeleteProject = useCallback((projectId: string) => {
+    setProjectsState((prev) => {
+      const next = deleteChatProject(prev, projectId);
+      saveChatProjects(next);
+      return next;
+    });
+    setSelectedProjectFilter((prev) => (prev === projectId ? null : prev));
+  }, []);
+
+  const handleAssignSessionProject = useCallback(
+    (sessionId: string, projectId: string | null) => {
+      setProjectsState((prev) => {
+        const next = assignSessionToProject(prev, sessionId, projectId);
+        saveChatProjects(next);
+        return next;
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -849,8 +1081,10 @@ export function AuraChatPanel({
       setPulseTick((c) => c + 1);
 
       // Fire background Hindsight recall + optional RAGLight query immediately to light up 3D pulses
+      const scopedBankId = activeSessionProject?.bankId ?? null;
       void Promise.all([
-        hindsightApi?.recall?.(raw, null, 24)?.catch(() => null) ?? Promise.resolve(null),
+        hindsightApi?.recall?.(raw, scopedBankId, 24)?.catch(() => null) ??
+          Promise.resolve(null),
         raglightStatus?.enabled
           ? raglightApi?.query?.(raw, 4)?.catch(() => null) ?? Promise.resolve(null)
           : Promise.resolve(null),
@@ -861,6 +1095,7 @@ export function AuraChatPanel({
         }
       });
 
+      const isFirstTurn = messages.length === 0;
       const nowIso = new Date().toISOString();
       const userMsg: AuraChatMessage = {
         id: `user-${Date.now()}`,
@@ -878,6 +1113,19 @@ export function AuraChatPanel({
           activeSessionId
         );
         if (!mountedRef.current) return;
+        if (
+          isFirstTurn &&
+          activeSessionId !== "default" &&
+          isGenericSessionTitle(activeSession?.title) &&
+          sessionsApi?.rename
+        ) {
+          const compactRaw = raw.replace(/\s+/g, " ").trim();
+          const autoTitle =
+            compactRaw.length > 44 ? `${compactRaw.slice(0, 44).trimEnd()}…` : compactRaw;
+          if (autoTitle) {
+            await sessionsApi.rename(activeSessionId, autoTitle).catch(() => null);
+          }
+        }
         activeRequestIdRef.current = reply.streaming ? reply.requestId : null;
         setMessages((prev) => [
           ...prev,
@@ -891,7 +1139,11 @@ export function AuraChatPanel({
             streaming: reply.streaming,
           },
         ]);
-        if (liveModeRef.current && !reply.streaming && reply.replyText) {
+        if (
+          (liveModeRef.current || voiceSettings.autoSpeak) &&
+          !reply.streaming &&
+          reply.replyText
+        ) {
           speakReply(reply.replyText);
         }
         await loadData();
@@ -905,13 +1157,17 @@ export function AuraChatPanel({
       }
     },
     [
+      activeSession?.title,
       activeSessionId,
+      activeSessionProject?.bankId,
       loadData,
+      messages.length,
       prompt,
       raglightStatus?.enabled,
       speakReply,
       status.available,
       useCli,
+      voiceSettings.autoSpeak,
     ]
   );
 
@@ -1218,9 +1474,10 @@ export function AuraChatPanel({
             }
           },
           onFinal: (text) => {
-            if (!mountedRef.current || !text.trim()) return;
+            const clean = text.replace(/\s+/g, " ").trim();
+            if (!mountedRef.current || !clean) return;
             setPrompt("");
-            void sendPromptRef.current(text.trim());
+            void sendPromptRef.current(clean);
           },
           onTone: (analysis) => {
             if (mountedRef.current) setLiveTone(analysis);
@@ -1537,6 +1794,18 @@ export function AuraChatPanel({
   ]);
 
   const transparency = chatTransparencyClasses(chatLayout.transparency);
+  const compactHeader = !showTranscript || chatLayout.size === "compact";
+  const sidebarVisible = sidebarOpen && showTranscript;
+  const sideInsetPx = showTranscript
+    ? chatSideOverlayInsetPx(chatLayout.size, sidebarVisible)
+    : 0;
+  const hudInsetLeftPx = chatLayout.dock === "left" ? sideInsetPx : 0;
+  const hudInsetRightPx = chatLayout.dock === "right" ? sideInsetPx : 0;
+  const panelWidthClass = chatPanelWidthClass(
+    chatLayout.dock,
+    chatLayout.size,
+    sidebarVisible
+  );
 
   const updateChatLayout = (patch: Partial<AuraChatLayoutSettings>) => {
     const next = { ...chatLayout, ...patch };
@@ -1551,7 +1820,7 @@ export function AuraChatPanel({
   }, [chatLayout.dock]);
 
   return (
-    <div className="relative flex-1 h-full w-full min-h-[540px] flex flex-col lg:flex-row overflow-hidden">
+    <div className="relative flex-1 h-full w-full min-h-0 flex flex-col lg:flex-row overflow-hidden">
       {/* Voice Settings Modal */}
       <AuraVoiceSettingsModal
         open={voiceSettingsOpen}
@@ -1560,10 +1829,15 @@ export function AuraChatPanel({
         onSettingsChange={setVoiceSettings}
       />
 
-      {/* Main 3D Holographic Pyramid Station & Memory Universe */}
+      {/* Main 3D Holographic Pyramid Station & Memory Universe (full-bleed behind floating chat on desktop) */}
       <div
-        className={`relative flex-1 h-full w-full min-h-0 overflow-hidden flex flex-col ${
-          chatLayout.dock === "left" ? "lg:order-2" : "lg:order-1"
+        data-testid="aura-pyramid-stage"
+        className={`relative w-full overflow-hidden flex flex-col ${
+          chatLayout.dock === "center"
+            ? "flex-1 h-full min-h-0 lg:order-1"
+            : showTranscript
+              ? "flex-none h-[36%] min-h-[220px] max-h-[360px] lg:flex-1 lg:h-full lg:min-h-0 lg:max-h-none lg:order-1"
+              : "flex-1 min-h-[240px] lg:h-full lg:min-h-0 lg:order-1"
         }`}
       >
         <AuraPyramidStation
@@ -1576,17 +1850,23 @@ export function AuraChatPanel({
           onFocusedMemoryHandled={onFocusMemoryHandled}
           onOpenHindsightBank={onOpenHindsightBank}
           activePulseTick={pulseTick}
-          speaking={sending || liveSpeaking || messages.some((m) => m.streaming)}
+          speaking={liveSpeaking}
+          thinking={sending || messages.some((m) => m.streaming)}
           listening={prompt.trim().length > 0 || recording || liveMode || transcribing}
           expanded={pyramidExpanded}
           onExpandedChange={setPyramidExpanded}
           onOpenSettings={onOpenSettings}
+          hudInsetLeftPx={hudInsetLeftPx}
+          hudInsetRightPx={hudInsetRightPx}
         />
 
         {/* Floating control: the status chrome lives in this menu.
             Anchored bottom-left: the station's own controls occupy the top
             row of the canvas. */}
-        <div className="aura-galaxy-chrome-scope pointer-events-none absolute bottom-4 left-4 z-10">
+        <div
+          style={{ "--aura-hud-inset-l": `${hudInsetLeftPx}px` } as CSSProperties}
+          className="aura-galaxy-chrome-scope pointer-events-none absolute bottom-2 left-2 lg:bottom-4 lg:left-[calc(1rem+var(--aura-hud-inset-l,0px))] z-10"
+        >
           <div className="pointer-events-auto relative" ref={statusMenuRef}>
             <button
               type="button"
@@ -1692,23 +1972,89 @@ export function AuraChatPanel({
         </div>
       </div>
 
-      {/* Conversation column */}
+      {/* Conversation column (floating translucent overlay across left, right, and center on desktop) */}
       <div
         data-testid="aura-chat-panel"
-        className={`aura-galaxy-chrome-scope h-full flex flex-col min-h-0 ${transparency.blur} shadow-2xl ${
+        className={`aura-galaxy-chrome-scope flex flex-row min-h-0 ${transparency.blur} shadow-2xl ${panelWidthClass} ${
           chatLayout.dock === "center"
-            ? `absolute inset-y-0 left-1/2 -translate-x-1/2 z-30 ${CHAT_CENTERED_WIDTH} rounded-none border-x ${transparency.border} ${transparency.container}`
-            : `relative z-20 ${CHAT_COLUMN_WIDTH} ${
-                chatLayout.dock === "left" ? "lg:order-1 border-r" : "lg:order-2 border-l"
-              } ${transparency.border} ${transparency.container}`
+            ? showTranscript
+              ? `absolute inset-x-0 bottom-0 h-[62%] lg:inset-y-0 lg:h-full left-1/2 -translate-x-1/2 z-30 rounded-none border-t lg:border-t-0 border-x ${transparency.border} ${transparency.container}`
+              : `absolute inset-x-0 bottom-0 h-auto lg:bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-none lg:rounded-2xl border-t border-x lg:border ${transparency.border} ${transparency.container}`
+            : showTranscript
+              ? `relative z-20 flex-1 min-h-0 border-t lg:border-t-0 lg:absolute lg:inset-y-0 lg:h-full lg:flex-none lg:z-30 ${
+                  chatLayout.dock === "left"
+                    ? "lg:left-0 lg:right-auto lg:border-r"
+                    : "lg:right-0 lg:left-auto lg:border-l"
+                } ${transparency.border} ${transparency.container}`
+              : `relative z-20 flex-none h-auto border-t lg:absolute lg:top-auto lg:bottom-4 lg:z-30 lg:rounded-2xl lg:border ${
+                  chatLayout.dock === "left"
+                    ? "lg:left-4 lg:right-auto"
+                    : "lg:right-4 lg:left-auto"
+                } ${transparency.border} ${transparency.container}`
         }`}
       >
+        {sidebarVisible && (
+          <div className="absolute inset-y-0 left-0 z-40 w-[248px] max-w-[86%] lg:static lg:z-auto lg:w-[208px] xl:w-[224px] lg:max-w-none shrink-0 h-full min-h-0 shadow-2xl lg:shadow-none">
+            <AuraChatSidebar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              projectsState={projectsState}
+              selectedProjectFilter={selectedProjectFilter}
+              onSelectProjectFilter={setSelectedProjectFilter}
+              availableBanks={availableBanks}
+              creatingSession={creatingSession}
+              onSelectSession={handleSelectSession}
+              onNewChat={(pid) => void handleNewSession(pid)}
+              onCreateProject={handleCreateProject}
+              onDeleteProject={handleDeleteProject}
+              onAssignSessionProject={handleAssignSessionProject}
+              onOpenSessions={onOpenSessions}
+              onOpenBank={onOpenHindsightBank}
+              onClose={() => setSidebarOpenPersisted(false)}
+              surfaceClassName={transparency.header}
+              borderClassName={transparency.border}
+            />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {/* Header */}
-        <div className={`flex items-center justify-between border-b border-sky-400/15 px-4 py-3 shrink-0 ${transparency.header}`}>
+        <div
+          ref={layoutMenuRef}
+          className={`relative flex items-center justify-between gap-2 border-b border-sky-400/15 shrink-0 ${
+            compactHeader ? "px-3 py-2" : "px-4 py-3"
+          } ${transparency.header}`}
+        >
           <div className="flex min-w-0 items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              data-testid="aura-sessions-sidebar-btn"
+              onClick={() => {
+                if (!showTranscript) {
+                  setShowTranscript(true);
+                  setSidebarOpenPersisted(true);
+                } else {
+                  setSidebarOpenPersisted((v) => !v);
+                }
+              }}
+              aria-pressed={sidebarVisible}
+              aria-label={t("hermes.sidebar.toggle")}
+              title={t("hermes.sidebar.toggle")}
+              className={`h-7 w-7 p-0 shrink-0 rounded-lg ${
+                sidebarVisible
+                  ? "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40"
+                  : !compactHeader
+                    ? "border border-sky-400/20 text-slate-200 hover:bg-sky-500/15 hover:text-white"
+                    : "text-slate-300 hover:text-white"
+              }`}
+            >
+              <PanelLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
             <Sparkles className="h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
             <span className="truncate text-xs font-semibold text-slate-100">
-              {t("hermes.chatTitle")}
+              {activeSessionDisplayTitle}
             </span>
             {messages.length > 0 && (
               <Badge variant="neutral" className="h-4 shrink-0 rounded-full px-1.5 py-0 text-[10px]">
@@ -1718,87 +2064,27 @@ export function AuraChatPanel({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
-            {/* Dock position + transparency */}
-            <div className="relative" ref={layoutMenuRef}>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                data-testid="aura-layout-menu-btn"
-                onClick={() => setLayoutMenuOpen((v) => !v)}
-                className="h-7 px-2 text-[11px] text-slate-300 hover:text-white rounded-full"
-                aria-label={t("hermes.chatLayoutMenu")}
-                title={t("hermes.chatLayoutMenu")}
-                aria-expanded={layoutMenuOpen}
-              >
-                <PanelRight className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
-              </Button>
-
-              {layoutMenuOpen && (
-                <div className="absolute right-0 top-8 z-50 w-56 rounded-xl border border-sky-400/25 bg-slate-950/95 backdrop-blur-xl shadow-2xl p-2.5 flex flex-col gap-3">
-                  <div className="space-y-1.5">
-                    <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      {t("hermes.chatDockLabel")}
-                    </p>
-                    <div className="grid grid-cols-3 gap-1">
-                      {(["left", "right", "center"] as const).map((dock) => (
-                        <button
-                          key={dock}
-                          type="button"
-                          data-testid={`aura-dock-${dock}`}
-                          onClick={() => {
-                            updateChatLayout({ dock });
-                            setLayoutMenuOpen(false);
-                          }}
-                          aria-pressed={chatLayout.dock === dock}
-                          className={`rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
-                            chatLayout.dock === dock
-                              ? "bg-sky-500/25 text-sky-100 ring-1 ring-sky-400/40"
-                              : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
-                          }`}
-                        >
-                          {t(`hermes.chatDock.${dock}`)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      {t("hermes.chatTransparencyLabel")}
-                    </p>
-                    <div className="grid grid-cols-3 gap-1">
-                      {(["clear", "balanced", "solid"] as const).map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          data-testid={`aura-transparency-${level}`}
-                          onClick={() => {
-                            updateChatLayout({ transparency: level });
-                            setLayoutMenuOpen(false);
-                          }}
-                          aria-pressed={chatLayout.transparency === level}
-                          className={`rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
-                            chatLayout.transparency === level
-                              ? "bg-sky-500/25 text-sky-100 ring-1 ring-sky-400/40"
-                              : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
-                          }`}
-                        >
-                          {t(`hermes.chatTransparency.${level}`)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Dock position + transparency + size */}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              data-testid="aura-layout-menu-btn"
+              onClick={() => setLayoutMenuOpen((v) => !v)}
+              className="h-7 w-7 p-0 text-[11px] text-slate-300 hover:text-white rounded-full"
+              aria-label={t("hermes.chatLayoutMenu")}
+              title={t("hermes.chatLayoutMenu")}
+              aria-expanded={layoutMenuOpen}
+            >
+              <PanelRight className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
+            </Button>
 
             <Button
               type="button"
               size="sm"
               variant="ghost"
               onClick={() => setVoiceSettingsOpen(true)}
-              className="h-7 px-2 text-[11px] text-slate-300 hover:text-white rounded-full"
+              className="h-7 w-7 p-0 text-[11px] text-slate-300 hover:text-white rounded-full"
               aria-label={t("hermes.openVoiceSettings")}
               title={t("hermes.openVoiceSettings")}
             >
@@ -1813,32 +2099,174 @@ export function AuraChatPanel({
                 setMessages([]);
                 void aiApi?.chatClear?.(activeSessionId).catch(() => {});
               }}
-              className="h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+              className={
+                compactHeader
+                  ? "h-7 w-7 p-0 shrink-0 rounded-full text-slate-300 hover:text-white"
+                  : "h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+              }
               aria-label={t("hermes.clearChat")}
               title={t("hermes.clearChat")}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden lg:inline">{t("hermes.clearChat")}</span>
+              <span className={compactHeader ? "hidden" : "hidden xl:inline"}>
+                {t("hermes.clearChat")}
+              </span>
             </Button>
 
-            {showTranscript && (
+            {showTranscript ? (
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
                 onClick={() => setShowTranscript(false)}
-                className="h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+                className={
+                  compactHeader
+                    ? "h-7 w-7 p-0 shrink-0 rounded-full text-slate-300 hover:text-white"
+                    : "h-7 shrink-0 rounded-full px-2 text-[11px] text-slate-300 hover:text-white"
+                }
                 aria-label={t("hermes.voice.hideTranscript")}
                 title={t("hermes.voice.hideTranscript")}
               >
                 <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden lg:inline">
+                <span className={compactHeader ? "hidden" : "hidden xl:inline"}>
                   {t("hermes.voice.hideTranscript")}
                 </span>
               </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                data-testid="aura-show-transcript-btn"
+                onClick={() => setShowTranscript(true)}
+                className="h-7 w-7 p-0 shrink-0 rounded-full text-sky-300 hover:text-white"
+                aria-label={t("hermes.voice.showTranscript")}
+                title={t("hermes.voice.showTranscript")}
+              >
+                <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden">{t("hermes.voice.showTranscript")}</span>
+              </Button>
             )}
           </div>
+
+          {layoutMenuOpen && (
+            <div
+              data-testid="aura-layout-popover"
+              className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-sky-400/25 bg-slate-950/95 backdrop-blur-xl shadow-2xl p-2.5 flex flex-col gap-3 ${
+                showTranscript ? "top-11" : "bottom-11"
+              } ${chatLayout.dock === "left" ? "left-2" : "right-2"}`}
+            >
+              <div className="space-y-1.5">
+                <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {t("hermes.chatDockLabel")}
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["left", "right", "center"] as const).map((dock) => (
+                    <button
+                      key={dock}
+                      type="button"
+                      data-testid={`aura-dock-${dock}`}
+                      onClick={() => {
+                        updateChatLayout({ dock });
+                        setLayoutMenuOpen(false);
+                      }}
+                      aria-pressed={chatLayout.dock === dock}
+                      className={`rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                        chatLayout.dock === dock
+                          ? "bg-sky-500/25 text-sky-100 ring-1 ring-sky-400/40"
+                          : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
+                      }`}
+                    >
+                      {t(`hermes.chatDock.${dock}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {t("hermes.chatTransparencyLabel")}
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["clear", "balanced", "solid"] as const).map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      data-testid={`aura-transparency-${level}`}
+                      onClick={() => {
+                        updateChatLayout({ transparency: level });
+                        setLayoutMenuOpen(false);
+                      }}
+                      aria-pressed={chatLayout.transparency === level}
+                      className={`rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                        chatLayout.transparency === level
+                          ? "bg-sky-500/25 text-sky-100 ring-1 ring-sky-400/40"
+                          : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
+                      }`}
+                    >
+                      {t(`hermes.chatTransparency.${level}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {t("hermes.chatSizeLabel")}
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["compact", "normal", "wide"] as const).map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      data-testid={`aura-size-${size}`}
+                      onClick={() => {
+                        updateChatLayout({ size });
+                        setLayoutMenuOpen(false);
+                      }}
+                      aria-pressed={chatLayout.size === size}
+                      className={`rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                        chatLayout.size === size
+                          ? "bg-sky-500/25 text-sky-100 ring-1 ring-sky-400/40"
+                          : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
+                      }`}
+                    >
+                      {t(`hermes.chatSize.${size}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Active Project + Linked Bank Pill */}
+        {activeSessionProject && showTranscript && (
+          <div
+            data-testid="aura-active-project-bar"
+            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b border-sky-400/15 bg-slate-950/35 text-[11px] shrink-0"
+          >
+            <span className="inline-flex items-center gap-1 text-sky-200 font-medium">
+              <FolderOpen className="h-3 w-3 text-sky-400" aria-hidden="true" />
+              <span>{activeSessionProject.name}</span>
+            </span>
+            {activeSessionProject.bankId && (
+              <button
+                type="button"
+                onClick={() => onOpenHindsightBank?.(activeSessionProject.bankId!)}
+                className="inline-flex items-center gap-1 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200 hover:bg-cyan-500/20 transition-colors"
+              >
+                <Brain className="h-2.5 w-2.5" aria-hidden="true" />
+                <span>{activeSessionProject.bankId}</span>
+              </button>
+            )}
+            {activeSessionProject.contextNote && (
+              <span className="truncate text-[10px] text-slate-400 max-w-[200px]">
+                {activeSessionProject.contextNote}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Full-Height Messages Stream */}
         {showTranscript && (
@@ -1916,10 +2344,10 @@ export function AuraChatPanel({
                       }`}
                     >
                       <div
-                        className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                        className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed break-words ${
                           isUser
-                            ? "rounded-tr-md border border-sky-400/25 bg-sky-500/12 text-slate-100"
-                            : "rounded-tl-md border border-aura-border/30 bg-aura-surface/45 text-slate-100"
+                            ? "rounded-tr-md border border-sky-400/30 bg-sky-500/15 text-slate-50 shadow-sm shadow-sky-950/20"
+                            : "rounded-tl-md border border-sky-400/15 bg-slate-900/70 text-slate-100 shadow-sm shadow-slate-950/30"
                         }`}
                       >
                         {msg.streaming && !isUser && (
@@ -1974,7 +2402,7 @@ export function AuraChatPanel({
                               </div>
                             </div>
                           ) : (
-                            <p className="whitespace-pre-wrap select-text">
+                            <p className="whitespace-pre-wrap break-words select-text">
                               {msg.text}
                             </p>
                           )
@@ -1994,51 +2422,80 @@ export function AuraChatPanel({
                       {/* Actions and time live below the bubble, not inside it. */}
                       {editingMessageId !== msg.id && (
                         <div
-                          className={`flex items-center gap-2 px-1 text-[10px] text-slate-500 transition-opacity ${
+                          data-testid="aura-message-actions"
+                          className={`flex flex-wrap items-center gap-x-1 gap-y-1 px-0.5 pt-0.5 text-[11px] text-slate-400 transition-opacity ${
                             isUser
                               ? "justify-end"
-                              : "justify-start opacity-0 group-hover/message:opacity-100 focus-within:opacity-100"
+                              : "justify-start opacity-85 group-hover/message:opacity-100 focus-within:opacity-100"
                           }`}
                         >
                           {isUser ? (
                             <button
                               type="button"
                               onClick={() => startEditingMessage(msg.id, msg.text)}
-                              className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                              className="inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 leading-none hover:bg-slate-800/80 hover:text-sky-300 transition-colors"
                               aria-label={t("hermes.editMessage")}
                               title={t("hermes.editMessage")}
                             >
-                              <Pencil className="h-3 w-3" aria-hidden="true" />
+                              <Pencil className="h-3 w-3 shrink-0" aria-hidden="true" />
                               <span>{t("hermes.editMessage")}</span>
                             </button>
                           ) : (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => handleSpeakMessage(parsed?.answer || msg.text)}
-                                className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
-                                aria-label={t("hermes.speakMessage")}
-                                title={t("hermes.speakMessage")}
-                              >
-                                <Volume2 className="h-3 w-3" aria-hidden="true" />
-                                <span>{t("hermes.speakMessage")}</span>
-                              </button>
+                              {(() => {
+                                const isMsgSpeaking = speakingMsgId === msg.id && liveSpeaking;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSpeakMessage(parsed?.answer || msg.text, msg.id)
+                                    }
+                                    className={`inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 leading-none transition-colors ${
+                                      isMsgSpeaking
+                                        ? "bg-sky-500/20 text-sky-200"
+                                        : "hover:bg-slate-800/80 hover:text-sky-300"
+                                    }`}
+                                    aria-label={
+                                      isMsgSpeaking
+                                        ? t("hermes.stopSpeaking")
+                                        : t("hermes.speakMessage")
+                                    }
+                                    title={
+                                      isMsgSpeaking
+                                        ? t("hermes.stopSpeaking")
+                                        : t("hermes.speakMessage")
+                                    }
+                                  >
+                                    {isMsgSpeaking ? (
+                                      <>
+                                        <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                                        <span>{t("hermes.stopSpeakingShort")}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Volume2 className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                        <span>{t("hermes.speakMessageShort")}</span>
+                                      </>
+                                    )}
+                                  </button>
+                                );
+                              })()}
                               <button
                                 type="button"
                                 onClick={() => void handleCopyMessage(parsed?.answer || msg.text, msg.id)}
-                                className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors"
+                                className="inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 leading-none hover:bg-slate-800/80 hover:text-sky-300 transition-colors"
                                 aria-label={t("hermes.copyMessage")}
                                 title={t("hermes.copyMessage")}
                               >
                                 {copiedMsgId === msg.id ? (
                                   <>
-                                    <Check className="h-3 w-3 text-emerald-400" aria-hidden="true" />
+                                    <Check className="h-3 w-3 shrink-0 text-emerald-400" aria-hidden="true" />
                                     <span className="text-emerald-400">{t("hermes.copied")}</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Copy className="h-3 w-3" aria-hidden="true" />
-                                    <span>{t("hermes.copyMessage")}</span>
+                                    <Copy className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                    <span>{t("hermes.copyMessageShort")}</span>
                                   </>
                                 )}
                               </button>
@@ -2047,12 +2504,12 @@ export function AuraChatPanel({
                                   type="button"
                                   onClick={() => void regenerateLastAnswer()}
                                   disabled={sending}
-                                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-800 hover:text-sky-300 transition-colors disabled:opacity-40"
+                                  className="inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-md px-1.5 py-0.5 leading-none hover:bg-slate-800/80 hover:text-sky-300 transition-colors disabled:opacity-40"
                                   aria-label={t("hermes.regenerate")}
                                   title={t("hermes.regenerate")}
                                 >
-                                  <RefreshCw className="h-3 w-3" aria-hidden="true" />
-                                  <span>{t("hermes.regenerate")}</span>
+                                  <RefreshCw className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                  <span>{t("hermes.regenerateShort")}</span>
                                 </button>
                               )}
                             </>
@@ -2060,7 +2517,7 @@ export function AuraChatPanel({
                           {msg.createdAt && (
                             <time
                               dateTime={msg.createdAt}
-                              className="tabular-nums opacity-70"
+                              className={`${isUser ? "" : "ml-auto "}shrink-0 tabular-nums text-[10px] text-slate-500`}
                             >
                               {formatMessageTime(msg.createdAt)}
                             </time>
@@ -2090,53 +2547,45 @@ export function AuraChatPanel({
           </div>
         )}
 
-        {!showTranscript && (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-400 space-y-3">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setShowTranscript(true)}
-              className="rounded-full px-4 text-xs"
-            >
-              <MessageSquare className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
-              <span>{t("hermes.voice.showTranscript", { defaultValue: "Show chat" })}</span>
-            </Button>
-          </div>
-        )}
-
-        {/* Bottom Dock inside Right Panel */}
-        <div className="border-t border-sky-400/20 bg-slate-950/85 p-3 space-y-2 shrink-0">
-          {/* Quick Prompt Chips */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setPrompt(`${t("hermes.quickActions.createTask")}: `)}
-              className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
-            >
-              {t("hermes.quickActions.createTask")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setPrompt(`${t("hermes.quickActions.createReminder")}: `)}
-              className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
-            >
-              {t("hermes.quickActions.createReminder")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void sendPrompt("summary")}
-              className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
-            >
-              {t("hermes.quickActions.summary")}
-            </Button>
-          </div>
+        {/* Bottom Prompt Dock */}
+        <div
+          data-testid="aura-chat-composer"
+          className={`border-t border-sky-400/20 shrink-0 ${
+            showTranscript ? "p-3 space-y-2" : "p-2 space-y-1.5"
+          } ${transparency.composer}`}
+        >
+          {/* Quick Prompt Chips (hidden in prompt-only mode) */}
+          {showTranscript && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setPrompt(`${t("hermes.quickActions.createTask")}: `)}
+                className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
+              >
+                {t("hermes.quickActions.createTask")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setPrompt(`${t("hermes.quickActions.createReminder")}: `)}
+                className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
+              >
+                {t("hermes.quickActions.createReminder")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void sendPrompt("summary")}
+                className="aura-galaxy-chip h-6 rounded-full backdrop-blur-md px-2.5 text-[11px]"
+              >
+                {t("hermes.quickActions.summary")}
+              </Button>
+            </div>
+          )}
 
           {/* Status / feedback banners */}
           {feedback && (
@@ -2192,7 +2641,7 @@ export function AuraChatPanel({
           {/* Input Capsule (2-tier layout) */}
           <form
             onSubmit={handleSubmit}
-            className={`rounded-2xl border bg-slate-900/85 p-2 space-y-2 transition-colors focus-within:border-sky-400/60 ${
+            className={`rounded-2xl border ${transparency.input} p-2 space-y-2 transition-colors focus-within:border-sky-400/60 ${
               transcribing || liveMode
                 ? "border-sky-400/70 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]"
                 : "border-sky-400/30"
@@ -2348,6 +2797,55 @@ export function AuraChatPanel({
                     </Button>
                   );
                 })()}
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  data-testid="aura-autospeak-toggle"
+                  aria-pressed={voiceSettings.autoSpeak}
+                  aria-label={
+                    voiceSettings.autoSpeak
+                      ? t("hermes.voice.autoSpeakOn")
+                      : t("hermes.voice.autoSpeakOff")
+                  }
+                  title={
+                    voiceSettings.autoSpeak
+                      ? t("hermes.voice.autoSpeakOn")
+                      : t("hermes.voice.autoSpeakOff")
+                  }
+                  onClick={toggleAutoSpeak}
+                  className={
+                    voiceSettings.autoSpeak
+                      ? "rounded-lg h-7 px-2 bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40 shrink-0"
+                      : "rounded-lg h-7 w-7 p-0 text-slate-400 hover:text-sky-200 hover:bg-slate-800/70 shrink-0"
+                  }
+                >
+                  {voiceSettings.autoSpeak ? (
+                    <>
+                      <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="text-[11px]">{t("hermes.voice.speakOnlyShort")}</span>
+                    </>
+                  ) : (
+                    <VolumeX className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                </Button>
+
+                {liveSpeaking && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="danger"
+                    data-testid="aura-stop-speaking-btn"
+                    onClick={stopSpeechSynthesis}
+                    aria-label={t("hermes.stopSpeaking")}
+                    title={t("hermes.stopSpeaking")}
+                    className="rounded-lg h-7 px-2 shrink-0"
+                  >
+                    <Square className="h-3 w-3" aria-hidden="true" />
+                    <span className="text-[11px]">{t("hermes.stopSpeaking")}</span>
+                  </Button>
+                )}
               </div>
 
               {/* While a reply is streaming the same slot becomes the stop
@@ -2379,33 +2877,36 @@ export function AuraChatPanel({
             </div>
           </form>
 
-          {/* The shortcuts are written down, so nobody has to guess them. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-0.5 text-[10px] text-slate-400">
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
-                Enter
-              </kbd>
-              {t("hermes.shortcutSend")}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
-                ↑
-              </kbd>
-              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
-                ↓
-              </kbd>
-              {t("hermes.shortcutHistory")}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
-                Ctrl
-              </kbd>
-              <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
-                K
-              </kbd>
-              {t("hermes.shortcutCommands")}
-            </span>
-          </div>
+          {/* The shortcuts are written down, so nobody has to guess them (hidden in prompt-only mode). */}
+          {showTranscript && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-0.5 text-[10px] text-slate-400">
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                  Enter
+                </kbd>
+                {t("hermes.shortcutSend")}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                  ↑
+                </kbd>
+                <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                  ↓
+                </kbd>
+                {t("hermes.shortcutHistory")}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                  Ctrl
+                </kbd>
+                <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
+                  K
+                </kbd>
+                {t("hermes.shortcutCommands")}
+              </span>
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </div>

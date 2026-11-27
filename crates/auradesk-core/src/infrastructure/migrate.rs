@@ -23,6 +23,8 @@ const V011: &str = include_str!("../../migrations/V011__raglight_settings.sql");
 const V012: &str = include_str!("../../migrations/V012__hindsight_settings.sql");
 const V013: &str = include_str!("../../migrations/V013__sessions_context_agents.sql");
 const V014: &str = include_str!("../../migrations/V014__agents_skills_mcp_bots.sql");
+const V015: &str = include_str!("../../migrations/V015__hindsight_graph_settings.sql");
+const V016: &str = include_str!("../../migrations/V016__private_plugins.sql");
 
 /// Run every embedded migration on the given connection idempotently.
 pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
@@ -48,6 +50,8 @@ pub fn run_all(conn: &mut Connection) -> Result<(), crate::CoreError> {
     apply_if_missing(conn, "V012__hindsight_settings", V012)?;
     apply_if_missing(conn, "V013__sessions_context_agents", V013)?;
     apply_if_missing(conn, "V014__agents_skills_mcp_bots", V014)?;
+    apply_if_missing(conn, "V015__hindsight_graph_settings", V015)?;
+    apply_if_missing(conn, "V016__private_plugins", V016)?;
     Ok(())
 }
 

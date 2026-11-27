@@ -501,21 +501,31 @@ export function RaglightSection({
               title={t("settings.raglight.stepInstall")}
               hint={t("settings.raglight.stepInstallHint")}
             >
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={isWorking}
-                loading={busy === "provision"}
-                onClick={() =>
-                  void runAction("provision", () => raglightApi.provision())
-                }
-                className="rounded-xl text-xs font-semibold"
-              >
-                <Wrench className="h-3.5 w-3.5" />
-                {busy === "provision"
-                  ? t("settings.raglight.provisioning")
-                  : t("settings.raglight.provisionButton")}
-              </Button>
+              {status?.installed ? (
+                <span
+                  data-testid="raglight-step-installed"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400"
+                >
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t("settings.raglight.statusInstalled")}
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={isWorking}
+                  loading={busy === "provision"}
+                  onClick={() =>
+                    void runAction("provision", () => raglightApi.provision())
+                  }
+                  className="rounded-xl text-xs font-semibold"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  {busy === "provision"
+                    ? t("settings.raglight.provisioning")
+                    : t("settings.raglight.provisionButton")}
+                </Button>
+              )}
             </Step>
 
             <Step

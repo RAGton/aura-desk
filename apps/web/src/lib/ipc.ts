@@ -36,6 +36,12 @@ import type {
   KnowledgeGraphPayload,
   KnowledgeSearchResult,
   McpPluginRecord,
+  NormalizedPluginEvent,
+  PrivatePluginAuditEntry,
+  PrivatePluginManifest,
+  PrivatePluginRecord,
+  EventDispatchResult,
+  ExecutePluginActionInput,
   SelectedCapability,
   UnifiedCapability,
   UpsertBotInput,
@@ -3053,6 +3059,55 @@ export const updaterApi = {
     wrapInvoke<string[]>("app_get_logs_tail", { limit }),
 };
 
+export const privatePluginsApi = {
+  list: (): Promise<PrivatePluginRecord[]> =>
+    wrapInvoke<PrivatePluginRecord[]>("plugins_list"),
+  discover: (): Promise<PrivatePluginManifest[]> =>
+    wrapInvoke<PrivatePluginManifest[]>("plugins_discover"),
+  install: (path: string): Promise<PrivatePluginRecord> =>
+    wrapInvoke<PrivatePluginRecord>("plugins_install", { path }),
+  setEnabled: (pluginId: string, enabled: boolean): Promise<void> =>
+    wrapInvoke<void>("plugins_set_enabled", { pluginId, enabled }),
+  setPermission: (
+    pluginId: string,
+    permission: string,
+    granted: boolean
+  ): Promise<void> =>
+    wrapInvoke<void>("plugins_set_permission", {
+      pluginId,
+      permission,
+      granted,
+    }),
+  setSecret: (
+    pluginId: string,
+    secretKey: string,
+    secretValue: string
+  ): Promise<void> =>
+    wrapInvoke<void>("plugins_set_secret", {
+      pluginId,
+      secretKey,
+      secretValue,
+    }),
+  hasSecret: (pluginId: string, secretKey: string): Promise<boolean> =>
+    wrapInvoke<boolean>("plugins_has_secret", { pluginId, secretKey }),
+  executeAction: (input: ExecutePluginActionInput): Promise<unknown> =>
+    wrapInvoke<unknown>("plugins_execute_action", { input }),
+  ingestEvent: (event: NormalizedPluginEvent): Promise<EventDispatchResult> =>
+    wrapInvoke<EventDispatchResult>("plugins_ingest_event", { event }),
+  auditLog: (
+    pluginId?: string,
+    limit = 50
+  ): Promise<PrivatePluginAuditEntry[]> =>
+    wrapInvoke<PrivatePluginAuditEntry[]>("plugins_audit_log", {
+      pluginId,
+      limit,
+    }),
+  recentEvents: (limit = 50): Promise<NormalizedPluginEvent[]> =>
+    wrapInvoke<NormalizedPluginEvent[]>("plugins_recent_events", { limit }),
+  uninstall: (pluginId: string): Promise<void> =>
+    wrapInvoke<void>("plugins_uninstall", { pluginId }),
+};
+
 export const ipc = {
   ping: () => wrapInvoke<string>("ping"),
   tasks: tasksApi,
@@ -3074,6 +3129,7 @@ export const ipc = {
   sessions: sessionsApi,
   contextEngine: contextEngineApi,
   agents: agentsApi,
+  plugins: privatePluginsApi,
   audio: audioApi,
   voice: voiceApi,
   desktop: desktopApi,

@@ -61,7 +61,7 @@ describe("SettingsPage", () => {
 
     const tablist = screen.getByRole("tablist", { name: /Subgrupos de configurações/i });
     const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs).toHaveLength(8);
+    expect(tabs).toHaveLength(9);
 
     // Initially only "general" (Aplicativo + Aparência) is visible
     expect(screen.getByText("Aplicativo")).toBeInTheDocument();
@@ -396,5 +396,40 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("app_open_logs_dir", undefined);
     });
+  });
+
+  it("hides the RAGLight install button in Settings when already installed", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "settings_get_all") return [];
+      if (cmd === "desktop_list_monitors") return [];
+      if (cmd === "raglight_status") {
+        return {
+          enabled: true,
+          mode: "managed_local",
+          baseUrl: "http://127.0.0.1:8000",
+          provider: "ollama",
+          embeddingModel: "nomic-embed-text",
+          llmModel: "qwen3:0.6b",
+          vectorStore: "chroma",
+          folders: ["/home/ragton/Documentos"],
+          hasApiKey: false,
+          installed: true,
+          running: false,
+          managedPid: null,
+          venvPath: "/home/ragton/.local/share/com.ragton.auradesk/raglight/.venv",
+          dbPath: "/home/ragton/.local/share/com.ragton.auradesk/raglight/db",
+          pythonTool: "uv",
+        };
+      }
+      return undefined;
+    });
+
+    render(<SettingsPage initialSection="raglight" />);
+
+    const steps = await screen.findByTestId("raglight-steps");
+    expect(await within(steps).findByTestId("raglight-step-installed")).toBeInTheDocument();
+    expect(
+      within(steps).queryByRole("button", { name: /Instalar & Provisionar RAGLight/i })
+    ).not.toBeInTheDocument();
   });
 });

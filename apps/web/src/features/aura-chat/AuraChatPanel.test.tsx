@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { I18nextProvider } from "react-i18next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../../lib/i18n";
-import { hermesApi, hindsightApi, proposalsApi, raglightApi } from "../../lib/ipc";
+import {
+  hermesApi,
+  hindsightApi,
+  hindsightExploreApi,
+  proposalsApi,
+  raglightApi,
+} from "../../lib/ipc";
 import { AuraChatPanel } from "./AuraChatPanel";
 import { AuraMonitoringPanel } from "./AuraMonitoringPanel";
 
@@ -370,6 +376,285 @@ describe("AuraChatPanel", () => {
     await waitFor(() => {
       expect(screen.getByText(/Today:/i)).toBeInTheDocument();
     });
+  });
+
+  it("keeps the 3D pyramid stage visible above the chat panel on narrow viewports and expands when chat is hidden", () => {
+    renderPanel();
+
+    const stage = screen.getByTestId("aura-pyramid-stage");
+    const chatPanel = screen.getByTestId("aura-chat-panel");
+
+    expect(stage.className).toContain("h-[36%]");
+    expect(stage.className).toContain("min-h-[220px]");
+    expect(chatPanel.className).toContain("flex-1 min-h-0");
+    expect(chatPanel.className).not.toMatch(/(^|\s)h-full(\s|$)/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Hide chat/i }));
+
+    expect(stage.className).toContain("flex-1");
+    expect(stage.className).not.toContain("h-[36%]");
+    expect(chatPanel.className).toContain("h-auto");
+  });
+
+  it("applies glass transparency and desktop overlay across left, right, and center docks including the composer", () => {
+    renderPanel();
+
+    const chatPanel = screen.getByTestId("aura-chat-panel");
+    const composer = screen.getByTestId("aura-chat-composer");
+
+    // Default right dock floats on desktop over full-bleed galaxy
+    expect(chatPanel.className).toContain("lg:absolute");
+    expect(chatPanel.className).toContain("lg:right-0");
+
+    fireEvent.click(screen.getByTestId("aura-layout-menu-btn"));
+    fireEvent.click(screen.getByTestId("aura-transparency-clear"));
+
+    expect(chatPanel.className).toContain("bg-slate-950/25");
+    expect(composer.className).toContain("bg-slate-950/20");
+
+    fireEvent.click(screen.getByTestId("aura-layout-menu-btn"));
+    fireEvent.click(screen.getByTestId("aura-dock-left"));
+
+    expect(chatPanel.className).toContain("lg:absolute");
+    expect(chatPanel.className).toContain("lg:left-0");
+    expect(chatPanel.className).toContain("bg-slate-950/25");
+    expect(composer.className).toContain("bg-slate-950/20");
+  });
+
+  it("supports resizing width and collapsing into a floating prompt-only capsule", () => {
+    renderPanel();
+
+    const chatPanel = screen.getByTestId("aura-chat-panel");
+    fireEvent.click(screen.getByTestId("aura-layout-menu-btn"));
+    fireEvent.click(screen.getByTestId("aura-size-compact"));
+
+    expect(chatPanel.className).toContain("lg:w-[340px]");
+
+    // Switching to left dock anchors the layout popover inward (left-2) so it never clips under the sidebar
+    fireEvent.click(screen.getByTestId("aura-layout-menu-btn"));
+    fireEvent.click(screen.getByTestId("aura-dock-left"));
+    fireEvent.click(screen.getByTestId("aura-layout-menu-btn"));
+    const leftPopover = screen.getByTestId("aura-layout-popover");
+    expect(leftPopover.className).toContain("left-2");
+    expect(leftPopover.className).toContain("top-11");
+
+    // In prompt-only mode at the bottom, the popover opens upward (bottom-11)
+    fireEvent.click(screen.getByRole("button", { name: /Hide chat/i }));
+    expect(chatPanel.className).toContain("h-auto");
+    expect(chatPanel.className).toContain("lg:bottom-4");
+    expect(screen.queryByTestId("aura-transcript")).not.toBeInTheDocument();
+    expect(screen.getByTestId("aura-layout-popover").className).toContain("bottom-11");
+
+    fireEvent.click(screen.getByTestId("aura-show-transcript-btn"));
+    expect(screen.getByTestId("aura-transcript")).toBeInTheDocument();
+  });
+
+  it("toggles voice-reply mode directly in the prompt bar and speaks/stops individual messages", async () => {
+    const speakMock = vi.fn();
+    const cancelMock = vi.fn();
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: {
+        speak: speakMock,
+        cancel: cancelMock,
+        getVoices: () => [],
+      },
+    });
+    (window as unknown as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance =
+      vi.fn((text: string) => ({
+        text,
+        lang: "",
+        rate: 1,
+        pitch: 1,
+        voice: null,
+        onstart: null,
+        onend: null,
+        onerror: null,
+      }));
+
+    try {
+      renderPanel();
+
+      const autoSpeakBtn = screen.getByTestId("aura-autospeak-toggle");
+      expect(autoSpeakBtn).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(autoSpeakBtn);
+      expect(autoSpeakBtn).toHaveAttribute("aria-pressed", "false");
+      expect(JSON.parse(localStorage.getItem("auradesk_voice_settings") || "{}").autoSpeak).toBe(
+        false
+      );
+
+      const input = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+      fireEvent.change(input, { target: { value: "summary" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Today:/i)).toBeInTheDocument();
+      });
+
+      const speakMsgBtn = screen.getByRole("button", { name: /^Read aloud$/i });
+      fireEvent.click(speakMsgBtn);
+      expect(speakMock).toHaveBeenCalled();
+    } finally {
+      delete (window as unknown as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
+      delete (window as unknown as { speechSynthesis?: unknown }).speechSynthesis;
+    }
+  });
+
+  it("opens quick conversations/projects sidebar, creates a project linked to a new Hindsight bank, and scopes recall", async () => {
+    const bankCreateSpy = vi
+      .spyOn(hindsightExploreApi, "bankCreate")
+      .mockResolvedValue({
+        id: "zabbix-infra",
+        name: "Zabbix Infra",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+      });
+    const recallSpy = vi.spyOn(hindsightApi, "recall").mockResolvedValue([]);
+
+    try {
+      renderPanel();
+
+      fireEvent.click(screen.getByTestId("aura-sessions-sidebar-btn"));
+      expect(screen.getByTestId("aura-chat-sidebar")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("aura-new-project-btn"));
+      fireEvent.change(screen.getByTestId("aura-project-name-input"), {
+        target: { value: "Zabbix Infra" },
+      });
+      expect(
+        (screen.getByTestId("aura-project-bank-id-input") as HTMLInputElement).value
+      ).toBe("zabbix-infra");
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("aura-project-create-submit"));
+      });
+
+      expect(bankCreateSpy).toHaveBeenCalledWith({
+        bankId: "zabbix-infra",
+        name: "Zabbix Infra",
+        mission: null,
+      });
+
+      // Create a new chat while the project filter is selected -> assigns session to project
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("aura-sidebar-new-chat"));
+      });
+
+      const activeBar = await screen.findByTestId("aura-active-project-bar");
+      expect(activeBar).toHaveTextContent("Zabbix Infra");
+      expect(activeBar).toHaveTextContent("zabbix-infra");
+
+      const input = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+      fireEvent.change(input, { target: { value: "summary" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+      await waitFor(() => {
+        expect(recallSpy).toHaveBeenCalledWith("summary", "zabbix-infra", 24);
+      });
+    } finally {
+      bankCreateSpy.mockRestore();
+      recallSpy.mockRestore();
+    }
+  });
+
+  it("keeps assistant message footer actions compact and single-line with full aria-labels", async () => {
+    renderPanel();
+
+    const input = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+    fireEvent.change(input, { target: { value: "summary" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Today:/i)).toBeInTheDocument();
+    });
+
+    const actionBars = screen.getAllByTestId("aura-message-actions");
+    const assistantActions = actionBars[actionBars.length - 1];
+    expect(assistantActions).toBeInTheDocument();
+
+    const speakBtn = screen.getByRole("button", { name: /^Read aloud$/i });
+    const copyBtn = screen.getByRole("button", { name: /^Copy message$/i });
+    const regenerateBtn = screen.getByRole("button", { name: /^Regenerate$/i });
+
+    expect(speakBtn).toHaveClass("whitespace-nowrap");
+    expect(copyBtn).toHaveClass("whitespace-nowrap");
+    expect(regenerateBtn).toHaveClass("whitespace-nowrap");
+    expect(speakBtn).toHaveTextContent("Listen");
+    expect(copyBtn).toHaveTextContent("Copy");
+    expect(regenerateBtn).toHaveTextContent("Retry");
+
+    const timestamp = assistantActions.querySelector("time");
+    expect(timestamp).not.toBeNull();
+    expect(timestamp).toHaveClass("ml-auto", "shrink-0");
+  });
+
+  it("opens integrated sidebar by default on desktop screens, shows linked bank badges, and auto-titles new chats", async () => {
+    const originalWidth = window.innerWidth;
+    const bankCreateSpy = vi
+      .spyOn(hindsightExploreApi, "bankCreate")
+      .mockResolvedValue({
+        id: "infra-onu",
+        name: "Infra ONU",
+        totalNodes: 0,
+        totalLinks: 0,
+        totalDocuments: 0,
+      });
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+
+    try {
+      renderPanel();
+
+      // Sidebar opens by default on desktop without clicking the toggle
+      const sidebar = screen.getByTestId("aura-chat-sidebar");
+      expect(sidebar).toBeInTheDocument();
+
+      // Toggle closes sidebar and persists preference
+      fireEvent.click(screen.getByTestId("aura-sessions-sidebar-btn"));
+      expect(screen.queryByTestId("aura-chat-sidebar")).not.toBeInTheDocument();
+      expect(localStorage.getItem("auradesk_chat_sidebar_open")).toBe("0");
+
+      // Reopen sidebar
+      fireEvent.click(screen.getByTestId("aura-sessions-sidebar-btn"));
+      expect(screen.getByTestId("aura-chat-sidebar")).toBeInTheDocument();
+      expect(localStorage.getItem("auradesk_chat_sidebar_open")).toBe("1");
+
+      // Create a project linked to a Hindsight bank and verify badge renders in sidebar
+      fireEvent.click(screen.getByTestId("aura-new-project-btn"));
+      fireEvent.change(screen.getByTestId("aura-project-name-input"), {
+        target: { value: "Infra ONU" },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("aura-project-create-submit"));
+      });
+      expect(screen.getByTestId("aura-chat-sidebar")).toHaveTextContent("infra-onu");
+
+      // Create a new chat in the project and send a prompt -> auto-titles the session in header
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("aura-sidebar-new-chat"));
+      });
+      const input = screen.getByPlaceholderText(/create task: Review sprint backlog/i);
+      fireEvent.change(input, { target: { value: "Descobrir IP da ONU GPON" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("aura-chat-sidebar")).toHaveTextContent(
+          "Descobrir IP da ONU GPON"
+        );
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        writable: true,
+        value: originalWidth,
+      });
+      bankCreateSpy.mockRestore();
+    }
   });
 });
 

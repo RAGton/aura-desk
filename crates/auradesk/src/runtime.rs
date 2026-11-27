@@ -153,6 +153,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             let updater_mgr = Arc::new(crate::updater::UpdaterManager::new(
                 crate::updater::read_auto_update_setting(&db),
             ));
+            app.manage(crate::ipc::plugins::PluginRuntimeState::default());
             app.manage(AppState {
                 db: Arc::clone(&db),
                 data_dir: data_dir.clone(),
@@ -625,6 +626,18 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::desktop::updater_install_now,
             crate::ipc::desktop::app_open_logs_dir,
             crate::ipc::desktop::app_get_logs_tail,
+            crate::ipc::plugins::plugins_list,
+            crate::ipc::plugins::plugins_discover,
+            crate::ipc::plugins::plugins_install,
+            crate::ipc::plugins::plugins_set_enabled,
+            crate::ipc::plugins::plugins_set_permission,
+            crate::ipc::plugins::plugins_set_secret,
+            crate::ipc::plugins::plugins_has_secret,
+            crate::ipc::plugins::plugins_execute_action,
+            crate::ipc::plugins::plugins_ingest_event,
+            crate::ipc::plugins::plugins_audit_log,
+            crate::ipc::plugins::plugins_recent_events,
+            crate::ipc::plugins::plugins_uninstall,
         ])
 }
 

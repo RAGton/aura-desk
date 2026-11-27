@@ -34,6 +34,7 @@ import {
 import { SettingRow } from "./settings/SettingRow";
 import { RaglightSection } from "./settings/RaglightSection";
 import { HindsightSection } from "./settings/HindsightSection";
+import { PluginsSection } from "./settings/PluginsSection";
 import {
   defaultFor,
   GROUP_ICONS,
@@ -481,6 +482,7 @@ export function SettingsPage({
       ai: false,
       hindsight: hasFieldDefaultsDirty(HINDSIGHT_FIELD_DEFAULTS, values, savedValues),
       raglight: hasFieldDefaultsDirty(RAGLIGHT_FIELD_DEFAULTS, values, savedValues),
+      plugins: false,
       system: false,
     };
     for (const section of SETTINGS_SECTIONS) {
@@ -785,6 +787,8 @@ export function SettingsPage({
             onSave={(k, v) => void saveOne(k, v)}
           />
         )}
+
+        {activeSection === "plugins" && <PluginsSection />}
 
         {activeSection === "system" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">

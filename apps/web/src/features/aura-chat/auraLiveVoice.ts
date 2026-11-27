@@ -8,15 +8,140 @@
  *   microphone → PCM → tone analysis (prosody + optional emotion model)
  *
  * The Whisper service returns the transcript of *everything* it has heard
- * so far, so this session tracks how much was already delivered and cuts
- * new utterances out of the growing text.
+ * so far (and can re-decode or roll its window), so this session normalizes
+ * spacing, collapses repeated Whisper phrases, strips committed prefixes or
+ * rolling overlaps, and delivers clean utterances to Aura.
  */
 
 import { analyzeAuraTone, type AuraToneAnalysis } from "./auraToneAnalyzer";
 import { AuraLiveTranscriber } from "./auraSpeechToText";
 
 /** Silence after which the current utterance is considered finished. */
-const UTTERANCE_SILENCE_MS = 1400;
+const UTTERANCE_SILENCE_MS = 1800;
+
+export function normalizeTranscriptText(raw: string): string {
+  return raw
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function toWordToken(word: string): string {
+  return word.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+}
+
+function tokensEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+export function collapseRepeatedPhrases(text: string): string {
+  let current = normalizeTranscriptText(text);
+  if (!current) return "";
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const words = current.split(" ").filter(Boolean);
+    if (words.length < 4) break;
+    const tokens = words.map(toWordToken);
+
+    let nextWords: string[] | null = null;
+    for (let i = 0; i < words.length && !nextWords; i += 1) {
+      const maxK = Math.floor((words.length - i) / 2);
+      for (let k = maxK; k >= 2; k -= 1) {
+        let match = true;
+        for (let offset = 0; offset < k; offset += 1) {
+          const left = tokens[i + offset];
+          const right = tokens[i + k + offset];
+          if (!left || left !== right) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          // Keep the second copy since Whisper's newer tail often carries
+          // finalized punctuation and casing.
+          nextWords = [...words.slice(0, i), ...words.slice(i + k)];
+          break;
+        }
+      }
+    }
+
+    if (nextWords) {
+      current = normalizeTranscriptText(nextWords.join(" "));
+      changed = true;
+    }
+  }
+
+  return current;
+}
+
+export function extractNextUtterance(
+  committedText: string,
+  incomingRaw: string,
+  lastEmittedUtterance?: string
+): string {
+  const normalizedIncoming = collapseRepeatedPhrases(normalizeTranscriptText(incomingRaw));
+  if (!normalizedIncoming) return "";
+
+  const incomingWords = normalizedIncoming.split(" ").filter(Boolean);
+  const incomingTokens = incomingWords.map(toWordToken);
+  const normalizedCommitted = collapseRepeatedPhrases(normalizeTranscriptText(committedText));
+
+  let remainingWords = incomingWords;
+  if (normalizedCommitted) {
+    const committedWords = normalizedCommitted.split(" ").filter(Boolean);
+    const committedTokens = committedWords.map(toWordToken);
+
+    let prefixLen = 0;
+    const minLen = Math.min(committedTokens.length, incomingTokens.length);
+    while (prefixLen < minLen && committedTokens[prefixLen] === incomingTokens[prefixLen]) {
+      prefixLen += 1;
+    }
+
+    if (prefixLen > 0) {
+      remainingWords = incomingWords.slice(prefixLen);
+    } else {
+      let overlap = 0;
+      const maxOverlap = Math.min(committedTokens.length, incomingTokens.length);
+      for (let k = maxOverlap; k >= 1; k -= 1) {
+        if (k === 1 && committedTokens.length !== 1) continue;
+        let matches = true;
+        for (let j = 0; j < k; j += 1) {
+          if (committedTokens[committedTokens.length - k + j] !== incomingTokens[j]) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          overlap = k;
+          break;
+        }
+      }
+      if (overlap > 0) {
+        remainingWords = incomingWords.slice(overlap);
+      }
+    }
+  }
+
+  const pending = collapseRepeatedPhrases(normalizeTranscriptText(remainingWords.join(" ")));
+  if (!pending) return "";
+
+  if (lastEmittedUtterance) {
+    const lastNormalized = collapseRepeatedPhrases(normalizeTranscriptText(lastEmittedUtterance));
+    const lastTokens = lastNormalized.split(" ").filter(Boolean).map(toWordToken);
+    const pendingTokens = pending.split(" ").filter(Boolean).map(toWordToken);
+    if (lastTokens.length > 0 && tokensEqual(lastTokens, pendingTokens)) {
+      return "";
+    }
+  }
+
+  return pending;
+}
 
 export interface AuraLiveVoiceOptions {
   /** Language hint for the transcription service (`pt` or `en`). */
@@ -36,7 +161,10 @@ export interface AuraLiveVoiceOptions {
 export class AuraLiveVoiceSession {
   private transcriber: AuraLiveTranscriber | null = null;
   private serverText = "";
-  private sentOffset = 0;
+  private committedText = "";
+  private lastEmittedUtterance = "";
+  private lastPending = "";
+  private paused = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnecting = false;
@@ -55,6 +183,11 @@ export class AuraLiveVoiceSession {
       onClose: () => this.handleClose(),
       onError: (error) => this.options.onError?.(error),
     });
+  }
+
+  /** Gates microphone forwarding (e.g. while Aura TTS is speaking). */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
   }
 
   /** Opens the streaming transcription session. */
@@ -92,7 +225,7 @@ export class AuraLiveVoiceSession {
    * the real rate once the AudioContext exists.
    */
   push(samples: Float32Array, sampleRate?: number): void {
-    if (this.stopped || !this.transcriber) return;
+    if (this.stopped || this.paused || !this.transcriber) return;
     const rate = sampleRate ?? this.options.sampleRate;
     this.currentSampleRate = rate;
     this.utteranceSamples.push(...samples);
@@ -130,7 +263,9 @@ export class AuraLiveVoiceSession {
 
     this.transcriber = null;
     this.serverText = "";
-    this.sentOffset = 0;
+    this.committedText = "";
+    this.lastEmittedUtterance = "";
+    this.lastPending = "";
     this.reconnecting = true;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -165,7 +300,17 @@ export class AuraLiveVoiceSession {
     if (this.stopped) return;
 
     this.serverText = text;
-    this.options.onInterim?.(text.slice(this.sentOffset).trimStart() || text);
+    const pending = extractNextUtterance(
+      this.committedText,
+      text,
+      this.lastEmittedUtterance
+    );
+    if (!pending) return;
+
+    if (pending !== this.lastPending) {
+      this.lastPending = pending;
+      this.options.onInterim?.(pending);
+    }
 
     // The user paused: the utterance is complete.
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
@@ -176,12 +321,18 @@ export class AuraLiveVoiceSession {
   }
 
   private flushUtterance(): void {
-    if (this.stopped && this.sentOffset >= this.serverText.length) return;
-
-    const pending = this.serverText.slice(this.sentOffset).trim();
+    const pending = extractNextUtterance(
+      this.committedText,
+      this.serverText,
+      this.lastEmittedUtterance
+    );
     if (!pending) return;
 
-    this.sentOffset = this.serverText.length;
+    this.committedText = collapseRepeatedPhrases(
+      normalizeTranscriptText(this.serverText)
+    );
+    this.lastEmittedUtterance = pending;
+    this.lastPending = "";
     this.options.onFinal?.(pending);
 
     // The tone of the utterance that just ended.

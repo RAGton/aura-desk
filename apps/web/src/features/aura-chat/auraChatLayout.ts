@@ -13,9 +13,13 @@ export type AuraChatDock = "left" | "right" | "center";
 /** How transparent the conversation panel is. */
 export type AuraChatTransparency = "clear" | "balanced" | "solid";
 
+/** Width preset of the conversation panel. */
+export type AuraChatSize = "compact" | "normal" | "wide";
+
 export interface AuraChatLayoutSettings {
   dock: AuraChatDock;
   transparency: AuraChatTransparency;
+  size: AuraChatSize;
 }
 
 const STORAGE_KEY = "auradesk_chat_layout";
@@ -23,6 +27,7 @@ const STORAGE_KEY = "auradesk_chat_layout";
 export const DEFAULT_CHAT_LAYOUT: AuraChatLayoutSettings = {
   dock: "right",
   transparency: "balanced",
+  size: "normal",
 };
 
 export function loadChatLayout(): AuraChatLayoutSettings {
@@ -40,6 +45,10 @@ export function loadChatLayout(): AuraChatLayoutSettings {
         parsed.transparency === "clear" || parsed.transparency === "solid"
           ? parsed.transparency
           : "balanced",
+      size:
+        parsed.size === "compact" || parsed.size === "wide"
+          ? parsed.size
+          : "normal",
     };
   } catch {
     return { ...DEFAULT_CHAT_LAYOUT };
@@ -62,6 +71,8 @@ const TRANSPARENCY_RAMP: Record<
     container: string;
     transcript: string;
     header: string;
+    composer: string;
+    input: string;
     border: string;
     blur: string;
   }
@@ -72,6 +83,8 @@ const TRANSPARENCY_RAMP: Record<
     container: "bg-slate-950/25",
     transcript: "bg-slate-950/45",
     header: "bg-slate-950/20",
+    composer: "bg-slate-950/20",
+    input: "bg-slate-950/35",
     border: "border-sky-400/15",
     blur: "backdrop-blur-md",
   },
@@ -79,6 +92,8 @@ const TRANSPARENCY_RAMP: Record<
     container: "bg-slate-950/60",
     transcript: "bg-slate-950/75",
     header: "bg-slate-950/45",
+    composer: "bg-slate-950/50",
+    input: "bg-slate-900/60",
     border: "border-sky-400/20",
     blur: "backdrop-blur-2xl",
   },
@@ -86,6 +101,8 @@ const TRANSPARENCY_RAMP: Record<
     container: "bg-slate-950/92",
     transcript: "bg-slate-950/95",
     header: "bg-slate-950/85",
+    composer: "bg-slate-950/90",
+    input: "bg-slate-900/90",
     border: "border-sky-400/25",
     blur: "backdrop-blur-2xl",
   },
@@ -98,6 +115,8 @@ export function chatTransparencyClasses(
   container: string;
   transcript: string;
   header: string;
+  composer: string;
+  input: string;
   border: string;
   blur: string;
 } {
@@ -114,8 +133,69 @@ export function chatDockOrder(dock: AuraChatDock): "chat-first" | "station-first
   return dock === "left" ? "chat-first" : "station-first";
 }
 
-/** Width of the docked conversation column. */
+/** Width classes for the floating conversation panel per dock, size preset, and sidebar state. */
+export function chatPanelWidthClass(
+  dock: AuraChatDock,
+  size: AuraChatSize,
+  sidebarOpen = false
+): string {
+  if (dock === "center") {
+    if (sidebarOpen) {
+      switch (size) {
+        case "compact":
+          return "w-full max-w-[680px]";
+        case "wide":
+          return "w-full max-w-[940px]";
+        default:
+          return "w-full max-w-[820px]";
+      }
+    }
+    switch (size) {
+      case "compact":
+        return "w-full max-w-[460px]";
+      case "wide":
+        return "w-full max-w-[720px]";
+      default:
+        return "w-full max-w-[600px]";
+    }
+  }
+  if (sidebarOpen) {
+    switch (size) {
+      case "compact":
+        return "w-full lg:w-[530px]";
+      case "wide":
+        return "w-full lg:w-[700px] xl:w-[780px]";
+      default:
+        return "w-full lg:w-[600px] xl:w-[680px]";
+    }
+  }
+  switch (size) {
+    case "compact":
+      return "w-full lg:w-[340px]";
+    case "wide":
+      return "w-full lg:w-[540px] xl:w-[600px]";
+    default:
+      return "w-full lg:w-[440px] xl:w-[500px]";
+  }
+}
+
+/** Horizontal desktop HUD & pyramid center inset when a side panel is open. */
+export function chatSideOverlayInsetPx(size: AuraChatSize, sidebarOpen = false): number {
+  const base = (() => {
+    switch (size) {
+      case "compact":
+        return 340;
+      case "wide":
+        return 560;
+      default:
+        return 460;
+    }
+  })();
+  return sidebarOpen ? base + 190 : base;
+}
+
+/** Default width of the docked conversation column. */
 export const CHAT_COLUMN_WIDTH = "w-full lg:w-[440px] xl:w-[520px]";
 
-/** Width of the centered floating conversation panel. */
+/** Default width of the centered floating conversation panel. */
 export const CHAT_CENTERED_WIDTH = "w-full max-w-[640px]";

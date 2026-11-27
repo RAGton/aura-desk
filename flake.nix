@@ -287,6 +287,35 @@
               gmp
             ];
 
+            raglightLibPath = pkgs.lib.makeLibraryPath raglightRuntimeLibs;
+            raglightPackageSpec =
+              if cfg.raglight.vectorStore == "qdrant"
+              then "raglight[qdrant]"
+              else "raglight[chroma]";
+
+            # Declaratively provision the RAGLight Python 3.12 virtualenv on
+            # login so the app sees `installed: true` without manual steps.
+            raglightSetup = pkgs.writeShellApplication {
+              name = "auradesk-raglight-setup";
+              runtimeInputs = [ pkgs.uv pkgs.python312 ];
+              text = ''
+                DATA_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/com.ragton.auradesk/raglight"
+                VENV_DIR="$DATA_DIR/.venv"
+                export LD_LIBRARY_PATH="${raglightLibPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+                if [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -c "import raglight, fastapi, uvicorn" >/dev/null 2>&1; then
+                  echo "auradesk: raglight already installed in $VENV_DIR"
+                  exit 0
+                fi
+
+                mkdir -p "$DATA_DIR/db"
+                echo "auradesk: provisioning raglight (${raglightPackageSpec}) with Python 3.12 in $VENV_DIR"
+                uv venv --clear --python "${pkgs.python312}/bin/python3.12" "$VENV_DIR"
+                uv pip install --python "$VENV_DIR/bin/python" "${raglightPackageSpec}" fastapi uvicorn
+                "$VENV_DIR/bin/python" -c "import raglight, fastapi, uvicorn"
+              '';
+            };
+
             # Pulls the voice images into the user's rootless podman store,
             # so the first launch of the app does not wait for a download.
             #
@@ -387,6 +416,14 @@
                   toolchain the app needs to install the service and the
                   folders it indexes.
                 '';
+                autoInstall = lib.mkOption {
+                  type = lib.types.bool;
+                  default = true;
+                  description = ''
+                    Provision the isolated RAGLight Python 3.12 virtual
+                    environment declaratively at user login via uv.
+                  '';
+                };
                 provider = lib.mkOption {
                   type = lib.types.str;
                   default = raglightProvider;
@@ -417,12 +454,12 @@
             config = lib.mkIf cfg.enable {
               environment.systemPackages = [ cfg.package ]
                 ++ lib.optional cfg.mcp.enable cfg.mcp.package
-                # The knowledge service is installed by the app into its own
-                # virtual environment; `uv` is its fast path and `python3`
-                # its fallback.
+                # The knowledge service uses Python 3.12 (for prebuilt
+                # chromadb/raglight wheels); `uv` is its fast path and
+                # `python312` its fallback.
                 ++ lib.optionals cfg.raglight.enable [
                   pkgs.uv
-                  pkgs.python3
+                  pkgs.python312
                 ];
 
               # The voice stack needs a container runtime. Enabling it here
@@ -452,6 +489,21 @@
                   };
                 };
 
+              # Provision the isolated Python 3.12 virtualenv with raglight
+              # declaratively at login so the user never hits "Not installed".
+              systemd.user.services.auradesk-raglight-setup = lib.mkIf
+                (cfg.raglight.enable && cfg.raglight.autoInstall)
+                {
+                  description = "Provision AuraDesk RAGLight Python 3.12 environment";
+                  wantedBy = [ "default.target" ];
+                  after = [ "network-online.target" ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    RemainAfterExit = true;
+                    ExecStart = lib.getExe raglightSetup;
+                  };
+                };
+
               # The wheels of the knowledge service load native libraries
               # that NixOS does not ship in the default paths.
               programs.nix-ld = lib.mkIf cfg.raglight.enable {
@@ -469,6 +521,8 @@
                     AURADESK_RAGLIGHT_BASE_URL = cfg.raglight.baseUrl;
                     AURADESK_RAGLIGHT_PROVIDER = cfg.raglight.provider;
                     AURADESK_RAGLIGHT_VECTOR_STORE = cfg.raglight.vectorStore;
+                    AURADESK_RAGLIGHT_PYTHON = "${pkgs.python312}/bin/python3.12";
+                    AURADESK_RAGLIGHT_LD_LIBRARY_PATH = raglightLibPath;
                   }
                 ]
                 ++ lib.optional

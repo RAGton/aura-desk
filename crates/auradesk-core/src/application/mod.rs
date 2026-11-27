@@ -14,6 +14,7 @@ pub mod kanban;
 pub mod memories;
 pub mod metrics;
 pub mod pomodoros;
+pub mod plugins;
 pub mod projects;
 pub mod proposals;
 pub mod reminders;

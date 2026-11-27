@@ -30,7 +30,12 @@ vi.mock("./auraSpeechToText", () => ({
   AuraLiveTranscriber: transcriberMock.constructor,
 }));
 
-import { AuraLiveVoiceSession } from "./auraLiveVoice";
+import {
+  AuraLiveVoiceSession,
+  collapseRepeatedPhrases,
+  extractNextUtterance,
+  normalizeTranscriptText,
+} from "./auraLiveVoice";
 
 describe("AuraLiveVoiceSession", () => {
   it("cuts a new utterance out of the growing transcript", async () => {
@@ -96,5 +101,67 @@ describe("AuraLiveVoiceSession", () => {
 
     expect(started).toBe(false);
     expect(errors).toHaveLength(1);
+  });
+
+  it("normalizes double spaces and stray punctuation spaces", () => {
+    expect(normalizeTranscriptText("  Alô ,  te   esperando !  ")).toBe(
+      "Alô, te esperando!"
+    );
+    expect(collapseRepeatedPhrases("Alô, te esperando! Alô, te esperando!")).toBe(
+      "Alô, te esperando!"
+    );
+  });
+
+  it("deduplicates repeated Whisper phrases and extracts only new words after flush", async () => {
+    vi.useFakeTimers();
+    try {
+      const finals: string[] = [];
+      const interims: string[] = [];
+
+      const session = new AuraLiveVoiceSession({
+        language: "pt",
+        sampleRate: 16000,
+        onFinal: (text) => finals.push(text),
+        onInterim: (text) => interims.push(text),
+      });
+
+      await session.start();
+      transcriberMock.emit("Alô,  te");
+      vi.advanceTimersByTime(1850);
+      expect(finals).toEqual(["Alô, te"]);
+
+      transcriberMock.emit("Alô,  te  esperando!  Alô,  te  esperando!");
+      expect(interims[interims.length - 1]).toBe("esperando!");
+      vi.advanceTimersByTime(1850);
+      expect(finals).toEqual(["Alô, te", "esperando!"]);
+
+      // Re-emitting exact same finalized utterance should be ignored.
+      transcriberMock.emit("esperando!");
+      vi.advanceTimersByTime(1850);
+      expect(finals).toEqual(["Alô, te", "esperando!"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("strips rolling-window overlap from committed text", () => {
+    expect(
+      extractNextUtterance("Bom dia Aura tudo bem", "tudo bem preciso de ajuda")
+    ).toBe("preciso de ajuda");
+  });
+
+  it("gates microphone sample forwarding while paused for TTS playback", async () => {
+    transcriberMock.instance.send.mockClear();
+    const session = new AuraLiveVoiceSession({ language: "pt", sampleRate: 16000 });
+    await session.start();
+
+    const samples = new Float32Array([0.1, 0.2]);
+    session.setPaused(true);
+    session.push(samples, 16000);
+    expect(transcriberMock.instance.send).not.toHaveBeenCalled();
+
+    session.setPaused(false);
+    session.push(samples, 16000);
+    expect(transcriberMock.instance.send).toHaveBeenCalledTimes(1);
   });
 });

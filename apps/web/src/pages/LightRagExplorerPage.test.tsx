@@ -297,6 +297,25 @@ describe("LightRagExplorerPage", () => {
     });
   });
 
+  it("hides the Install RAGLight button and shows Start RAGLight when already installed", async () => {
+    mockKnowledge.overview.mockResolvedValue(OFFLINE_OVERVIEW);
+    mockRaglight.status.mockResolvedValue({
+      ...RAGLIGHT_STATUS,
+      installed: true,
+      running: false,
+    });
+
+    render(<LightRagExplorerPage />);
+
+    const actions = await screen.findByTestId("knowledge-service-actions");
+    expect(
+      within(actions).queryByRole("button", { name: "Install RAGLight" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(actions).getByRole("button", { name: "Start RAGLight" }),
+    ).toBeInTheDocument();
+  });
+
   it("loads documents list and inspects original content and entities via documentGet when online", async () => {
     setupOnlineMocks();
 

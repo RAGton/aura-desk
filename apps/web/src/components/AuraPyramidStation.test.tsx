@@ -227,4 +227,50 @@ describe("AuraPyramidStation & MemoryGlobeInspector", () => {
     fireEvent.click(screen.getByRole("button", { name: /4D layer/i }));
     fireEvent.click(screen.getByRole("button", { name: /Reset view/i }));
   });
+
+  it("distinguishes thinking and speaking choreography states on the 3D station", () => {
+    const { rerender } = render(
+      <I18nextProvider i18n={i18n}>
+        <AuraPyramidStation
+          aiStatus={null}
+          hindsightStatus={null}
+          raglightStatus={null}
+          thinking={false}
+          speaking={false}
+        />
+      </I18nextProvider>
+    );
+
+    const station = screen.getByTestId("aura-pyramid-station");
+    expect(station).toHaveAttribute("data-aura-motion-state", "idle");
+    expect(screen.getByText(/Stable orbit/i)).toBeInTheDocument();
+
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <AuraPyramidStation
+          aiStatus={null}
+          hindsightStatus={null}
+          raglightStatus={null}
+          thinking={true}
+          speaking={false}
+        />
+      </I18nextProvider>
+    );
+    expect(station).toHaveAttribute("data-aura-motion-state", "thinking");
+    expect(screen.getByText(/Aura thinking/i)).toBeInTheDocument();
+
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <AuraPyramidStation
+          aiStatus={null}
+          hindsightStatus={null}
+          raglightStatus={null}
+          thinking={false}
+          speaking={true}
+        />
+      </I18nextProvider>
+    );
+    expect(station).toHaveAttribute("data-aura-motion-state", "speaking");
+    expect(screen.getByText(/Aura speaking/i)).toBeInTheDocument();
+  });
 });

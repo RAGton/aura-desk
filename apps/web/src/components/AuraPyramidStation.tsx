@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -61,10 +62,13 @@ export interface AuraPyramidStationProps {
   activeMemoryIds?: string[];
   activePulseTick?: number;
   speaking?: boolean;
+  thinking?: boolean;
   listening?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onOpenSettings?: () => void;
+  hudInsetLeftPx?: number;
+  hudInsetRightPx?: number;
 }
 
 /**
@@ -260,12 +264,15 @@ interface SceneSnapshot {
   ragRunning: boolean;
   ragReady: boolean;
   speaking: boolean;
+  thinking: boolean;
   listening: boolean;
   expanded: boolean;
   enable4d: boolean;
   activePulseTick: number;
   activeNodeId: string | null;
   topology: GraphTopology;
+  hudInsetLeftPx: number;
+  hudInsetRightPx: number;
 }
 
 const DEFAULT_YAW = 0.58;
@@ -2029,6 +2036,7 @@ function drawBloomingPyramid(
   cy: number,
   focal: number,
   speakLevel: number,
+  thinkLevel: number,
   listenLevel: number,
   snap: SceneSnapshot,
   galaxyLight: boolean
@@ -2037,17 +2045,41 @@ function drawBloomingPyramid(
   rightFacetProj: ProjectedPoint | null;
   centerProj: ProjectedPoint | null;
 } {
-  const voiceHarmonic = 0.5 + 0.5 * (0.65 * Math.sin(t * 7) + 0.35 * Math.sin(t * 13));
-  // Clearly visible dilation of the entire pyramid/triangle when Aura speaks
-  const dilation =
-    1 + speakLevel * (0.26 + 0.14 * voiceHarmonic) + listenLevel * 0.07;
+  // Speaking: rapid multi-harmonic voice cadence + expressive vertical bob
+  const voiceHarmonic =
+    0.5 +
+    0.5 *
+      (0.55 * Math.sin(t * 8.5) +
+        0.3 * Math.sin(t * 14.3) +
+        0.15 * Math.sin(t * 21.7));
+  const voiceBobY =
+    speakLevel * (0.045 * Math.sin(t * 9.5) + 0.025 * Math.sin(t * 15.2));
 
-  const apexWorld: Vec3 = { x: 0, y: APEX_Y * dilation, z: 0 };
+  // Thinking: levitating apex + torsional XZ base oscillation
+  const apexLift = thinkLevel * (0.16 + 0.05 * Math.sin(t * 3.6));
+  const baseTwist = thinkLevel * 0.22 * Math.sin(t * 2.6);
+  const cosTwist = Math.cos(baseTwist);
+  const sinTwist = Math.sin(baseTwist);
+  const twistCorner = (x: number, y: number, z: number): Vec3 => ({
+    x: x * cosTwist - z * sinTwist,
+    y,
+    z: x * sinTwist + z * cosTwist,
+  });
+
+  // Clearly visible dilation when Aura speaks vs tighter analytical breath when thinking
+  const dilation =
+    1 +
+    speakLevel * (0.26 + 0.16 * voiceHarmonic) +
+    thinkLevel * (0.05 + 0.04 * Math.sin(t * 3.2)) +
+    listenLevel * 0.07;
+
+  const apexWorld: Vec3 = { x: 0, y: APEX_Y * dilation + apexLift + voiceBobY, z: 0 };
+  const baseYWorld = BASE_Y * dilation + voiceBobY * 0.4;
   const baseCorners: readonly Vec3[] = [
-    { x: -BASE_HALF * dilation, y: BASE_Y * dilation, z: BASE_HALF * dilation },
-    { x: BASE_HALF * dilation, y: BASE_Y * dilation, z: BASE_HALF * dilation },
-    { x: BASE_HALF * dilation, y: BASE_Y * dilation, z: -BASE_HALF * dilation },
-    { x: -BASE_HALF * dilation, y: BASE_Y * dilation, z: -BASE_HALF * dilation },
+    twistCorner(-BASE_HALF * dilation, baseYWorld, BASE_HALF * dilation),
+    twistCorner(BASE_HALF * dilation, baseYWorld, BASE_HALF * dilation),
+    twistCorner(BASE_HALF * dilation, baseYWorld, -BASE_HALF * dilation),
+    twistCorner(-BASE_HALF * dilation, baseYWorld, -BASE_HALF * dilation),
   ];
 
   // Unified vivid cyber-cyan colors (single cohesive palette, high-contrast)
@@ -2055,14 +2087,16 @@ function drawBloomingPyramid(
   const indigo: Rgb = galaxyLight ? [2, 128, 198] : INDIGO_RGB;
   const emerald: Rgb = galaxyLight ? [6, 182, 212] : EMERALD_RGB;
   const brightCyan: Rgb = galaxyLight ? [2, 132, 199] : ICE_RGB;
+  const neuralIndigo: Rgb = [129, 140, 248];
 
   const speakEdgeRgb = lerpRgb(cyan, brightCyan, 0.35 + 0.45 * voiceHarmonic);
+  const thinkEdgeRgb = lerpRgb(cyan, neuralIndigo, 0.58);
 
   // Cybernetic Base Stator Deck & Octagonal Reactor Emitter
   drawCyberneticBaseDeck(
     ctx,
     t,
-    BASE_Y * dilation,
+    baseYWorld,
     baseCorners,
     expandSmooth,
     speakLevel,
@@ -2108,14 +2142,22 @@ function drawBloomingPyramid(
     const b2 = baseCorners[cfg.c2];
     const hingeMid: Vec3 = {
       x: (b1.x + b2.x) * 0.5,
-      y: BASE_Y * dilation,
+      y: baseYWorld,
       z: (b1.z + b2.z) * 0.5,
     };
     const outDir = normalizeVec3({ x: hingeMid.x, y: 0, z: hingeMid.z });
 
-    const w0 = bloomPetalVertex(apexWorld, hingeMid, outDir, expandSmooth);
-    const w1 = bloomPetalVertex(b1, hingeMid, outDir, expandSmooth);
-    const w2 = bloomPetalVertex(b2, hingeMid, outDir, expandSmooth);
+    // Speaking: all 4 petals pulse open in unison on voice cadence.
+    // Thinking: sequential phase-shifted wave around the 4 facets (cognitive scan).
+    const speakBloom = speakLevel * (0.07 + 0.11 * voiceHarmonic);
+    const thinkBloom =
+      thinkLevel *
+      (0.05 + 0.09 * (0.5 + 0.5 * Math.sin(t * 4.4 - facetIdx * Math.PI * 0.5)));
+    const effectiveBloom = clamp(expandSmooth + speakBloom + thinkBloom, 0, 1);
+
+    const w0 = bloomPetalVertex(apexWorld, hingeMid, outDir, effectiveBloom);
+    const w1 = bloomPetalVertex(b1, hingeMid, outDir, effectiveBloom);
+    const w2 = bloomPetalVertex(b2, hingeMid, outDir, effectiveBloom);
 
     const worldVerts = [w0, w1, w2];
     const viewVerts = worldVerts.map((v) => rotateView(v, yaw, pitch));
@@ -2246,12 +2288,17 @@ function drawBloomingPyramid(
       );
 
       // Machined double-rail exoskeleton edges
-      const edgeCol =
+      const activeBaseCol =
         speakLevel > 0.04
           ? lerpRgb(petal.tintTop, speakEdgeRgb, speakLevel * 0.65)
           : petal.tintTop;
+      const edgeCol =
+        thinkLevel > 0.04
+          ? lerpRgb(activeBaseCol, thinkEdgeRgb, thinkLevel * 0.65)
+          : activeBaseCol;
       const edgeAlpha = (isFront ? 0.92 : 0.32) * (1 - expandSmooth * 0.32);
-      const edgeWidth = (isFront ? 1.65 : 0.9) + speakLevel * 0.75;
+      const edgeWidth =
+        (isFront ? 1.65 : 0.9) + speakLevel * 0.75 + thinkLevel * 0.35;
       drawHarmonicEdge(
         ctx,
         aW,
@@ -2384,14 +2431,15 @@ function drawBloomingPyramid(
     .sort((a, b) => b.depth - a.depth)
     .forEach((p) => paintPetal(p, true));
 
-  // 4) Levitating Cybernetic Apex Capstone Collar + Synthesis Core Halo
+  // 4) Levitating Cybernetic Apex Capstone Collar + Gyroscopic Thinking Ring + Synthesis Core Halo
   if (expandSmooth < 0.65) {
     const collarFade = 1 - expandSmooth / 0.65;
-    const collarY = lerp(apexWorld.y, BASE_Y * dilation, 0.2);
+    const collarY = lerp(apexWorld.y, baseYWorld, 0.2);
     const collarR = 0.2 * dilation;
-    const collarSpin = -t * 1.15;
-    ctx.strokeStyle = rgba(cyan, (0.56 + listenLevel * 0.28) * collarFade);
-    ctx.lineWidth = 1.15;
+    const collarSpin = -t * (1.15 + thinkLevel * 3.8);
+    const collarRgb = thinkLevel > 0.05 ? lerpRgb(cyan, neuralIndigo, thinkLevel * 0.7) : cyan;
+    ctx.strokeStyle = rgba(collarRgb, (0.56 + listenLevel * 0.28 + thinkLevel * 0.26) * collarFade);
+    ctx.lineWidth = 1.15 + thinkLevel * 0.6;
     ctx.beginPath();
     let collarStarted = false;
     for (let i = 0; i <= 6; i += 1) {
@@ -2411,17 +2459,49 @@ function drawBloomingPyramid(
       }
     }
     ctx.stroke();
+
+    if (thinkLevel > 0.05) {
+      const gyroR = 0.56 * dilation;
+      const gyroY = lerp(apexWorld.y, baseYWorld, 0.45);
+      const gyroSpin = t * 2.4;
+      const tilt = 0.58 * Math.sin(t * 1.9);
+      ctx.strokeStyle = rgba(neuralIndigo, 0.72 * thinkLevel * collarFade);
+      ctx.lineWidth = 1.45;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      let gyroStarted = false;
+      for (let i = 0; i <= 24; i += 1) {
+        const a = gyroSpin + (i / 24) * Math.PI * 2;
+        const rx = Math.cos(a) * gyroR;
+        const rz = Math.sin(a) * gyroR;
+        const gy = gyroY + Math.sin(a) * Math.sin(tilt) * (gyroR * 0.65);
+        const gz = rz * Math.cos(tilt);
+        const p = projectView(rotateView({ x: rx, y: gy, z: gz }, yaw, pitch), cx, cy, focal);
+        if (!p) continue;
+        if (!gyroStarted) {
+          ctx.moveTo(p.sx, p.sy);
+          gyroStarted = true;
+        } else {
+          ctx.lineTo(p.sx, p.sy);
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   if (apexProj) {
-    const haloScale = 1 + listenLevel * 0.45 + speakLevel * 0.38 + expandSmooth * 0.25;
+    const haloScale =
+      1 + listenLevel * 0.45 + speakLevel * 0.38 + thinkLevel * 0.32 + expandSmooth * 0.25;
     const haloR = 24 * haloScale;
     const apexRgb =
       speakLevel > 0.05
         ? lerpRgb(cyan, speakEdgeRgb, speakLevel * 0.65)
-        : snap.aiOnline
-          ? cyan
-          : ([245, 158, 11] as const);
+        : thinkLevel > 0.05
+          ? lerpRgb(cyan, neuralIndigo, thinkLevel * 0.72)
+          : snap.aiOnline
+            ? cyan
+            : ([245, 158, 11] as const);
     const g = ctx.createRadialGradient(
       apexProj.sx,
       apexProj.sy,
@@ -3263,10 +3343,13 @@ export function AuraPyramidStation({
   activeMemoryIds = [],
   activePulseTick = 0,
   speaking = false,
+  thinking = false,
   listening = false,
   expanded: expandedProp,
   onExpandedChange,
   onOpenSettings,
+  hudInsetLeftPx = 0,
+  hudInsetRightPx = 0,
 }: AuraPyramidStationProps) {
   const { t, i18n } = useTranslation();
   const [internalExpanded, setInternalExpanded] = useState(false);
@@ -3313,6 +3396,9 @@ export function AuraPyramidStation({
       aiStatus.activeProvider &&
       aiStatus.activeProvider !== "offline"
   );
+  const hasSideInset = hudInsetLeftPx > 0 || hudInsetRightPx > 0;
+  const hudLabelClass = hasSideInset ? "hidden 2xl:inline" : "hidden lg:inline";
+  const hudBtnPadClass = hasSideInset ? "px-2 2xl:px-2.5" : "px-2 lg:px-2.5";
   const aiStatusLabel = aiOnline
     ? aiStatus?.model
       ? `${aiStatus.activeProvider} · ${aiStatus.model}`
@@ -3449,6 +3535,7 @@ export function AuraPyramidStation({
   const wAngleRef = useRef(0.35);
   const timeRef = useRef(0);
   const speakLevelRef = useRef(0);
+  const thinkLevelRef = useRef(0);
   const listenLevelRef = useRef(0);
   const resettingRef = useRef(false);
   const flyTargetRef = useRef<{ yaw: number; pitch: number; zoom: number } | null>(null);
@@ -3491,12 +3578,15 @@ export function AuraPyramidStation({
     ragRunning,
     ragReady,
     speaking,
+    thinking,
     listening,
     expanded: isExpanded,
     enable4d,
     activePulseTick,
     activeNodeId: activeGraphNode?.id ?? null,
     topology,
+    hudInsetLeftPx,
+    hudInsetRightPx,
   });
 
   snapshotRef.current = {
@@ -3505,12 +3595,15 @@ export function AuraPyramidStation({
     ragRunning,
     ragReady,
     speaking,
+    thinking,
     listening,
     expanded: isExpanded,
     enable4d,
     activePulseTick,
     activeNodeId: activeGraphNode?.id ?? null,
     topology,
+    hudInsetLeftPx,
+    hudInsetRightPx,
   };
 
   const emitCameraOrbit = useCallback((force = false) => {
@@ -3728,9 +3821,14 @@ export function AuraPyramidStation({
       const zoomRate = still ? 1 : 1 - Math.exp(-Math.max(0.001, dt) * 4.4);
       const expandRate = still ? 1 : 1 - Math.exp(-Math.max(0.001, dt) * 2.8);
       speakLevelRef.current = lerp(speakLevelRef.current, snap.speaking ? 1 : 0, rate);
+      thinkLevelRef.current = lerp(
+        thinkLevelRef.current,
+        snap.thinking && !snap.speaking ? 1 : snap.thinking ? 0.35 : 0,
+        rate
+      );
       listenLevelRef.current = lerp(
         listenLevelRef.current,
-        snap.listening && !snap.speaking ? 1 : 0,
+        snap.listening && !snap.speaking && !snap.thinking ? 1 : 0,
         rate
       );
       zoomRef.current = lerp(zoomRef.current, targetZoomRef.current, zoomRate);
@@ -3764,7 +3862,8 @@ export function AuraPyramidStation({
           dt *
           (0.34 +
             listenLevelRef.current * 0.6 +
-            speakLevelRef.current * (1.15 + 0.35 * Math.sin(timeRef.current * 5.2)));
+            thinkLevelRef.current * 1.95 +
+            speakLevelRef.current * (1.05 + 0.55 * Math.sin(timeRef.current * 7.8)));
       }
 
       // Check activePulseTick increment
@@ -3780,15 +3879,20 @@ export function AuraPyramidStation({
         pulseTimerRef.current += dt;
         const interval =
           speakLevelRef.current > 0.3
-            ? 0.28
-            : listenLevelRef.current > 0.3
-              ? 0.44
-              : expandSmooth > 0.6
-                ? 2.1
-                : 0;
+            ? 0.24
+            : thinkLevelRef.current > 0.3
+              ? 0.34
+              : listenLevelRef.current > 0.3
+                ? 0.46
+                : expandSmooth > 0.6
+                  ? 2.1
+                  : 0;
         if (interval > 0 && pulseTimerRef.current >= interval) {
           pulseTimerRef.current = 0;
-          spawnPulseCascade(snap.topology, speakLevelRef.current > 0.3);
+          spawnPulseCascade(
+            snap.topology,
+            speakLevelRef.current > 0.3 || thinkLevelRef.current > 0.3
+          );
         }
       }
 
@@ -3909,9 +4013,11 @@ export function AuraPyramidStation({
           velPitchRef.current *= damping;
 
           if (!reducedMotionRef.current) {
+            const baseSpin = 0.24 - expandSmooth * 0.08;
+            // Thinking: brisk gyroscopic spin; Speaking: settle continuous rotation and sway expressively
             const idleSpin =
-              (0.24 - expandSmooth * 0.08) +
-              speakLevelRef.current * 0.14 +
+              Math.max(0.06, baseSpin * (1 - speakLevelRef.current * 0.72)) +
+              thinkLevelRef.current * 0.72 +
               listenLevelRef.current * 0.09;
             yawRef.current += dt * idleSpin;
           }
@@ -3921,17 +4027,23 @@ export function AuraPyramidStation({
       emitCameraOrbit(false);
 
       const t = timeRef.current;
-      const yaw = yawRef.current;
-      const pitch = pitchRef.current + speakLevelRef.current * 0.038 * Math.sin(t * 3.1);
+      const yaw = yawRef.current + speakLevelRef.current * 0.11 * Math.sin(t * 2.4);
+      const pitch =
+        pitchRef.current +
+        speakLevelRef.current * 0.055 * Math.sin(t * 6.8) +
+        thinkLevelRef.current * 0.14 * Math.sin(t * 2.1);
 
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      // Position center slightly higher so bottom-28 stays completely clear for floating prompt bar
-      const cx = width * 0.5;
-      const cy = height * 0.44;
-      const baseFocal = Math.min(width * 0.72, height * 0.96);
+      // Position center within the unobstructed area so side chat overlay never hides the pyramid
+      const insetL = width >= 1024 ? snap.hudInsetLeftPx : 0;
+      const insetR = width >= 1024 ? snap.hudInsetRightPx : 0;
+      const usableWidth = Math.max(320, width - insetL - insetR);
+      const cx = insetL + usableWidth * 0.5;
+      const cy = height < 400 ? height * 0.54 : height * 0.44;
+      const baseFocal = Math.min(usableWidth * 0.72, height * 0.96);
       const focal = baseFocal * zoomRef.current;
 
       drawBackgroundStars(ctx, width, height, t, GALAXY_LIGHT);
@@ -4013,7 +4125,11 @@ export function AuraPyramidStation({
         .filter((o) => o.view.z >= 0)
         .sort((a, b) => a.view.z - b.view.z);
 
-      const activityBoost = Math.max(speakLevelRef.current, listenLevelRef.current);
+      const activityBoost = Math.max(
+        speakLevelRef.current,
+        thinkLevelRef.current * 0.85,
+        listenLevelRef.current
+      );
       const ragActive = snap.ragRunning || snap.activeNodeId?.startsWith("rag") === true;
 
       // Build current active memory signal map (creating / using)
@@ -4093,19 +4209,32 @@ export function AuraPyramidStation({
 
       // Pyramidal / triangular aura shell + expanding voice aura waves (zero cubes!)
       const voiceHarmonic =
-        0.5 + 0.5 * (0.65 * Math.sin(t * 7) + 0.35 * Math.sin(t * 13));
+        0.5 +
+        0.5 *
+          (0.55 * Math.sin(t * 8.5) +
+            0.3 * Math.sin(t * 14.3) +
+            0.15 * Math.sin(t * 21.7));
       const pyramidDilation =
         1 +
-        speakLevelRef.current * (0.26 + 0.14 * voiceHarmonic) +
+        speakLevelRef.current * (0.26 + 0.16 * voiceHarmonic) +
+        thinkLevelRef.current * (0.05 + 0.04 * Math.sin(t * 3.2)) +
         listenLevelRef.current * 0.07;
       const auraEnvelopeScale =
-        pyramidDilation * (1.14 + speakLevelRef.current * 0.18) + expandSmooth * 0.25;
+        pyramidDilation * (1.14 + speakLevelRef.current * 0.18 + thinkLevelRef.current * 0.08) +
+        expandSmooth * 0.25;
       const auraEnvelopeAlpha =
-        (0.22 + speakLevelRef.current * 0.58 + listenLevelRef.current * 0.25) *
+        (0.22 +
+          speakLevelRef.current * 0.58 +
+          thinkLevelRef.current * 0.44 +
+          listenLevelRef.current * 0.25) *
         (1 - expandSmooth * 0.65);
+      const auraEnvelopeSpin =
+        thinkLevelRef.current > 0.2 && speakLevelRef.current < 0.2
+          ? -t * 0.65
+          : t * 0.18;
       const auraEnvelopeShell = preparePyramidalAuraShell(
         auraEnvelopeScale,
-        t * 0.18,
+        auraEnvelopeSpin,
         yaw,
         pitch,
         cx,
@@ -4116,9 +4245,9 @@ export function AuraPyramidStation({
       const waveShells: Array<{ shell: PreparedPyramidAuraShell; alpha: number }> = [];
       const waveDrive = Math.max(speakLevelRef.current, listenLevelRef.current * 0.45);
       if (waveDrive > 0.05 && expandSmooth < 0.75) {
-        const waveCount = speakLevelRef.current > 0.1 ? 2 : 1;
+        const waveCount = speakLevelRef.current > 0.1 ? 3 : 1;
         for (let k = 0; k < waveCount; k += 1) {
-          const wavePhase = t === 0 ? 0.35 : (t * 0.82 + k * 0.5) % 1;
+          const wavePhase = t === 0 ? 0.35 : (t * 0.95 + k / waveCount) % 1;
           const waveAlpha =
             Math.sin(wavePhase * Math.PI) *
             (0.62 * speakLevelRef.current + 0.22 * listenLevelRef.current) *
@@ -4126,7 +4255,7 @@ export function AuraPyramidStation({
           if (waveAlpha > 0.02) {
             const waveScale =
               pyramidDilation *
-              (1.12 + wavePhase * (0.48 + speakLevelRef.current * 0.38));
+              (1.12 + wavePhase * (0.55 + speakLevelRef.current * 0.42));
             waveShells.push({
               shell: preparePyramidalAuraShell(
                 waveScale,
@@ -4174,6 +4303,7 @@ export function AuraPyramidStation({
         cy,
         focal,
         speakLevelRef.current,
+        thinkLevelRef.current,
         listenLevelRef.current,
         snap,
         GALAXY_LIGHT
@@ -4350,7 +4480,8 @@ export function AuraPyramidStation({
     const measure = () => {
       const rect = viewport.getBoundingClientRect();
       const width = Math.max(320, Math.round(rect.width || viewport.clientWidth || 760));
-      const height = Math.max(420, Math.round(rect.height || viewport.clientHeight || 520));
+      const measuredHeight = Math.round(rect.height || viewport.clientHeight || 0);
+      const height = measuredHeight > 0 ? Math.max(220, measuredHeight) : 520;
       const dpr =
         typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
       sizeRef.current = { width, height, dpr };
@@ -4887,25 +5018,44 @@ export function AuraPyramidStation({
 
   const liveStateVariant = speaking
     ? ("info" as const)
-    : listening
-      ? ("success" as const)
-      : pulseLit
-        ? ("info" as const)
-        : ("neutral" as const);
+    : thinking
+      ? ("warning" as const)
+      : listening
+        ? ("success" as const)
+        : pulseLit
+          ? ("info" as const)
+          : ("neutral" as const);
   const liveStateLabel = speaking
     ? t("hermes.station.speakingState")
-    : listening
-      ? t("hermes.station.listeningState")
-      : pulseLit
-        ? t("hermes.station.neuralPulseActive")
-        : t("hermes.station.standby");
+    : thinking
+      ? t("hermes.station.thinkingState")
+      : listening
+        ? t("hermes.station.listeningState")
+        : pulseLit
+          ? t("hermes.station.neuralPulseActive")
+          : t("hermes.station.standby");
+
+  const motionState = speaking
+    ? "speaking"
+    : thinking
+      ? "thinking"
+      : listening
+        ? "listening"
+        : "idle";
 
   return (
     <section
       ref={viewportRef}
       aria-label={t("hermes.station.title")}
       data-testid="aura-pyramid-station"
-      className="aura-galaxy-surface relative flex-1 w-full h-full min-h-[520px] select-none overflow-hidden"
+      data-aura-motion-state={motionState}
+      style={
+        {
+          "--aura-hud-inset-l": `${hudInsetLeftPx}px`,
+          "--aura-hud-inset-r": `${hudInsetRightPx}px`,
+        } as CSSProperties
+      }
+      className="aura-galaxy-surface relative flex-1 w-full h-full min-h-[220px] lg:min-h-[520px] select-none overflow-hidden"
     >
       {/* Fullscreen Open-Space 3D / 4D Canvas (kept first in DOM for pixel assertions, layered at z-10 above WebGL backdrop) */}
       <canvas
@@ -4927,8 +5077,14 @@ export function AuraPyramidStation({
       {/* Deep-Space WebGL Galaxy Shader (z-0 inside .aura-galaxy-surface so it stays visible in both themes) */}
       <AuraSpaceBackdrop contained immersive galaxyDark />
 
-      {/* Top-Left Floating Minimal Telemetry Pills + Node Inspector / Bank Explorer Drawer */}
-      <div className="pointer-events-none absolute top-3 left-3 bottom-28 z-20 flex flex-col items-start gap-2 max-w-[calc(100%-1.5rem)] lg:max-w-[58%]">
+      {/* Bounded Top HUD Overlay (prevents overlap between telemetry and controls at narrow widths) */}
+      <div className="pointer-events-none absolute top-2 left-2 right-2 bottom-2 lg:top-3 lg:left-[calc(0.75rem+var(--aura-hud-inset-l,0px))] lg:right-[calc(0.75rem+var(--aura-hud-inset-r,0px))] lg:bottom-28 z-20 flex flex-wrap items-start justify-between content-start gap-2">
+        {/* Top-Left Floating Minimal Telemetry Pills + Node Inspector / Bank Explorer Drawer */}
+        <div
+          className={`pointer-events-none flex flex-col items-start gap-1.5 lg:gap-2 min-w-[180px] max-w-full max-h-full ${
+            bankExplorerOpen ? "w-full" : "flex-1"
+          }`}
+        >
         <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 shrink-0">
           {/* AI Core Pill */}
           <button
@@ -4944,7 +5100,7 @@ export function AuraPyramidStation({
                 aiOnline ? "bg-aura-info" : "bg-aura-warning"
               }`}
             />
-            <span className="text-aura-secondary truncate max-w-[140px]">
+            <span className={`${hudLabelClass} text-aura-secondary truncate max-w-[140px]`}>
               {aiStatusLabel}
             </span>
           </button>
@@ -4974,7 +5130,7 @@ export function AuraPyramidStation({
                 hindsightOnline ? "bg-aura-info" : "bg-cyan-400/80"
               }`}
             />
-            <span className="text-aura-secondary truncate max-w-[140px]">
+            <span className={`${hudLabelClass} text-aura-secondary truncate max-w-[140px]`}>
               {hindsightStatusLabel}
             </span>
           </button>
@@ -5008,7 +5164,7 @@ export function AuraPyramidStation({
                     : "bg-aura-text-muted"
               }`}
             />
-            <span className="text-aura-secondary truncate max-w-[140px]">
+            <span className={`${hudLabelClass} text-aura-secondary truncate max-w-[140px]`}>
               {raglightStatusLabel}
             </span>
           </button>
@@ -5029,8 +5185,8 @@ export function AuraPyramidStation({
         </div>
 
         {/* Global Galaxy 3D Search */}
-        <div className="aura-galaxy-chrome-scope pointer-events-auto relative w-[min(360px,100%)] shrink-0">
-          <div className="flex items-center gap-1.5 rounded-full border border-sky-400/25 bg-slate-950/70 backdrop-blur-md px-3 py-1 shadow-md">
+        <div className="aura-galaxy-chrome-scope pointer-events-auto relative w-[min(210px,100%)] lg:w-[min(360px,100%)] shrink-0">
+          <div className="flex items-center gap-1.5 rounded-full border border-sky-400/25 bg-slate-950/70 backdrop-blur-md px-3 py-0.5 lg:py-1 shadow-md">
             <Search className="h-3.5 w-3.5 text-sky-300 shrink-0" aria-hidden="true" />
             <input
               type="search"
@@ -5591,12 +5747,16 @@ export function AuraPyramidStation({
             )}
           </div>
         ) : (
-          <div className="pointer-events-none flex flex-wrap items-center gap-2 rounded-full backdrop-blur-sm bg-aura-surface/30 px-2.5 py-1 text-[11px] text-aura-muted">
-            <Triangle className="h-3 w-3 text-aura-accent shrink-0" aria-hidden="true" />
+          <div
+            className={`pointer-events-none flex-wrap items-center gap-2 rounded-xl border border-sky-400/15 bg-slate-950/55 backdrop-blur-md px-3 py-1.5 text-[11px] text-slate-300/85 ${
+              hasSideInset ? "hidden xl:flex" : "hidden lg:flex"
+            }`}
+          >
+            <Triangle className="h-3 w-3 text-sky-400 shrink-0" aria-hidden="true" />
             <span>{t("hermes.station.dragHint")}</span>
             {orbitMemoryCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-aura-secondary">
-                <Orbit className="h-3 w-3 text-aura-accent" aria-hidden="true" />
+              <span className="inline-flex items-center gap-1 text-sky-200/95">
+                <Orbit className="h-3 w-3 text-sky-400" aria-hidden="true" />
                 {t("hermes.station.memoriesOrbiting", { count: orbitMemoryCount })}
               </span>
             )}
@@ -5616,23 +5776,35 @@ export function AuraPyramidStation({
       </div>
 
       {/* Top-Right Floating Translucent Controls (Expand Universe, 4D Layer, Zoom -/+, Reset, Settings) */}
-      <div className="pointer-events-auto absolute top-3 right-3 z-20 flex flex-wrap items-center justify-end gap-1.5">
+      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1 lg:gap-1.5 shrink-0 max-w-full">
         <Button
           type="button"
           size="sm"
           variant={isExpanded ? "primary" : "secondary"}
           aria-pressed={isExpanded}
+          aria-label={
+            isExpanded
+              ? t("hermes.station.collapsePyramid")
+              : t("hermes.station.expandUniverse")
+          }
+          title={
+            isExpanded
+              ? t("hermes.station.collapsePyramid")
+              : t("hermes.station.expandUniverse")
+          }
           onClick={toggleExpandView}
-          className="h-7 px-2.5 text-[11px] rounded-full backdrop-blur-md"
+          className={`h-7 ${hudBtnPadClass} text-[11px] rounded-full backdrop-blur-md`}
         >
           {isExpanded ? (
             <Minimize2 className="h-3 w-3" aria-hidden="true" />
           ) : (
             <Maximize2 className="h-3 w-3" aria-hidden="true" />
           )}
-          {isExpanded
-            ? t("hermes.station.collapsePyramid")
-            : t("hermes.station.expandUniverse")}
+          <span className={hudLabelClass}>
+            {isExpanded
+              ? t("hermes.station.collapsePyramid")
+              : t("hermes.station.expandUniverse")}
+          </span>
         </Button>
 
         <Button
@@ -5640,15 +5812,17 @@ export function AuraPyramidStation({
           size="sm"
           variant={enable4d ? "secondary" : "ghost"}
           aria-pressed={enable4d}
+          aria-label={t("hermes.station.dimension4d")}
+          title={t("hermes.station.dimension4d")}
           onClick={() => setEnable4d((v) => !v)}
-          className={`h-7 px-2.5 text-[11px] rounded-full backdrop-blur-md ${
+          className={`h-7 ${hudBtnPadClass} text-[11px] rounded-full backdrop-blur-md ${
             enable4d
               ? "border-aura-accent/45 text-aura-accent bg-aura-surface/55"
               : "bg-aura-surface/40 border border-aura-border/35 text-aura-secondary"
           }`}
         >
           <Box className="h-3 w-3" aria-hidden="true" />
-          {t("hermes.station.dimension4d")}
+          <span className={hudLabelClass}>{t("hermes.station.dimension4d")}</span>
         </Button>
 
         <div className="inline-flex items-center rounded-full backdrop-blur-md bg-aura-surface/45 border border-aura-border/35 p-0.5">
@@ -5680,10 +5854,11 @@ export function AuraPyramidStation({
           variant="ghost"
           onClick={handleResetView}
           aria-label={t("hermes.station.resetView")}
-          className="h-7 px-2.5 text-[11px] rounded-full backdrop-blur-md bg-aura-surface/45 border border-aura-border/35 text-aura-secondary hover:text-aura-primary"
+          title={t("hermes.station.resetView")}
+          className={`h-7 ${hudBtnPadClass} text-[11px] rounded-full backdrop-blur-md bg-aura-surface/45 border border-aura-border/35 text-aura-secondary hover:text-aura-primary`}
         >
           <RotateCcw className="h-3 w-3" aria-hidden="true" />
-          {t("hermes.station.resetView")}
+          <span className={hudLabelClass}>{t("hermes.station.resetView")}</span>
         </Button>
 
         {onOpenSettings && (
@@ -5698,6 +5873,7 @@ export function AuraPyramidStation({
             <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
         )}
+      </div>
       </div>
     </section>
   );

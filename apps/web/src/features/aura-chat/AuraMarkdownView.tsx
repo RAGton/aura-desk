@@ -7,10 +7,12 @@ export interface AuraMarkdownViewProps {
 }
 
 interface Block {
-  type: "code" | "paragraph" | "list";
+  type: "code" | "paragraph" | "list" | "orderedList" | "heading";
   language?: string;
   code?: string;
   lines?: string[];
+  level?: 1 | 2 | 3;
+  text?: string;
 }
 
 function parseBlocks(markdown: string): Block[] {
@@ -20,6 +22,7 @@ function parseBlocks(markdown: string): Block[] {
   let codeLang = "";
   let codeBuffer: string[] = [];
   let listBuffer: string[] = [];
+  let orderedListBuffer: string[] = [];
   let paragraphBuffer: string[] = [];
 
   const flushParagraph = () => {
@@ -42,6 +45,16 @@ function parseBlocks(markdown: string): Block[] {
     }
   };
 
+  const flushOrderedList = () => {
+    if (orderedListBuffer.length > 0) {
+      blocks.push({
+        type: "orderedList",
+        lines: [...orderedListBuffer],
+      });
+      orderedListBuffer = [];
+    }
+  };
+
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
 
@@ -60,6 +73,7 @@ function parseBlocks(markdown: string): Block[] {
       } else {
         flushParagraph();
         flushList();
+        flushOrderedList();
         inCode = true;
         codeLang = codeMatch[1] || "";
       }
@@ -71,10 +85,33 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
+    // Heading check (#, ##, ###)
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      flushOrderedList();
+      blocks.push({
+        type: "heading",
+        level: headingMatch[1].length as 1 | 2 | 3,
+        text: headingMatch[2].trim(),
+      });
+      continue;
+    }
+
     // Bullet list check
     if (line.match(/^[-*+]\s+/)) {
       flushParagraph();
+      flushOrderedList();
       listBuffer.push(line.replace(/^[-*+]\s+/, ""));
+      continue;
+    }
+
+    // Ordered list check
+    if (line.match(/^\d+\.\s+/)) {
+      flushParagraph();
+      flushList();
+      orderedListBuffer.push(line.replace(/^\d+\.\s+/, ""));
       continue;
     }
 
@@ -82,11 +119,13 @@ function parseBlocks(markdown: string): Block[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      flushOrderedList();
       continue;
     }
 
     // Regular line in paragraph
     flushList();
+    flushOrderedList();
     paragraphBuffer.push(line);
   }
 
@@ -99,14 +138,14 @@ function parseBlocks(markdown: string): Block[] {
   } else {
     flushParagraph();
     flushList();
+    flushOrderedList();
   }
 
   return blocks;
 }
 
-/** Renders bold, italics, inline code, and links within an inline line */
+/** Renders bold, italics, and inline code within an inline line */
 function renderInlineText(text: string) {
-  // Simple tokenization for inline code `...`, bold **...**, italic *...*
   const parts: (string | JSX.Element)[] = [];
   let remaining = text;
   let keyIndex = 0;
@@ -133,7 +172,7 @@ function renderInlineText(text: string) {
     if (boldMatch) {
       keyIndex += 1;
       parts.push(
-        <strong key={`bold-${keyIndex}`} className="font-semibold text-slate-100">
+        <strong key={`bold-${keyIndex}`} className="font-semibold text-slate-50">
           {boldMatch[1]}
         </strong>
       );
@@ -141,7 +180,20 @@ function renderInlineText(text: string) {
       continue;
     }
 
-    // 3. Regular chunk up to next special character
+    // 3. Italic text: *text* (only when not **bold**)
+    const italicMatch = remaining.match(/^\*([^*]+)\*/);
+    if (italicMatch) {
+      keyIndex += 1;
+      parts.push(
+        <em key={`em-${keyIndex}`} className="italic text-slate-200">
+          {italicMatch[1]}
+        </em>
+      );
+      remaining = remaining.slice(italicMatch[0].length);
+      continue;
+    }
+
+    // 4. Regular chunk up to next special character
     const nextSpecial = remaining.search(/[`*]/);
     if (nextSpecial === -1) {
       parts.push(remaining);
@@ -178,8 +230,24 @@ export function AuraMarkdownView({ content }: AuraMarkdownViewProps) {
   };
 
   return (
-    <div className="space-y-2.5 text-xs text-slate-100 leading-relaxed break-words">
+    <div className="space-y-2 text-[13px] text-slate-100 leading-relaxed break-words">
       {blocks.map((block, idx) => {
+        if (block.type === "heading") {
+          const HeadingTag =
+            block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4";
+          const sizeClass =
+            block.level === 1
+              ? "text-sm font-semibold text-sky-100"
+              : block.level === 2
+              ? "text-[13px] font-semibold text-sky-100"
+              : "text-[13px] font-medium text-sky-200";
+          return (
+            <HeadingTag key={`block-${idx}`} className={`${sizeClass} leading-snug pt-0.5`}>
+              {renderInlineText(block.text ?? "")}
+            </HeadingTag>
+          );
+        }
+
         if (block.type === "code") {
           const isCopied = copiedIndex === idx;
           return (
@@ -194,17 +262,17 @@ export function AuraMarkdownView({ content }: AuraMarkdownViewProps) {
                 <button
                   type="button"
                   onClick={() => void handleCopyCode(block.code ?? "", idx)}
-                  className="flex items-center gap-1 rounded px-2 py-0.5 text-slate-300 hover:text-white hover:bg-sky-500/10 transition-colors"
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded px-2 py-0.5 text-slate-300 hover:text-white hover:bg-sky-500/10 transition-colors"
                   aria-label={t("hermes.copyCode")}
                 >
                   {isCopied ? (
                     <>
-                      <Check className="h-3 w-3 text-emerald-400" aria-hidden="true" />
+                      <Check className="h-3 w-3 shrink-0 text-emerald-400" aria-hidden="true" />
                       <span className="text-emerald-400">{t("hermes.copied")}</span>
                     </>
                   ) : (
                     <>
-                      <Copy className="h-3 w-3" aria-hidden="true" />
+                      <Copy className="h-3 w-3 shrink-0" aria-hidden="true" />
                       <span>{t("hermes.copyCode")}</span>
                     </>
                   )}
@@ -219,13 +287,31 @@ export function AuraMarkdownView({ content }: AuraMarkdownViewProps) {
 
         if (block.type === "list") {
           return (
-            <ul key={`block-${idx}`} className="space-y-1 pl-4 my-1 list-disc list-outside marker:text-sky-400">
+            <ul
+              key={`block-${idx}`}
+              className="space-y-1 pl-4 my-1 list-disc list-outside marker:text-sky-400"
+            >
               {block.lines?.map((line, lineIdx) => (
                 <li key={`list-${lineIdx}`} className="leading-relaxed">
                   {renderInlineText(line)}
                 </li>
               ))}
             </ul>
+          );
+        }
+
+        if (block.type === "orderedList") {
+          return (
+            <ol
+              key={`block-${idx}`}
+              className="space-y-1 pl-5 my-1 list-decimal list-outside marker:text-sky-400 marker:font-medium"
+            >
+              {block.lines?.map((line, lineIdx) => (
+                <li key={`olist-${lineIdx}`} className="leading-relaxed">
+                  {renderInlineText(line)}
+                </li>
+              ))}
+            </ol>
           );
         }
 

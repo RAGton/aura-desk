@@ -44,6 +44,10 @@ import type {
   KnowledgeRelationEntry,
   KnowledgeSearchResult,
   McpPluginRecord,
+  NormalizedPluginEvent,
+  PrivatePluginAuditEntry,
+  PrivatePluginManifest,
+  PrivatePluginRecord,
   UpsertBotInput,
   UpsertMcpPluginInput,
 } from "./auraTypes";
@@ -53,6 +57,7 @@ import type {
   HindsightStatus,
   PersistedChatMessage,
   ProposalItem,
+  RaglightStatus,
 } from "./ipc";
 
 export interface BrowserAuraStateSlice {
@@ -69,6 +74,9 @@ export interface BrowserAuraStateSlice {
   agentBots?: AgentBotRecord[];
   agentSkills?: AgentSkillRecord[];
   mcpPlugins?: McpPluginRecord[];
+  privatePlugins?: PrivatePluginRecord[];
+  privatePluginAudits?: PrivatePluginAuditEntry[];
+  privatePluginEvents?: NormalizedPluginEvent[];
 }
 
 export interface BrowserAuraDeps<TDb extends BrowserAuraStateSlice> {
@@ -1719,6 +1727,36 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       }
     }
 
+    case "raglight_status": {
+      const folders = String(db.settings["raglight.folders"] ?? "")
+        .split(/[;\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const baseUrl = String(db.settings["raglight.base_url"] ?? "http://127.0.0.1:8000");
+      const probe = await detectBrowserKnowledgeEndpoint();
+      const liveManaged = probe.online && probe.serviceKind === "raglight_managed";
+      return {
+        handled: true,
+        result: {
+          enabled: Boolean(db.settings["raglight.enabled"]),
+          mode: String(db.settings["raglight.mode"] ?? "managed_local"),
+          baseUrl,
+          provider: String(db.settings["raglight.provider"] ?? "ollama"),
+          embeddingModel: String(db.settings["raglight.embedding_model"] ?? "nomic-embed-text"),
+          llmModel: String(db.settings["raglight.llm_model"] ?? "qwen3:0.6b"),
+          vectorStore: String(db.settings["raglight.vector_store"] ?? "chroma"),
+          folders,
+          hasApiKey: Boolean(String(db.settings["raglight.api_key"] ?? "").trim()),
+          installed: liveManaged,
+          running: liveManaged,
+          managedPid: null,
+          venvPath: "browser-local://raglight/.venv",
+          dbPath: "browser-local://raglight/db",
+          pythonTool: null,
+        } satisfies RaglightStatus,
+      };
+    }
+
     case "knowledge_overview": {
       const folders = String(db.settings["raglight.folders"] ?? "")
         .split(/[;\n]/)
@@ -2679,6 +2717,192 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
           reason: "browser_intent_match",
         }));
       return { handled: true, result: selected };
+    }
+
+    case "plugins_list": {
+      return { handled: true, result: db.privatePlugins ?? [] };
+    }
+
+    case "plugins_discover": {
+      const demoManifest: PrivatePluginManifest = {
+        id: "demo-ops",
+        name: "Demo Operations Plugin",
+        version: "1.0.0",
+        contract_version: "1.0",
+        description: "Exemplo de plugin isolado para testes de integração",
+        author: "AuraDesk Team",
+        homepage: "https://auradesk.local",
+        permissions: ["read_tickets", "write_ticket_comment"],
+        capabilities: [
+          {
+            name: "fetch_tickets",
+            description: "Consulta chamados de teste",
+            required_permission: "read_tickets",
+            human_confirmation_required: false,
+          },
+          {
+            name: "add_comment",
+            description: "Adiciona comentário em chamado de teste",
+            required_permission: "write_ticket_comment",
+            human_confirmation_required: true,
+          },
+        ],
+      };
+      return { handled: true, result: [demoManifest] };
+    }
+
+    case "plugins_install": {
+      const pathStr = String(args.path ?? "");
+      const plugins = db.privatePlugins ? [...db.privatePlugins] : [];
+      let plugin = plugins.find((p) => p.id === "demo-ops" || p.install_path === pathStr);
+      if (!plugin) {
+        plugin = {
+          id: "demo-ops",
+          name: "Demo Operations Plugin",
+          version: "1.0.0",
+          contract_version: "1.0",
+          description: "Exemplo de plugin isolado para testes de integração",
+          author: "AuraDesk Team",
+          homepage: "https://auradesk.local",
+          install_path: pathStr || "/local/plugins/demo-ops",
+          entrypoint: "plugin.json",
+          enabled: false,
+          installed_at: nowIso,
+          updated_at: nowIso,
+          permissions: [
+            { permission: "read_tickets", granted: false },
+            { permission: "write_ticket_comment", granted: false },
+          ],
+        };
+        plugins.push(plugin);
+        db.privatePlugins = plugins;
+        saveBrowserDb(db);
+      }
+      return { handled: true, result: plugin };
+    }
+
+    case "plugins_set_enabled": {
+      const pluginId = String(args.pluginId ?? args.plugin_id ?? "");
+      const enabled = Boolean(args.enabled);
+      const plugins = db.privatePlugins ? [...db.privatePlugins] : [];
+      const idx = plugins.findIndex((p) => p.id === pluginId);
+      if (idx >= 0) {
+        plugins[idx] = { ...plugins[idx], enabled, updated_at: nowIso };
+        db.privatePlugins = plugins;
+        saveBrowserDb(db);
+      }
+      return { handled: true, result: undefined };
+    }
+
+    case "plugins_set_permission": {
+      const pluginId = String(args.pluginId ?? args.plugin_id ?? "");
+      const permission = String(args.permission ?? "");
+      const granted = Boolean(args.granted);
+      const plugins = db.privatePlugins ? [...db.privatePlugins] : [];
+      const pIdx = plugins.findIndex((p) => p.id === pluginId);
+      if (pIdx >= 0) {
+        const perms = [...plugins[pIdx].permissions];
+        const permIdx = perms.findIndex((pm) => pm.permission === permission);
+        if (permIdx >= 0) {
+          perms[permIdx] = {
+            ...perms[permIdx],
+            granted,
+            granted_at: granted ? nowIso : null,
+          };
+        } else {
+          perms.push({ permission, granted, granted_at: granted ? nowIso : null });
+        }
+        plugins[pIdx] = { ...plugins[pIdx], permissions: perms, updated_at: nowIso };
+        db.privatePlugins = plugins;
+        saveBrowserDb(db);
+      }
+      return { handled: true, result: undefined };
+    }
+
+    case "plugins_set_secret": {
+      // Ephemeral in-memory secret tracking for browser test fallback; NEVER stored in localStorage/db
+      return { handled: true, result: undefined };
+    }
+
+    case "plugins_has_secret": {
+      return { handled: true, result: false };
+    }
+
+    case "plugins_execute_action": {
+      const input = (args.input ?? {}) as {
+        plugin_id?: string;
+        action?: string;
+        params?: Record<string, unknown>;
+        confirmed_by_user?: boolean;
+      };
+      const plugin = (db.privatePlugins ?? []).find((p) => p.id === input.plugin_id);
+      if (!plugin || !plugin.enabled) {
+        throw new Error(`Plugin ${input.plugin_id} is disabled or not found`);
+      }
+      const audits = db.privatePluginAudits ? [...db.privatePluginAudits] : [];
+      audits.unshift({
+        id: genId(),
+        plugin_id: input.plugin_id ?? "unknown",
+        action: input.action ?? "action",
+        resource: input.action ?? "action",
+        status: "success",
+        user_confirmed: Boolean(input.confirmed_by_user),
+        details_json: JSON.stringify(input.params ?? {}),
+        created_at: nowIso,
+      });
+      db.privatePluginAudits = audits.slice(0, 50);
+      saveBrowserDb(db);
+      return {
+        handled: true,
+        result: {
+          status: "success",
+          plugin_id: input.plugin_id,
+          action: input.action,
+          executed_at: nowIso,
+        },
+      };
+    }
+
+    case "plugins_ingest_event": {
+      const event = (args.event ?? {}) as NormalizedPluginEvent;
+      const events = db.privatePluginEvents ? [...db.privatePluginEvents] : [];
+      const isDup = events.some(
+        (e) =>
+          e.plugin_id === event.plugin_id &&
+          e.event_type === event.event_type &&
+          e.resource_id === event.resource_id
+      );
+      if (isDup) {
+        return {
+          handled: true,
+          result: { Deduplicated: { event_id: event.event_id } },
+        };
+      }
+      events.unshift(event);
+      db.privatePluginEvents = events.slice(0, 50);
+      saveBrowserDb(db);
+      return { handled: true, result: { Accepted: event } };
+    }
+
+    case "plugins_audit_log": {
+      const pid = args.pluginId ? String(args.pluginId) : null;
+      const list = (db.privatePluginAudits ?? []).filter(
+        (a) => !pid || a.plugin_id === pid
+      );
+      return { handled: true, result: list };
+    }
+
+    case "plugins_recent_events": {
+      return { handled: true, result: db.privatePluginEvents ?? [] };
+    }
+
+    case "plugins_uninstall": {
+      const pluginId = String(args.pluginId ?? args.plugin_id ?? "");
+      if (db.privatePlugins) {
+        db.privatePlugins = db.privatePlugins.filter((p) => p.id !== pluginId);
+        saveBrowserDb(db);
+      }
+      return { handled: true, result: undefined };
     }
 
     default:
