@@ -37,7 +37,12 @@
     "hindsight": "Hindsight",
     "knowledge": "LightRAG",
     "agents": "Agents",
-    "settings": "Settings"
+    "settings": "Settings",
+    "groups": {
+      "intelligence": "Intelligence",
+      "productivity": "Productivity",
+      "system": "System"
+    }
   },
   "dashboard": {
     "welcome": "Today's Overview",
@@ -101,7 +106,12 @@
     "proposalsApprove": "Approve",
     "proposalsReject": "Reject",
     "proposalApproved": "✓ Proposal approved and applied!",
-    "proposalRejected": "Proposal rejected."
+    "proposalRejected": "Proposal rejected.",
+    "routineKinds": {
+      "water": "Hydration (Drink water)",
+      "break": "Active Break",
+      "daily_planning": "Daily Planning"
+    }
   },
   "kanban": {
     "title": "Kanban Board (Drag & Drop or Click to Move)",
@@ -167,7 +177,9 @@
       "openExternal": "Open on GitHub",
       "issueOpen": "Open",
       "issueClosed": "Closed"
-    }
+    },
+    "moreOptions": "More options",
+    "lessOptions": "Less options"
   },
   "pomodoro": {
     "title": "Pomodoro Timer & Deep Work",
@@ -242,6 +254,8 @@
     "dndEnabledToast": "Do Not Disturb enabled for 1h.",
     "dndDisabledToast": "Do Not Disturb turned off.",
     "confirmDelete": "Remove",
+    "edit": "Edit",
+    "updated": "Reminder updated!",
     "addNow": "Fire Now (Test)",
     "addIn1Min": "Schedule (+1 min)",
     "addIn15Min": "Schedule (+15 min)",
@@ -312,7 +326,8 @@
     "dateLabel": "Date",
     "exportCsv": "Export CSV",
     "exportJson": "Export JSON",
-    "noData": "No metrics recorded in this period yet."
+    "noData": "No metrics recorded in this period yet.",
+    "emptyHint": "Complete a Pomodoro block or finish tasks to populate your 14-day history."
   },
   "settings": {
     "title": "System Settings",
@@ -591,6 +606,7 @@
       "ingestButton": "Index folders now",
       "ingesting": "Indexing files...",
       "refreshButton": "Refresh status",
+      "pickFolderDesktopOnly": "Native folder picker requires the desktop app. Type or paste the folder path below in browser preview.",
       "testQueryPlaceholder": "Test search across indexed files...",
       "testQueryButton": "Search",
       "actionOk": "Done ({{msg}}).",
@@ -730,6 +746,12 @@
       "liveModeOff": "Live Voice",
       "transcribeAudio": "Transcribe Audio",
       "transcribing": "Listening...",
+      "connectingLive": "Connecting local transcription...",
+      "connectionTimedOut": "Local transcription service connection timed out.",
+      "connectionFailed": "Failed to connect to local transcription service.",
+      "socketError": "Transcription service connection error.",
+      "transcriptionHttpError": "Transcription service error ({{detail}}).",
+      "voiceHttpError": "Voice service error ({{detail}}).",
       "liveUnsupported": "Live speech recognition unavailable in this browser — capturing WAV note.",
       "toggleTranscript": "Chat ({{count}})",
       "hideTranscript": "Hide chat",
@@ -923,7 +945,9 @@
         "working": "Working Workspace",
         "tool": "Tool Context"
       }
-    }
+    },
+    "dateFrom": "From",
+    "dateTo": "To"
   },
   "hindsightPanel": {
     "title": "Hindsight Memory Explorer",
@@ -1085,7 +1109,10 @@
     "banks": {
       "rename": "Rename",
       "delete": "Delete"
-    }
+    },
+    "offlineSidebarHint": "Connect the Hindsight daemon to list your memory banks.",
+    "offlineMainHint": "Configure the daemon URL or click Refresh once it is running.",
+    "openSettings": "Configure Hindsight"
   },
   "knowledgePanel": {
     "title": "LightRAG & RAGLight Knowledge Explorer",
@@ -1139,6 +1166,9 @@
     "plannerSection": "Orchestrator — Safe Plan Simulation",
     "goalPlaceholder": "Describe a multi-step goal (e.g., read docs, open site, and check logs)...",
     "planAction": "Generate Safe Plan",
+    "executeRun": "Execute Plan",
+    "approveAndResume": "Approve & Execute",
+    "runningPlan": "Running...",
     "recentRuns": "Recent Planned Runs",
     "noRuns": "No planned runs simulated yet.",
     "requiresApproval": "Requires human approval",
@@ -1351,7 +1381,8 @@
       "mcp_github_name": "GitHub Repository MCP",
       "mcp_playwright_name": "Playwright Browser MCP",
       "mcp_podman_name": "Podman Container Engine MCP"
-    }
+    },
+    "toolsSearchPlaceholder": "Filter tools by name, description, or source..."
   },
   "updater": {
     "banner": {

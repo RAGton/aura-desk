@@ -258,9 +258,42 @@ fn agent_loop_integrates_with_unified_capability_registry() {
     ));
 
     let mut agent = AgentLoop::new("run-reg-1", None, "orchestrator", plan, AgentLoopConfig::default());
-    let mut executor = auradesk_core::application::agent_runtime::RegistryToolExecutor::new(reg_service.registry_mut());
+    let mut executor = auradesk_core::application::agent_runtime::RegistryToolExecutor::with_db(
+        reg_service.registry_mut(),
+        &db,
+    );
 
     let summary = agent.run(&mut executor).unwrap();
     assert_eq!(summary.status, AgentExecutionStatus::Completed);
     assert_eq!(summary.completed_steps, 1);
+    assert!(summary.final_result.is_some());
+}
+
+#[test]
+fn plan_goal_restores_executes_real_tools_and_preserves_ui_steps() {
+    let db = Db::open_in_memory().unwrap();
+    let orchestrator = auradesk_core::application::agents::AgentOrchestratorService::new(&db);
+    let planned = orchestrator
+        .plan_goal(Some("default"), "pesquisar contexto da sessao")
+        .unwrap();
+    assert!(!planned.plan.is_empty());
+
+    let mut reg_service =
+        auradesk_core::application::capability_registry::CapabilityRegistryService::load_unified(&db)
+            .unwrap();
+    let mut restored = AgentLoop::restore_from_db(&db, &planned.id).unwrap();
+    assert_eq!(restored.plan.steps.len(), planned.plan.len());
+
+    let mut executor = auradesk_core::application::agent_runtime::RegistryToolExecutor::with_db(
+        reg_service.registry_mut(),
+        &db,
+    );
+    let summary = restored.run(&mut executor).unwrap();
+    assert_eq!(summary.status, AgentExecutionStatus::Completed);
+    restored.persist_to_db(&db).unwrap();
+
+    let overview = orchestrator.overview().unwrap();
+    let found = overview.runs.iter().find(|r| r.id == planned.id).unwrap();
+    assert_eq!(found.status, "completed");
+    assert_eq!(found.plan.len(), planned.plan.len());
 }

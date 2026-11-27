@@ -20,9 +20,9 @@ export const buttonVariants = cva(
           "bg-transparent text-aura-primary border border-aura-border-strong/50 hover:bg-aura-surface/70",
       },
       size: {
-        sm: "h-8 px-3 text-xs rounded-aura-sm",
-        md: "h-9 px-4 text-sm rounded-aura-md",
-        lg: "h-10 px-5 text-sm rounded-aura-md",
+        sm: "min-h-8 h-auto px-3 py-1.5 text-xs rounded-aura-sm",
+        md: "min-h-9 h-auto px-4 py-1.5 text-sm rounded-aura-md",
+        lg: "min-h-10 h-auto px-5 py-2 text-sm rounded-aura-md",
         icon: "h-9 w-9 p-0 rounded-aura-md",
       },
     },

@@ -34,6 +34,12 @@ export class AuraAudioPlayer {
   private nextStartTime = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
   private stopped = false;
+  private pendingByte: number | null = null;
+
+  /** Clears any trailing odd byte at stream/sentence boundaries without stopping playback. */
+  resetStreamAlignment(): void {
+    this.pendingByte = null;
+  }
 
   private ensureContext(): AudioContext | null {
     if (typeof window === "undefined") return null;
@@ -68,12 +74,41 @@ export class AuraAudioPlayer {
 
   /** Queues a raw PCM chunk for immediate playback. */
   play(chunk: Uint8Array): void {
-    if (this.stopped || chunk.byteLength < 2) return;
+    if (this.stopped || chunk.byteLength === 0) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.gain) return;
 
-    const samples = decodePcm16ToFloat32(chunk);
+    // Preserve sample alignment across arbitrary HTTP stream chunk boundaries.
+    const prefixLen = this.pendingByte !== null ? 1 : 0;
+    const totalBytes = prefixLen + chunk.byteLength;
+    if (totalBytes < 2) {
+      this.pendingByte = chunk[0];
+      return;
+    }
+
+    const evenBytes = totalBytes & ~1;
+    const nextPending = totalBytes % 2 === 1 ? chunk[chunk.byteLength - 1] : null;
+    let aligned: Uint8Array;
+    if (prefixLen === 0) {
+      aligned = nextPending === null ? chunk : chunk.subarray(0, evenBytes);
+    } else {
+      aligned = new Uint8Array(evenBytes);
+      aligned[0] = this.pendingByte!;
+      aligned.set(chunk.subarray(0, evenBytes - 1), 1);
+    }
+    this.pendingByte = nextPending;
+
+    const samples = decodePcm16ToFloat32(aligned);
     if (samples.length === 0) return;
+
+    const now = ctx.currentTime;
+    const isIdleStart = this.nextStartTime <= now;
+    if (isIdleStart) {
+      const fadeLen = Math.min(72, samples.length);
+      for (let i = 0; i < fadeLen; i += 1) {
+        samples[i] *= i / fadeLen;
+      }
+    }
 
     const buffer = ctx.createBuffer(1, samples.length, AURA_VOICE_SAMPLE_RATE);
     buffer.copyToChannel(samples, 0);
@@ -82,9 +117,8 @@ export class AuraAudioPlayer {
     source.buffer = buffer;
     source.connect(this.gain);
 
-    const now = ctx.currentTime;
-    // Schedule right after whatever is already queued; never in the past.
-    const startAt = Math.max(this.nextStartTime, now);
+    // Schedule right after whatever is already queued; give idle starts a 25ms cushion.
+    const startAt = isIdleStart ? now + 0.025 : this.nextStartTime;
     source.start(startAt);
     this.nextStartTime = startAt + buffer.duration;
 
@@ -104,6 +138,7 @@ export class AuraAudioPlayer {
   /** Stops all queued/playing audio immediately. */
   stop(): void {
     this.stopped = true;
+    this.pendingByte = null;
     for (const source of this.activeSources) {
       try {
         source.onended = null;

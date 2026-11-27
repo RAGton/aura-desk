@@ -929,7 +929,7 @@ pub async fn agents_run_execute(
             .map_err(|e| format!("restore run: {e}"))?;
         let mut reg_svc = CapabilityRegistryService::load_unified(&db)
             .map_err(|e| format!("load capabilities: {e}"))?;
-        let mut executor = RegistryToolExecutor::new(reg_svc.registry_mut());
+        let mut executor = RegistryToolExecutor::with_db(reg_svc.registry_mut(), &db);
         let summary = loop_inst
             .run(&mut executor)
             .map_err(|e| format!("run agent: {e}"))?;
@@ -949,10 +949,11 @@ pub async fn agents_run_resume(
     tauri::async_runtime::spawn_blocking(move || {
         let mut loop_inst = AgentLoop::restore_from_db(&db, &run_id)
             .map_err(|e| format!("restore run: {e}"))?;
+        loop_inst.approve_pending_steps();
         loop_inst.resume();
         let mut reg_svc = CapabilityRegistryService::load_unified(&db)
             .map_err(|e| format!("load capabilities: {e}"))?;
-        let mut executor = RegistryToolExecutor::new(reg_svc.registry_mut());
+        let mut executor = RegistryToolExecutor::with_db(reg_svc.registry_mut(), &db);
         let summary = loop_inst
             .run(&mut executor)
             .map_err(|e| format!("run agent: {e}"))?;

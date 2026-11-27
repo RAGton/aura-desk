@@ -30,6 +30,7 @@ import {
   aiApi,
   audioApi,
   contextEngineApi,
+  desktopApi,
   hermesApi,
   hindsightApi,
   hindsightExploreApi,
@@ -46,11 +47,12 @@ import {
   type PersistedChatMessage,
   type RaglightStatus,
 } from "../../lib/ipc";
-import { encodePcm16WavBase64 } from "../../lib/wav";
+import { encodePcm16Wav, encodePcm16WavBase64 } from "../../lib/wav";
 import { AuraMarkdownView } from "./AuraMarkdownView";
 import { AuraThoughtBlock } from "./AuraThoughtBlock";
 import { parseAuraMessageThought } from "./auraThoughtParser";
 import {
+  DEFAULT_VOICE_SETTINGS,
   loadVoiceSettings,
   speakAuraUtterance,
   stopAuraSpeech,
@@ -60,7 +62,12 @@ import { AuraAudioPlayer } from "./auraAudioPlayer";
 import { AuraSpeechQueue } from "./auraSpeechQueue";
 import { probeAuraVoiceService } from "./auraVoiceService";
 import { AuraLiveVoiceSession } from "./auraLiveVoice";
-import { probeAuraSttService } from "./auraSpeechToText";
+import {
+  AuraLiveTranscriber,
+  probeAuraSttService,
+  transcribeAuraAudio,
+  warmAuraSttService,
+} from "./auraSpeechToText";
 import {
   CHAT_CENTERED_WIDTH,
   CHAT_COLUMN_WIDTH,
@@ -84,6 +91,35 @@ function formatMessageTime(iso: string): string {
   }
 }
 
+/** Maps low-level STT/TTS technical errors to localized UI strings. */
+function localizeVoiceError(
+  error: unknown,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  const lower = msg.toLowerCase();
+  if (lower.includes("connection timed out")) {
+    return t("hermes.voice.connectionTimedOut");
+  }
+  if (lower.includes("connection failed")) {
+    return t("hermes.voice.connectionFailed");
+  }
+  if (lower.includes("socket error")) {
+    return t("hermes.voice.socketError");
+  }
+  if (lower.startsWith("transcription error")) {
+    return t("hermes.voice.transcriptionHttpError", {
+      detail: msg.replace(/^transcription error\s*/i, "").trim() || msg,
+    });
+  }
+  if (lower.startsWith("voice service error")) {
+    return t("hermes.voice.voiceHttpError", {
+      detail: msg.replace(/^voice service error\s*/i, "").trim() || msg,
+    });
+  }
+  return msg || t("hermes.voice.failed");
+}
+
 export interface AuraChatMessage {
   id: string;
   requestId?: string;
@@ -97,6 +133,7 @@ export interface AuraChatMessage {
 export interface AuraChatPanelProps {
   sessionId?: string;
   onSessionChange?: (sessionId: string) => void;
+  liveToggleSeq?: number;
   focusMemory?: { bankId: string; memoryId: string } | null;
   onFocusMemoryHandled?: () => void;
   onOpenSessions?: () => void;
@@ -163,6 +200,7 @@ function getAudioCaptureApis() {
 export function AuraChatPanel({
   sessionId: sessionIdProp,
   onSessionChange,
+  liveToggleSeq,
   focusMemory = null,
   onFocusMemoryHandled,
   onOpenSessions,
@@ -217,6 +255,7 @@ export function AuraChatPanel({
   const [savingAudio, setSavingAudio] = useState(false);
   const [voiceBanner, setVoiceBanner] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(false);
+  const [liveConnecting, setLiveConnecting] = useState(false);
   const [liveSpeaking, setLiveSpeaking] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceSettings, setVoiceSettings] = useState<AuraVoiceSettings>(loadVoiceSettings);
@@ -228,6 +267,7 @@ export function AuraChatPanel({
   // `SpeechSynthesis` engine instead of going silent.
   const [voiceServiceReady, setVoiceServiceReady] = useState(false);
   const [sttServiceReady, setSttServiceReady] = useState(false);
+  const [voiceProbeDone, setVoiceProbeDone] = useState(false);
   const [liveTone, setLiveTone] = useState<AuraToneAnalysis | null>(null);
   // Dock position and transparency of the conversation column.
   const [chatLayout, setChatLayout] = useState<AuraChatLayoutSettings>(loadChatLayout);
@@ -295,6 +335,7 @@ export function AuraChatPanel({
   }, [stationHudOpen]);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const promptInputRef = useRef<HTMLInputElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -302,6 +343,15 @@ export function AuraChatPanel({
   const recordingRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const liveModeRef = useRef(false);
+  const liveConnectingRef = useRef(false);
+  const dictationTranscriberRef = useRef<AuraLiveTranscriber | null>(null);
+  const dictationActiveRef = useRef(false);
+  const dictationConnectingRef = useRef(false);
+  const dictationPrefixRef = useRef("");
+  const dictationHadTextRef = useRef(false);
+  const sttWarmedRef = useRef(false);
+  const handledLiveToggleSeqRef = useRef(0);
+  const toggleLiveModeRef = useRef<() => Promise<void>>(async () => {});
   const sendingRef = useRef(false);
   /** Request id of the reply being streamed, so it can be stopped. */
   const activeRequestIdRef = useRef<string | null>(null);
@@ -320,6 +370,11 @@ export function AuraChatPanel({
   const speakReplyRef = useRef<(text: string) => void>(() => {});
 
   const speechLang = i18n.language?.toLowerCase().startsWith("pt") ? "pt-BR" : "en-US";
+  const effectiveServiceVoice =
+    !speechLang.startsWith("pt") &&
+    voiceSettings.serviceVoice === DEFAULT_VOICE_SETTINGS.serviceVoice
+      ? "af_heart"
+      : voiceSettings.serviceVoice;
 
   const stopAudioTracks = useCallback(() => {
     try {
@@ -366,10 +421,10 @@ export function AuraChatPanel({
    * bypassed in live conversation mode).
    */
   const canUseNeuralVoice = useCallback(
-    () =>
+    (force = false) =>
       voiceSettings.engine === "neural" &&
       voiceServiceReady &&
-      (liveModeRef.current || voiceSettings.autoSpeak),
+      (force || liveModeRef.current || voiceSettings.autoSpeak),
     [voiceSettings, voiceServiceReady]
   );
 
@@ -378,8 +433,9 @@ export function AuraChatPanel({
    * first use. The queue synthesizes sentence by sentence so the reply is
    * audible while it is still being written.
    */
-  const ensureSpeechQueue = useCallback((): AuraSpeechQueue | null => {
-    if (!canUseNeuralVoice()) return null;
+  const ensureSpeechQueue = useCallback(
+    (force = false): AuraSpeechQueue | null => {
+      if (!canUseNeuralVoice(force)) return null;
     const player = voicePlayerRef.current;
     if (!player) return null;
 
@@ -387,25 +443,25 @@ export function AuraChatPanel({
     if (queue) return queue;
 
     const created = new AuraSpeechQueue({
-      voice: voiceSettings.serviceVoice,
+      voice: effectiveServiceVoice,
       speed: voiceSettings.speed,
       player,
       onStateChange: (state) => {
         if (mountedRef.current) setLiveSpeaking(state === "speaking");
       },
       onError: (error) => {
-        if (mountedRef.current) setErrorMsg(error.message);
+        if (mountedRef.current) setErrorMsg(localizeVoiceError(error, t));
       },
     });
     speechQueueRef.current = created;
     return created;
-  }, [canUseNeuralVoice, voiceSettings.serviceVoice, voiceSettings.speed]);
+  }, [canUseNeuralVoice, effectiveServiceVoice, t, voiceSettings.speed]);
 
-  // Rebuild the queue when the voice or the rate changes.
+  // Rebuild the queue when the voice, rate, or UI language changes.
   useEffect(() => {
     speechQueueRef.current?.reset();
     speechQueueRef.current = null;
-  }, [voiceSettings.serviceVoice, voiceSettings.speed, voiceSettings.engine]);
+  }, [effectiveServiceVoice, voiceSettings.speed, voiceSettings.engine]);
 
   // Probe the local voice service so we know whether the neural engine is
   // available before the first reply.
@@ -417,6 +473,11 @@ export function AuraChatPanel({
       if (!active) return;
       setVoiceServiceReady(status.available);
       setSttServiceReady(stt);
+      setVoiceProbeDone(true);
+      if (stt && !sttWarmedRef.current) {
+        sttWarmedRef.current = true;
+        void warmAuraSttService();
+      }
     };
     void probe();
     const timer = setInterval(() => void probe(), 15000);
@@ -454,10 +515,11 @@ export function AuraChatPanel({
         },
         () => {
           if (mountedRef.current) setLiveSpeaking(false);
-        }
+        },
+        speechLang
       );
     },
-    [ensureSpeechQueue, voiceSettings]
+    [ensureSpeechQueue, speechLang, voiceSettings]
   );
 
   const handleSpeakMessage = useCallback(
@@ -466,7 +528,7 @@ export function AuraChatPanel({
       const answer = parsed.answer || parsed.thought || "";
       if (!answer.trim()) return;
 
-      const queue = ensureSpeechQueue();
+      const queue = ensureSpeechQueue(true);
       if (queue) {
         void voicePlayerRef.current?.resume();
         queue.push(answer);
@@ -485,10 +547,11 @@ export function AuraChatPanel({
         },
         () => {
           if (mountedRef.current) setLiveSpeaking(false);
-        }
+        },
+        speechLang
       );
     },
-    [ensureSpeechQueue, voiceSettings]
+    [ensureSpeechQueue, speechLang, voiceSettings]
   );
 
   const handleCopyMessage = useCallback(async (text: string, msgId: string) => {
@@ -611,6 +674,11 @@ export function AuraChatPanel({
         mountedRef.current = false;
         liveModeRef.current = false;
         recordingRef.current = false;
+        dictationActiveRef.current = false;
+        liveChunkSinkRef.current = null;
+        dictationTranscriberRef.current?.close();
+        dictationTranscriberRef.current = null;
+        void liveVoiceRef.current?.stop();
         stopSpeechRecognition();
         stopSpeechSynthesis();
         stopAudioTracks();
@@ -690,12 +758,23 @@ export function AuraChatPanel({
       mountedRef.current = false;
       liveModeRef.current = false;
       recordingRef.current = false;
+      dictationActiveRef.current = false;
+      liveChunkSinkRef.current = null;
+      dictationTranscriberRef.current?.close();
+      dictationTranscriberRef.current = null;
+      void liveVoiceRef.current?.stop();
       stopSpeechRecognition();
       stopSpeechSynthesis();
       stopAudioTracks();
       unlisteners.forEach((fn) => fn());
     };
   }, [loadData, stopAudioTracks, stopSpeechRecognition, stopSpeechSynthesis]);
+
+  useEffect(() => {
+    if ((transcribing || liveMode) && promptInputRef.current) {
+      promptInputRef.current.scrollLeft = promptInputRef.current.scrollWidth;
+    }
+  }, [prompt, transcribing, liveMode]);
 
   useEffect(() => {
     if (showTranscript && transcriptRef.current && atBottom) {
@@ -900,6 +979,9 @@ export function AuraChatPanel({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (dictationActiveRef.current) {
+      void stopLiveDictation(false);
+    }
     void sendPrompt();
   };
 
@@ -948,34 +1030,54 @@ export function AuraChatPanel({
     [prompt, promptHistory]
   );
 
-  const stopAndSaveWavCapture = useCallback(async () => {
-    const sampleRate = audioCtxRef.current?.sampleRate ?? 16_000;
-    const chunks = pcmChunksRef.current;
-    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-    const merged = new Float32Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
-    stopAudioTracks();
-    recordingRef.current = false;
-    setRecording(false);
-    setSavingAudio(true);
-    setVoiceBanner(null);
+  const stopAndSaveWavCapture = useCallback(
+    async (options?: { skipTranscribe?: boolean }) => {
+      const sampleRate = audioCtxRef.current?.sampleRate ?? 16_000;
+      const chunks = pcmChunksRef.current;
+      pcmChunksRef.current = [];
+      stopAudioTracks();
+      recordingRef.current = false;
+      setRecording(false);
 
-    try {
-      const b64 = encodePcm16WavBase64(chunks, sampleRate);
-      const saved = await audioApi.saveVoiceCapture(b64, "hermes-voice");
-      if (!mountedRef.current) return;
-      setVoiceBanner(t("hermes.voice.saved", { bytes: saved.bytes, path: saved.filePath }));
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setErrorMsg(err instanceof Error ? err.message : t("hermes.voice.failed"));
-    } finally {
-      if (mountedRef.current) setSavingAudio(false);
-    }
-  }, [stopAudioTracks, t]);
+      if (options?.skipTranscribe) {
+        return;
+      }
+
+      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+      const merged = new Float32Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.length;
+      }
+      setSavingAudio(true);
+      setVoiceBanner(null);
+
+      try {
+        if (sttServiceReady && merged.length > 0) {
+          const wavBytes = encodePcm16Wav(merged, sampleRate);
+          const result = await transcribeAuraAudio(wavBytes, {
+            language: speechLang.startsWith("pt") ? "pt" : "en",
+          });
+          if (!mountedRef.current) return;
+          if (result.text) {
+            setPrompt((prev) => (prev.trim() ? `${prev.trim()} ${result.text}` : result.text));
+          }
+          return;
+        }
+        const b64 = encodePcm16WavBase64(chunks, sampleRate);
+        const saved = await audioApi.saveVoiceCapture(b64, "hermes-voice");
+        if (!mountedRef.current) return;
+        setVoiceBanner(t("hermes.voice.saved", { bytes: saved.bytes, path: saved.filePath }));
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setErrorMsg(localizeVoiceError(err, t));
+      } finally {
+        if (mountedRef.current) setSavingAudio(false);
+      }
+    },
+    [speechLang, stopAudioTracks, sttServiceReady, t]
+  );
 
   const startWavCapture = useCallback(
     async (silentIfUnsupported = false): Promise<boolean> => {
@@ -992,6 +1094,13 @@ export function AuraChatPanel({
       try {
         const stream = await mediaDevices.getUserMedia({ audio: true });
         const ctx = new AudioCtx();
+        if (
+          "state" in ctx &&
+          ctx.state === "suspended" &&
+          typeof ctx.resume === "function"
+        ) {
+          await ctx.resume();
+        }
         const source = ctx.createMediaStreamSource(stream);
         const processor = ctx.createScriptProcessor(4096, 1, 1);
         pcmChunksRef.current = [];
@@ -1030,7 +1139,30 @@ export function AuraChatPanel({
     await startWavCapture(false);
   }, [startWavCapture, stopAndSaveWavCapture]);
 
+  const stopLiveDictation = useCallback(
+    async (fallbackTranscribeIfEmpty = false) => {
+      liveChunkSinkRef.current = null;
+      const transcriber = dictationTranscriberRef.current;
+      dictationTranscriberRef.current = null;
+      transcriber?.close();
+      dictationActiveRef.current = false;
+      if (mountedRef.current) {
+        setTranscribing(false);
+      }
+      if (recordingRef.current) {
+        if (fallbackTranscribeIfEmpty && !dictationHadTextRef.current) {
+          await stopAndSaveWavCapture();
+        } else {
+          await stopAndSaveWavCapture({ skipTranscribe: true });
+        }
+      }
+    },
+    [stopAndSaveWavCapture]
+  );
+
   const toggleLiveMode = useCallback(async () => {
+    if (liveConnectingRef.current) return;
+
     if (liveModeRef.current) {
       liveModeRef.current = false;
       setLiveMode(false);
@@ -1041,62 +1173,85 @@ export function AuraChatPanel({
       liveVoiceRef.current = null;
       if (session) await session.stop();
       if (recordingRef.current) {
-        await stopAndSaveWavCapture();
+        await stopAndSaveWavCapture({ skipTranscribe: true });
       }
       return;
     }
 
-    if (transcribing) {
-      setTranscribing(false);
-      stopSpeechRecognition();
-    }
-    if (recordingRef.current) {
-      await stopAndSaveWavCapture();
+    if (dictationActiveRef.current) {
+      await stopLiveDictation(false);
+    } else {
+      if (transcribing) {
+        setTranscribing(false);
+        stopSpeechRecognition();
+      }
+      if (recordingRef.current) {
+        await stopAndSaveWavCapture();
+      }
     }
 
     setErrorMsg(null);
     setVoiceBanner(null);
     setLiveTone(null);
 
-    // Preferred path: the local Whisper service transcribes in Brazilian
-    // Portuguese with real incremental results. The browser Web Speech API
-    // is only used when the service is unavailable.
+    // Preferred path: the local Whisper service transcribes in the active
+    // UI language with real incremental results. The browser Web Speech API
+    // is only used when the local service is unavailable.
     if (sttServiceReady) {
-      const session = new AuraLiveVoiceSession({
-        language: speechLang.startsWith("pt") ? "pt" : "en",
-        sampleRate: 48_000,
-        onInterim: (text) => {
-          if (mountedRef.current) setPrompt(text);
-        },
-        onFinal: (text) => {
-          if (!mountedRef.current || !text.trim()) return;
-          setPrompt("");
-          void sendPromptRef.current(text.trim());
-        },
-        onTone: (analysis) => {
-          if (mountedRef.current) setLiveTone(analysis);
-        },
-        onError: (error) => {
-          if (mountedRef.current) setErrorMsg(error.message);
-        },
-      });
-
-      const started = await session.start();
-      if (started) {
-        liveVoiceRef.current = session;
-        liveModeRef.current = true;
-        setLiveMode(true);
+      liveConnectingRef.current = true;
+      setLiveConnecting(true);
+      setVoiceBanner(t("hermes.voice.connectingLive"));
+      try {
         const captured = await startWavCapture(true);
-        if (captured) {
+        if (!captured) {
+          setVoiceBanner(null);
+          setErrorMsg(t("hermes.voice.failed"));
+          return;
+        }
+
+        const session = new AuraLiveVoiceSession({
+          language: speechLang.startsWith("pt") ? "pt" : "en",
+          sampleRate: audioCtxRef.current?.sampleRate ?? 48_000,
+          onInterim: (text) => {
+            if (mountedRef.current) {
+              setPrompt(text.replace(/\s+/g, " ").trim());
+            }
+          },
+          onFinal: (text) => {
+            if (!mountedRef.current || !text.trim()) return;
+            setPrompt("");
+            void sendPromptRef.current(text.trim());
+          },
+          onTone: (analysis) => {
+            if (mountedRef.current) setLiveTone(analysis);
+          },
+          onError: (error) => {
+            if (mountedRef.current) setErrorMsg(localizeVoiceError(error, t));
+          },
+        });
+
+        const started = await session.start();
+        if (!mountedRef.current) {
+          await session.stop();
+          await stopAndSaveWavCapture({ skipTranscribe: true });
+          return;
+        }
+        if (started) {
+          setVoiceBanner(null);
+          liveVoiceRef.current = session;
+          liveModeRef.current = true;
+          setLiveMode(true);
           const rate = audioCtxRef.current?.sampleRate ?? 48_000;
           liveChunkSinkRef.current = (chunk) => session.push(chunk, rate);
-        } else {
-          liveVoiceRef.current = null;
-          await session.stop();
-          liveModeRef.current = false;
-          setLiveMode(false);
+          return;
         }
+
+        setVoiceBanner(null);
+        await stopAndSaveWavCapture({ skipTranscribe: true });
         return;
+      } finally {
+        liveConnectingRef.current = false;
+        if (mountedRef.current) setLiveConnecting(false);
       }
     }
 
@@ -1183,14 +1338,46 @@ export function AuraChatPanel({
     speechLang,
     startWavCapture,
     stopAndSaveWavCapture,
+    stopLiveDictation,
     stopSpeechRecognition,
     stopSpeechSynthesis,
+    sttServiceReady,
     t,
     transcribing,
   ]);
 
+  useEffect(() => {
+    toggleLiveModeRef.current = toggleLiveMode;
+  }, [toggleLiveMode]);
+
+  useEffect(() => {
+    if (!liveToggleSeq || !voiceProbeDone) return;
+    if (liveToggleSeq <= handledLiveToggleSeqRef.current) return;
+    handledLiveToggleSeqRef.current = liveToggleSeq;
+    void toggleLiveModeRef.current();
+  }, [liveToggleSeq, voiceProbeDone]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void desktopApi.setTrayLiveVoice(liveMode).catch(() => {});
+  }, [liveMode]);
+
+  useEffect(() => {
+    return () => {
+      if (isTauriRuntime() && liveModeRef.current) {
+        void desktopApi.setTrayLiveVoice(false).catch(() => {});
+      }
+    };
+  }, []);
+
   const handleTranscribeOrVoiceClick = useCallback(async () => {
-    if (recordingRef.current) {
+    if (dictationConnectingRef.current) return;
+
+    if (dictationActiveRef.current) {
+      await stopLiveDictation(true);
+      return;
+    }
+    if (recordingRef.current && !liveModeRef.current) {
       await stopAndSaveWavCapture();
       return;
     }
@@ -1198,6 +1385,83 @@ export function AuraChatPanel({
       setTranscribing(false);
       stopSpeechRecognition();
       return;
+    }
+
+    if (sttServiceReady) {
+      if (liveModeRef.current) {
+        liveModeRef.current = false;
+        setLiveMode(false);
+        stopSpeechRecognition();
+        stopSpeechSynthesis();
+        liveChunkSinkRef.current = null;
+        const session = liveVoiceRef.current;
+        liveVoiceRef.current = null;
+        if (session) await session.stop();
+        if (recordingRef.current) {
+          await stopAndSaveWavCapture({ skipTranscribe: true });
+        }
+      }
+
+      dictationConnectingRef.current = true;
+      dictationPrefixRef.current = prompt.trim();
+      dictationHadTextRef.current = false;
+      setErrorMsg(null);
+      setVoiceBanner(t("hermes.voice.connectingLive"));
+
+      try {
+        const captured = await startWavCapture(false);
+        if (!captured) {
+          setVoiceBanner(null);
+          return;
+        }
+
+        const transcriber = new AuraLiveTranscriber({
+          language: speechLang.startsWith("pt") ? "pt" : "en",
+          onText: (text) => {
+            const clean = text.replace(/\s+/g, " ").trim();
+            if (!clean || !mountedRef.current || !dictationActiveRef.current) return;
+            dictationHadTextRef.current = true;
+            setPrompt(
+              dictationPrefixRef.current ? `${dictationPrefixRef.current} ${clean}` : clean
+            );
+          },
+          onError: (err) => {
+            if (mountedRef.current) setErrorMsg(localizeVoiceError(err, t));
+          },
+          onClose: () => {
+            if (dictationActiveRef.current && mountedRef.current) {
+              void stopLiveDictation(false);
+            }
+          },
+        });
+
+        try {
+          await transcriber.connect();
+        } catch (err) {
+          if (mountedRef.current) {
+            setVoiceBanner(null);
+            setErrorMsg(localizeVoiceError(err, t));
+          }
+          await stopAndSaveWavCapture({ skipTranscribe: true });
+          return;
+        }
+
+        if (!mountedRef.current) {
+          transcriber.close();
+          await stopAndSaveWavCapture({ skipTranscribe: true });
+          return;
+        }
+
+        setVoiceBanner(null);
+        dictationTranscriberRef.current = transcriber;
+        dictationActiveRef.current = true;
+        setTranscribing(true);
+        const rate = audioCtxRef.current?.sampleRate ?? 48_000;
+        liveChunkSinkRef.current = (chunk) => transcriber.send(chunk, rate);
+        return;
+      } finally {
+        dictationConnectingRef.current = false;
+      }
     }
 
     const RecognitionCtor = getSpeechRecognitionCtor();
@@ -1261,9 +1525,12 @@ export function AuraChatPanel({
   }, [
     prompt,
     speechLang,
+    startWavCapture,
     stopAndSaveWavCapture,
+    stopLiveDictation,
     stopSpeechRecognition,
     stopSpeechSynthesis,
+    sttServiceReady,
     t,
     toggleVoiceCapture,
     transcribing,
@@ -1428,7 +1695,7 @@ export function AuraChatPanel({
       {/* Conversation column */}
       <div
         data-testid="aura-chat-panel"
-        className={`h-full flex flex-col min-h-0 ${transparency.blur} shadow-2xl ${
+        className={`aura-galaxy-chrome-scope h-full flex flex-col min-h-0 ${transparency.blur} shadow-2xl ${
           chatLayout.dock === "center"
             ? `absolute inset-y-0 left-1/2 -translate-x-1/2 z-30 ${CHAT_CENTERED_WIDTH} rounded-none border-x ${transparency.border} ${transparency.container}`
             : `relative z-20 ${CHAT_COLUMN_WIDTH} ${
@@ -1645,7 +1912,7 @@ export function AuraChatPanel({
 
                     <div
                       className={`min-w-0 space-y-1 ${
-                        isUser ? "flex max-w-[85%] flex-col items-end" : "max-w-[92%] flex-1"
+                        isUser ? "flex max-w-[85%] flex-col items-end" : "max-w-[88%] flex-1"
                       }`}
                     >
                       <div
@@ -1922,75 +2189,19 @@ export function AuraChatPanel({
             </div>
           )}
 
-          {/* Input Capsule */}
+          {/* Input Capsule (2-tier layout) */}
           <form
             onSubmit={handleSubmit}
-            className="flex items-center gap-1.5 rounded-2xl border border-sky-400/30 bg-slate-900/80 p-1.5"
+            className={`rounded-2xl border bg-slate-900/85 p-2 space-y-2 transition-colors focus-within:border-sky-400/60 ${
+              transcribing || liveMode
+                ? "border-sky-400/70 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]"
+                : "border-sky-400/30"
+            }`}
           >
-            <Button
-              type="button"
-              size="sm"
-              variant={liveMode ? "danger" : "secondary"}
-              aria-pressed={liveMode}
-              onClick={() => void toggleLiveMode()}
-              className="rounded-xl h-8 px-2.5 shrink-0"
-            >
-              {liveMode ? (
-                <Radio className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
-              ) : (
-                <AudioLines className="h-3.5 w-3.5" aria-hidden="true" />
-              )}
-              <span className="text-[11px]">
-                {liveMode ? t("hermes.voice.liveModeOn") : t("hermes.voice.liveModeOff")}
-              </span>
-            </Button>
-
-            {/* Tone reading of the last utterance (prosody + emotion model). */}
-            {liveTone && (
-              <span
-                className="hidden shrink-0 items-center gap-1 rounded-xl border border-sky-400/25 bg-sky-500/10 px-2 text-[10px] text-sky-200 sm:inline-flex"
-                title={`${t("hermes.toneTooltip")}: ${liveTone.meanPitchHz.toFixed(0)} Hz · ${liveTone.speechRate.toFixed(1)} syll/s · ${liveTone.meanLoudnessDb.toFixed(1)} dB`}
-              >
-                <Activity className="h-3 w-3" aria-hidden="true" />
-                <span>{liveTone.label}</span>
-                <span className="text-sky-400/70">
-                  {liveTone.arousal >= 0 ? "▲" : "▼"}
-                </span>
-              </span>
-            )}
-
-            <Button
-              type="button"
-              size="sm"
-              variant={recording || transcribing ? "danger" : "secondary"}
-              loading={savingAudio}
-              aria-pressed={recording || transcribing}
-              onClick={() => void handleTranscribeOrVoiceClick()}
-              className="rounded-xl h-8 px-2.5 shrink-0"
-            >
-              {recording ? (
-                <>
-                  <Square className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="text-[11px]">{t("hermes.voice.stopAndSave")}</span>
-                </>
-              ) : savingAudio ? (
-                <span className="text-[11px]">{t("hermes.voice.saving")}</span>
-              ) : transcribing ? (
-                <>
-                  <Mic className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
-                  <span className="text-[11px]">{t("hermes.voice.transcribing")}</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="text-[11px]">{t("hermes.voice.transcribeAudio")}</span>
-                </>
-              )}
-            </Button>
-
             <Input
-              containerClassName="flex-1 min-w-[120px]"
-              className="border-0 bg-transparent px-2 py-1 text-xs text-slate-100 placeholder:text-slate-400 focus-visible:ring-0"
+              ref={promptInputRef}
+              containerClassName="w-full"
+              className="border-0 bg-transparent px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 focus-visible:ring-0"
               value={prompt}
               onChange={(e) => {
                 // Typing by hand leaves the history — the next ↑ starts over.
@@ -2006,36 +2217,170 @@ export function AuraChatPanel({
               aria-label={t("hermes.chatTitle")}
             />
 
-            {/* While a reply is streaming the same slot becomes the stop
-                control, the way it works in every other assistant. */}
-            {sending ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="danger"
-                onClick={() => void stopGeneration()}
-                className="rounded-xl h-8 px-3 shrink-0"
-                aria-label={t("hermes.stopGenerating")}
-                title={t("hermes.stopGenerating")}
-              >
-                <Square className="h-3 w-3" aria-hidden="true" />
-                <span className="text-[11px]">{t("hermes.stopGenerating")}</span>
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!prompt.trim()}
-                className="rounded-xl h-8 px-3 shrink-0"
-              >
-                <Send className="h-3 w-3" aria-hidden="true" />
-                <span className="text-[11px]">{t("hermes.sendButton")}</span>
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-sky-400/15">
+              <div className="flex flex-wrap items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={liveMode ? "danger" : "ghost"}
+                  disabled={liveConnecting}
+                  aria-pressed={liveMode}
+                  aria-label={
+                    liveConnecting
+                      ? t("hermes.voice.connectingLive")
+                      : liveMode
+                        ? t("hermes.voice.liveModeOn")
+                        : t("hermes.voice.liveModeOff")
+                  }
+                  title={
+                    liveConnecting
+                      ? t("hermes.voice.connectingLive")
+                      : liveMode
+                        ? t("hermes.voice.liveModeOn")
+                        : sttServiceReady
+                          ? `${t("hermes.voice.liveModeOff")} · Whisper + Kokoro`
+                          : t("hermes.voice.liveModeOff")
+                  }
+                  onClick={() => void toggleLiveMode()}
+                  className={
+                    liveMode || liveConnecting
+                      ? "rounded-lg h-7 px-2.5 shrink-0"
+                      : "relative rounded-lg h-7 w-7 p-0 text-slate-400 hover:text-sky-200 hover:bg-slate-800/70 shrink-0"
+                  }
+                >
+                  {liveConnecting ? (
+                    <>
+                      <Radio className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+                      <span className="text-[11px]">{t("hermes.voice.connectingLive")}</span>
+                    </>
+                  ) : liveMode ? (
+                    <>
+                      <Radio className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+                      <span className="text-[11px]">{t("hermes.voice.liveModeOn")}</span>
+                    </>
+                  ) : (
+                    <>
+                      <AudioLines className="h-3.5 w-3.5" aria-hidden="true" />
+                      {sttServiceReady && voiceServiceReady && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-400"
+                        />
+                      )}
+                    </>
+                  )}
+                </Button>
+
+                {/* Tone reading of the last utterance (prosody + emotion model). */}
+                {liveTone && (
+                  <span
+                    className="hidden shrink-0 items-center gap-1 rounded-xl border border-sky-400/25 bg-sky-500/10 px-2 py-1 text-[10px] text-sky-200 sm:inline-flex"
+                    title={`${t("hermes.toneTooltip")}: ${liveTone.meanPitchHz.toFixed(0)} Hz · ${liveTone.speechRate.toFixed(1)} syll/s · ${liveTone.meanLoudnessDb.toFixed(1)} dB`}
+                  >
+                    <Activity className="h-3 w-3" aria-hidden="true" />
+                    <span>{liveTone.label}</span>
+                    <span className="text-sky-400/70">
+                      {liveTone.arousal >= 0 ? "▲" : "▼"}
+                    </span>
+                  </span>
+                )}
+
+                {(() => {
+                  const isWavFallbackRecording =
+                    recording && !liveMode && !liveConnecting && !transcribing;
+                  const micActive =
+                    isWavFallbackRecording || savingAudio || transcribing;
+                  return (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={micActive ? "danger" : "ghost"}
+                      loading={savingAudio}
+                      aria-pressed={micActive}
+                      aria-label={
+                        isWavFallbackRecording
+                          ? t("hermes.voice.stopAndSave")
+                          : savingAudio
+                            ? t("hermes.voice.saving")
+                            : transcribing
+                              ? t("hermes.voice.transcribing")
+                              : t("hermes.voice.transcribeAudio")
+                      }
+                      title={
+                        isWavFallbackRecording
+                          ? t("hermes.voice.stopAndSave")
+                          : transcribing
+                            ? t("hermes.voice.transcribing")
+                            : sttServiceReady
+                              ? `${t("hermes.voice.transcribeAudio")} · Whisper local`
+                              : t("hermes.voice.transcribeAudio")
+                      }
+                      onClick={() => void handleTranscribeOrVoiceClick()}
+                      className={
+                        micActive
+                          ? "rounded-lg h-7 px-2.5 shrink-0"
+                          : "relative rounded-lg h-7 w-7 p-0 text-slate-400 hover:text-sky-200 hover:bg-slate-800/70 shrink-0"
+                      }
+                    >
+                      {isWavFallbackRecording ? (
+                        <>
+                          <Square className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span className="text-[11px]">{t("hermes.voice.stopAndSave")}</span>
+                        </>
+                      ) : savingAudio ? (
+                        <span className="text-[11px]">{t("hermes.voice.saving")}</span>
+                      ) : transcribing ? (
+                        <>
+                          <Mic className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+                          <span className="text-[11px]">{t("hermes.voice.transcribing")}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="h-3.5 w-3.5" aria-hidden="true" />
+                          {sttServiceReady && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-400"
+                            />
+                          )}
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()}
+              </div>
+
+              {/* While a reply is streaming the same slot becomes the stop
+                  control, the way it works in every other assistant. */}
+              {sending ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger"
+                  onClick={() => void stopGeneration()}
+                  className="rounded-xl h-8 px-3 shrink-0"
+                  aria-label={t("hermes.stopGenerating")}
+                  title={t("hermes.stopGenerating")}
+                >
+                  <Square className="h-3 w-3" aria-hidden="true" />
+                  <span className="text-[11px]">{t("hermes.stopGenerating")}</span>
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!prompt.trim()}
+                  className="rounded-xl h-8 px-3.5 shrink-0"
+                >
+                  <Send className="h-3 w-3" aria-hidden="true" />
+                  <span className="text-[11px]">{t("hermes.sendButton")}</span>
+                </Button>
+              )}
+            </div>
           </form>
 
           {/* The shortcuts are written down, so nobody has to guess them. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-0.5 text-[10px] text-slate-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-0.5 text-[10px] text-slate-400">
             <span className="inline-flex items-center gap-1">
               <kbd className="rounded border border-slate-700/80 bg-slate-900/70 px-1 font-sans text-[9px] text-slate-400">
                 Enter

@@ -114,7 +114,8 @@ export function speakAuraUtterance(
   settings: AuraVoiceSettings,
   onStart?: () => void,
   onEnd?: () => void,
-  onError?: () => void
+  onError?: () => void,
+  preferredLang = "pt-BR"
 ): boolean {
   if (
     typeof window === "undefined" ||
@@ -135,6 +136,7 @@ export function speakAuraUtterance(
 
     // Detect and assign voice
     const voices = window.speechSynthesis.getVoices();
+    const langPrefix = preferredLang.toLowerCase().split("-")[0] || "pt";
     let targetVoice: SpeechSynthesisVoice | undefined;
 
     if (settings.selectedVoiceURI) {
@@ -142,25 +144,29 @@ export function speakAuraUtterance(
     }
 
     if (!targetVoice) {
-      // Prioritize Brazilian Portuguese voice
-      targetVoice = voices.find(
-        (v) =>
-          v.lang.toLowerCase().includes("pt-br") ||
-          v.name.toLowerCase().includes("brazil") ||
-          v.name.toLowerCase().includes("brasil")
-      );
+      if (langPrefix === "pt") {
+        targetVoice = voices.find(
+          (v) =>
+            v.lang.toLowerCase().includes("pt-br") ||
+            v.name.toLowerCase().includes("brazil") ||
+            v.name.toLowerCase().includes("brasil")
+        );
+      } else {
+        targetVoice = voices.find(
+          (v) => v.lang.toLowerCase() === preferredLang.toLowerCase()
+        );
+      }
     }
 
     if (!targetVoice) {
-      // Fallback to any Portuguese voice
-      targetVoice = voices.find((v) => v.lang.toLowerCase().startsWith("pt"));
+      targetVoice = voices.find((v) => v.lang.toLowerCase().startsWith(langPrefix));
     }
 
     if (targetVoice) {
       utterance.voice = targetVoice;
       utterance.lang = targetVoice.lang;
     } else {
-      utterance.lang = "pt-BR";
+      utterance.lang = preferredLang;
     }
 
     utterance.onstart = () => {

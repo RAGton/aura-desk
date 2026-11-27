@@ -825,7 +825,7 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
         dailyMaintenance: db.settings["hindsight.daily_maintenance"] !== false,
         lastMaintenanceDate: String(db.settings["hindsight.last_maintenance_date"] ?? ""),
         online: false,
-        banks: [configuredDefault],
+        banks: [],
         localCount: 0,
       };
       if (allowLiveProxyFetch() && base.enabled) {
@@ -2608,6 +2608,77 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       db.agentRuns = db.agentRuns.slice(0, 40);
       saveBrowserDb(db);
       return { handled: true, result: record };
+    }
+
+    case "agents_run_execute":
+    case "agents_run_resume": {
+      const runId = String(args.runId ?? args.run_id ?? "");
+      if (!Array.isArray(db.agentRuns)) db.agentRuns = [];
+      const found = db.agentRuns.find((r) => r.id === runId);
+      if (!found) throw new Error(`agent_run not found: ${runId}`);
+      const isResume = cmd === "agents_run_resume";
+      const nextPlan = (found.plan ?? []).map((step) =>
+        isResume ? { ...step, requiresApproval: false } : step
+      );
+      const blocked = nextPlan.some((s) => s.requiresApproval);
+      found.plan = nextPlan;
+      found.status = blocked ? "awaiting_approval" : "completed";
+      found.resultSummary = blocked
+        ? `planned_steps:${nextPlan.length}:approval_required`
+        : `goal: ${found.goal} | steps: ${nextPlan.length}/${nextPlan.length} | status: completed`;
+      saveBrowserDb(db);
+      return {
+        handled: true,
+        result: {
+          runId: found.id,
+          status: found.status,
+          goal: found.goal,
+          completedSteps: blocked ? 0 : nextPlan.length,
+          totalSteps: nextPlan.length,
+          finalResult: { executedIn: "browser_sandbox", steps: nextPlan.length },
+          error: null,
+          eventsCount: nextPlan.length + 1,
+        },
+      };
+    }
+
+    case "agents_capabilities_list": {
+      const tools = builtinToolsCatalog(db).map((t) => ({
+        id: `native:${t.toolName}`,
+        name: t.toolName,
+        description: t.description,
+        permission: t.permission,
+        status: t.enabled ? "available" : "disabled",
+        tags: [t.agentRole, t.riskLevel],
+      }));
+      return { handled: true, result: tools };
+    }
+
+    case "agents_capabilities_select": {
+      const intent = String(args.intent ?? "").toLowerCase();
+      const maxTools = Number(args.maxTools ?? args.max_tools ?? 5);
+      const selected = builtinToolsCatalog(db)
+        .filter((t) => t.enabled)
+        .filter(
+          (t) =>
+            !intent ||
+            t.toolName.toLowerCase().includes(intent) ||
+            t.description.toLowerCase().includes(intent)
+        )
+        .slice(0, maxTools)
+        .map((t) => ({
+          capability: {
+            id: `native:${t.toolName}`,
+            name: t.toolName,
+            description: t.description,
+            permission: t.permission,
+            status: "available",
+            tags: [t.agentRole],
+          },
+          relevanceScore: 80,
+          reason: "browser_intent_match",
+        }));
+      return { handled: true, result: selected };
     }
 
     default:

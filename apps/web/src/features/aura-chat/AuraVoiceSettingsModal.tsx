@@ -22,6 +22,7 @@ import {
   synthesizeAuraPcm,
   type AuraServiceVoice,
 } from "./auraVoiceService";
+import { probeAuraSttService } from "./auraSpeechToText";
 
 export interface AuraVoiceSettingsModalProps {
   open: boolean;
@@ -72,10 +73,13 @@ export function AuraVoiceSettingsModal({
       }
     }
 
-    const probe = await probeAuraVoiceService();
+    const [probe, sttReady] = await Promise.all([
+      probeAuraVoiceService(),
+      probeAuraSttService(),
+    ]);
     setStatus({
-      runtimeAvailable: probe.available,
-      runtime: probe.available ? "podman" : null,
+      runtimeAvailable: probe.available || sttReady,
+      runtime: probe.available || sttReady ? "podman" : null,
       serviceReady: probe.available,
       containerRunning: probe.available,
       imagePresent: probe.available,
@@ -83,9 +87,9 @@ export function AuraVoiceSettingsModal({
       image: "ghcr.io/remsky/kokoro-fastapi-cpu:latest",
       voiceCount: probe.voiceCount,
       detail: probe.available ? null : t("hermes.voiceServiceOffline"),
-      sttReady: false,
+      sttReady,
       sttBaseUrl: "http://127.0.0.1:9000",
-      sttContainerRunning: false,
+      sttContainerRunning: sttReady,
     });
     if (probe.available) {
       setServiceVoices(await listAuraServiceVoices());
@@ -190,6 +194,7 @@ export function AuraVoiceSettingsModal({
       setTestingVoice(target);
       try {
         const player = playerRef.current;
+        player?.resetStreamAlignment();
         await player?.resume();
         await synthesizeAuraPcm(
           phrase,
@@ -199,6 +204,7 @@ export function AuraVoiceSettingsModal({
       } catch (error) {
         setEngineError(error instanceof Error ? error.message : String(error));
       } finally {
+        playerRef.current?.resetStreamAlignment();
         setTestingVoice(null);
       }
       return;
@@ -235,7 +241,7 @@ export function AuraVoiceSettingsModal({
   const serviceReady = status?.serviceReady ?? false;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4">
+    <div className="aura-galaxy-chrome-scope fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4">
       <div className="w-full max-w-md rounded-2xl border border-sky-400/30 bg-slate-950/90 backdrop-blur-2xl p-5 shadow-2xl shadow-sky-950/50 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-sky-400/20 pb-3">

@@ -15,8 +15,41 @@
  * browser has to resample its microphone stream before sending it.
  */
 
+import { isTauriRuntime } from "../../lib/ipc";
+
 /** Base URL of the local speech-to-text service. Bound to loopback only. */
 export const AURA_STT_SERVICE_URL = "http://127.0.0.1:9000";
+
+function resolveSttHttpBaseUrl(baseUrl: string): string {
+  const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const isVitest = Boolean(metaEnv?.VITEST) || metaEnv?.MODE === "test";
+  if (
+    baseUrl === AURA_STT_SERVICE_URL &&
+    !isVitest &&
+    !isTauriRuntime() &&
+    typeof window !== "undefined" &&
+    window.location.protocol.startsWith("http")
+  ) {
+    return "/__stt";
+  }
+  return baseUrl;
+}
+
+function resolveSttWsBaseUrl(baseUrl: string): string {
+  const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const isVitest = Boolean(metaEnv?.VITEST) || metaEnv?.MODE === "test";
+  if (
+    baseUrl === AURA_STT_SERVICE_URL &&
+    !isVitest &&
+    !isTauriRuntime() &&
+    typeof window !== "undefined" &&
+    window.location.protocol.startsWith("http")
+  ) {
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${wsProtocol}//${window.location.host}/__stt`;
+  }
+  return baseUrl.replace(/^http/, "ws");
+}
 
 /** Sample rate the service expects on the wire. */
 export const AURA_STT_SAMPLE_RATE = 16000;
@@ -32,6 +65,39 @@ export interface AuraTranscription {
 }
 
 /**
+ * Warms up the local speech-to-text service by ensuring the configured model
+ * is loaded in memory (`/api/ps`). Prevents 10–15s cold-load timeouts when
+ * opening the first WebSocket stream.
+ */
+export async function warmAuraSttService(
+  baseUrl: string = AURA_STT_SERVICE_URL
+): Promise<void> {
+  const resolved = resolveSttHttpBaseUrl(baseUrl);
+  try {
+    const psRes = await fetch(`${resolved}/api/ps`, { method: "GET" });
+    if (!psRes.ok) return;
+    const psData = (await psRes.json().catch(() => ({}))) as { models?: string[] };
+    if (Array.isArray(psData.models) && psData.models.length > 0) return;
+
+    const modelsRes = await fetch(`${resolved}/v1/models`, { method: "GET" });
+    let modelId = "Systran/faster-whisper-small";
+    if (modelsRes.ok) {
+      const modelsData = (await modelsRes.json().catch(() => ({}))) as {
+        data?: Array<{ id?: string }>;
+      };
+      const firstId = modelsData.data?.find((m) => typeof m?.id === "string")?.id;
+      if (firstId) modelId = firstId;
+    }
+
+    await fetch(`${resolved}/api/ps/${encodeURIComponent(modelId)}`, {
+      method: "POST",
+    });
+  } catch {
+    // Best-effort warmup; offline or unreachable state is handled elsewhere.
+  }
+}
+
+/**
  * Probes the local speech-to-text service.
  * Returns `false` when the service is not running.
  */
@@ -42,7 +108,7 @@ export async function probeAuraSttService(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${baseUrl}/health`, {
+    const res = await fetch(`${resolveSttHttpBaseUrl(baseUrl)}/health`, {
       method: "GET",
       signal: controller.signal,
     });
@@ -64,7 +130,7 @@ export async function transcribeAuraAudio(
   wavBytes: Uint8Array,
   options: { language?: string; baseUrl?: string } = {}
 ): Promise<AuraTranscription> {
-  const baseUrl = options.baseUrl ?? AURA_STT_SERVICE_URL;
+  const baseUrl = resolveSttHttpBaseUrl(options.baseUrl ?? AURA_STT_SERVICE_URL);
   const form = new FormData();
   form.append(
     "file",
@@ -154,6 +220,8 @@ export class AuraLiveTranscriber {
   private socket: WebSocket | null = null;
   private lastText = "";
   private closed = false;
+  private lastSendAt = 0;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly options: AuraLiveTranscriberOptions = {}) {}
 
@@ -161,15 +229,37 @@ export class AuraLiveTranscriber {
     return this.socket?.readyState === WebSocket.OPEN;
   }
 
+  private clearKeepalive(): void {
+    if (this.keepaliveTimer !== null) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
+  private startKeepalive(): void {
+    this.clearKeepalive();
+    this.lastSendAt = Date.now();
+    this.keepaliveTimer = setInterval(() => {
+      const socket = this.socket;
+      if (this.closed || !socket || socket.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - this.lastSendAt >= 400) {
+        this.lastSendAt = Date.now();
+        // 50ms of 16kHz mono PCM16 silence keeps Faster-Whisper's 1.0s audio_receiver alive
+        socket.send(new Uint8Array(1600));
+      }
+    }, 400);
+  }
+
   /** Opens the streaming socket. */
-  async connect(timeoutMs = 5000): Promise<void> {
+  async connect(timeoutMs = 30_000): Promise<void> {
     if (this.socket) return;
+    this.closed = false;
     const baseUrl = this.options.baseUrl ?? AURA_STT_SERVICE_URL;
     const params = new URLSearchParams();
     params.set("language", this.options.language ?? "pt");
     params.set("response_format", "json");
     params.set("vad_filter", "true");
-    const url = `${baseUrl.replace(/^http/, "ws")}/v1/audio/transcriptions?${params.toString()}`;
+    const url = `${resolveSttWsBaseUrl(baseUrl)}/v1/audio/transcriptions?${params.toString()}`;
 
     const socket = new WebSocket(url);
     socket.binaryType = "arraybuffer";
@@ -189,19 +279,38 @@ export class AuraLiveTranscriber {
         cleanup();
         reject(new Error("transcription service connection failed"));
       };
+      const onEarlyClose = () => {
+        cleanup();
+        reject(new Error("transcription service connection failed"));
+      };
       const cleanup = () => {
         clearTimeout(timer);
         socket.removeEventListener("open", onOpen);
         socket.removeEventListener("error", onError);
+        socket.removeEventListener("close", onEarlyClose);
       };
 
       socket.addEventListener("open", onOpen);
       socket.addEventListener("error", onError);
+      socket.addEventListener("close", onEarlyClose);
     }).then(
       () => {
+        if (this.closed || this.socket !== socket) {
+          try {
+            socket.close();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        this.startKeepalive();
         socket.addEventListener("message", (event) => this.handleMessage(event));
         socket.addEventListener("close", () => {
           this.closed = true;
+          this.clearKeepalive();
+          if (this.socket === socket) {
+            this.socket = null;
+          }
           this.options.onClose?.();
         });
         socket.addEventListener("error", () => {
@@ -209,7 +318,7 @@ export class AuraLiveTranscriber {
         });
       },
       (error) => {
-        this.closed = true;
+        this.close();
         throw error;
       }
     );
@@ -243,12 +352,14 @@ export class AuraLiveTranscriber {
     if (this.closed || !socket || socket.readyState !== WebSocket.OPEN) return;
     const resampled = resampleTo16k(samples, sampleRate);
     const pcm = floatToPcm16Le(resampled);
+    this.lastSendAt = Date.now();
     socket.send(pcm);
   }
 
   /** Closes the session. */
   close(): void {
     this.closed = true;
+    this.clearKeepalive();
     const socket = this.socket;
     this.socket = null;
     if (!socket) return;

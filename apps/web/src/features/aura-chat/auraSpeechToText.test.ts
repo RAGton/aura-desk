@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AURA_STT_SAMPLE_RATE,
+  AuraLiveTranscriber,
   floatToPcm16Le,
   probeAuraSttService,
   resampleTo16k,
@@ -105,5 +106,71 @@ describe("probeAuraSttService", () => {
       })
     );
     await expect(probeAuraSttService()).resolves.toBe(false);
+  });
+});
+
+describe("AuraLiveTranscriber", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("closes the socket cleanly on connect timeout and sends silence keepalives when open", async () => {
+    vi.useFakeTimers();
+
+    class MockWebSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = 0;
+      binaryType = "blob";
+      send = vi.fn();
+      close = vi.fn(() => {
+        this.readyState = 3;
+      });
+      private listeners = new Map<string, Array<(ev: unknown) => void>>();
+
+      constructor(public readonly url: string) {
+        sockets.push(this);
+      }
+
+      addEventListener(type: string, cb: (ev: unknown) => void) {
+        const list = this.listeners.get(type) ?? [];
+        list.push(cb);
+        this.listeners.set(type, list);
+      }
+
+      removeEventListener(type: string, cb: (ev: unknown) => void) {
+        const list = this.listeners.get(type) ?? [];
+        this.listeners.set(
+          type,
+          list.filter((fn) => fn !== cb)
+        );
+      }
+
+      emit(type: string, ev: unknown = {}) {
+        if (type === "open") this.readyState = 1;
+        for (const fn of this.listeners.get(type) ?? []) fn(ev);
+      }
+    }
+
+    const sockets: MockWebSocket[] = [];
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const t1 = new AuraLiveTranscriber({ language: "pt" });
+    const p1 = expect(t1.connect(500)).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(600);
+    await p1;
+    expect(sockets[0]?.close).toHaveBeenCalledTimes(1);
+
+    const t2 = new AuraLiveTranscriber({ language: "en" });
+    const connectPromise = t2.connect(5000);
+    expect(sockets[1]?.url).toContain("language=en");
+    sockets[1]?.emit("open");
+    await connectPromise;
+
+    await vi.advanceTimersByTimeAsync(900);
+    expect(sockets[1]?.send).toHaveBeenCalled();
+    t2.close();
+    expect(sockets[1]?.close).toHaveBeenCalledTimes(1);
   });
 });

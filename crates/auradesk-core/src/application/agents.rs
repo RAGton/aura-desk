@@ -1154,43 +1154,67 @@ impl<'a> AgentOrchestratorService<'a> {
             .find(|p| p.id == clean || p.slug == clean)
             .ok_or_else(|| CoreError::not_found("mcp_plugin", clean))?;
 
-        let discovered = if plugin.discovered_tools.is_empty() {
-            vec![
-                format!("mcp.{}.list_resources", plugin.slug),
-                format!("mcp.{}.query", plugin.slug),
-                format!("mcp.{}.execute_action", plugin.slug),
-            ]
+        let discovered = plugin.discovered_tools.clone();
+        let (health_status, final_tools) = if plugin.transport == "http_sse" {
+            let reachable = check_http_endpoint_reachable(&plugin.command_or_url);
+            if reachable {
+                let tools = if discovered.is_empty() {
+                    vec![
+                        format!("mcp.{}.list_resources", plugin.slug),
+                        format!("mcp.{}.query", plugin.slug),
+                        format!("mcp.{}.execute_action", plugin.slug),
+                    ]
+                } else {
+                    discovered
+                };
+                ("healthy", tools)
+            } else {
+                ("offline", discovered)
+            }
+        } else if command_exists_on_host(&plugin.command_or_url) {
+            let tools = if discovered.is_empty() {
+                vec![
+                    format!("mcp.{}.list_resources", plugin.slug),
+                    format!("mcp.{}.query", plugin.slug),
+                    format!("mcp.{}.execute_action", plugin.slug),
+                ]
+            } else {
+                discovered
+            };
+            ("healthy", tools)
         } else {
-            plugin.discovered_tools.clone()
+            ("error", discovered)
         };
 
-        let tools_json = serde_json::to_string(&discovered).unwrap_or_else(|_| "[]".into());
+        let tools_json = serde_json::to_string(&final_tools).unwrap_or_else(|_| "[]".into());
         let now_iso = Utc::now().to_rfc3339();
 
         {
             let conn = self.db.writer();
             conn.execute(
                 "UPDATE mcp_plugins
-                 SET last_health_status = 'healthy',
-                     last_health_checked_at = ?1,
-                     discovered_tools_json = ?2,
-                     updated_at = ?1
-                 WHERE id = ?3",
-                params![now_iso, tools_json, plugin.id],
+                 SET last_health_status = ?1,
+                     last_health_checked_at = ?2,
+                     discovered_tools_json = ?3,
+                     updated_at = ?2
+                 WHERE id = ?4",
+                params![health_status, now_iso, tools_json, plugin.id],
             )
             .map_err(|e| CoreError::internal(format!("test_mcp_plugin update: {e}")))?;
 
-            for tool_name in &discovered {
-                let risk = if tool_name.contains("list") || tool_name.contains("query") {
-                    "read"
-                } else {
-                    "write"
-                };
-                let _ = conn.execute(
-                    "INSERT OR IGNORE INTO agent_tool_policies (tool_name, agent_role, permission, risk_level, enabled, updated_at)
-                     VALUES (?1, 'tool_registry', 'require_approval', ?2, ?3, ?4)",
-                    params![tool_name, risk, i64::from(plugin.enabled), now_iso],
-                );
+            if health_status == "healthy" {
+                for tool_name in &final_tools {
+                    let risk = if tool_name.contains("list") || tool_name.contains("query") {
+                        "read"
+                    } else {
+                        "write"
+                    };
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO agent_tool_policies (tool_name, agent_role, permission, risk_level, enabled, updated_at)
+                         VALUES (?1, 'tool_registry', 'require_approval', ?2, ?3, ?4)",
+                        params![tool_name, risk, i64::from(plugin.enabled), now_iso],
+                    );
+                }
             }
         }
 
@@ -1382,7 +1406,7 @@ impl<'a> AgentOrchestratorService<'a> {
                     session_id: r.get(1)?,
                     agent_role: r.get(2)?,
                     goal: r.get(3)?,
-                    plan: serde_json::from_str(&plan_raw).unwrap_or_default(),
+                    plan: parse_agent_plan_steps(&plan_raw),
                     status: r.get(5)?,
                     result_summary: r.get(6)?,
                     created_at: r.get(7)?,
@@ -1396,6 +1420,90 @@ impl<'a> AgentOrchestratorService<'a> {
         }
         Ok(out)
     }
+}
+
+fn parse_agent_plan_steps(raw: &str) -> Vec<AgentPlanStep> {
+    if let Ok(steps) = serde_json::from_str::<Vec<AgentPlanStep>>(raw) {
+        return steps;
+    }
+    if let Ok(exec_plan) =
+        serde_json::from_str::<crate::domain::agent_runtime::ExecutionPlan>(raw)
+    {
+        return exec_plan
+            .steps
+            .into_iter()
+            .map(|s| AgentPlanStep {
+                step: s.order,
+                agent_role: s.agent_role,
+                tool_name: s.tool_name.unwrap_or_else(|| "noop".to_string()),
+                action: s.title,
+                requires_approval: s.requires_approval
+                    || s.status == crate::domain::agent_runtime::PlanStepStatus::AwaitingApproval,
+            })
+            .collect();
+    }
+    Vec::new()
+}
+
+fn command_exists_on_host(cmd: &str) -> bool {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let candidate = Path::new(trimmed);
+    if candidate.is_absolute() || trimmed.contains('/') || trimmed.contains('\\') {
+        return candidate.is_file();
+    }
+    let Some(path_env) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_env).any(|dir| {
+        let p = dir.join(trimmed);
+        if p.is_file() {
+            return true;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            for ext in ["exe", "cmd", "bat"] {
+                if dir.join(format!("{trimmed}.{ext}")).is_file() {
+                    return true;
+                }
+            }
+        }
+        false
+    })
+}
+
+fn check_http_endpoint_reachable(url: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let without_scheme = url
+        .trim()
+        .strip_prefix("https://")
+        .map(|s| (s, 443u16))
+        .or_else(|| url.trim().strip_prefix("http://").map(|s| (s, 80u16)));
+    let Some((rest, default_port)) = without_scheme else {
+        return false;
+    };
+    let authority = rest.split('/').next().unwrap_or("").trim();
+    if authority.is_empty() {
+        return false;
+    }
+    let host_port = if authority.contains(':') {
+        authority.to_string()
+    } else {
+        format!("{authority}:{default_port}")
+    };
+    let Ok(addrs) = host_port.to_socket_addrs() else {
+        return false;
+    };
+    for addr in addrs.take(2) {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(650)).is_ok() {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

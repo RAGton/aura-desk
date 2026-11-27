@@ -35,6 +35,16 @@ export interface AlertsController {
   handleSnoozeReminder: (id: string) => Promise<void>;
   handleDismissReminder: (id: string) => Promise<void>;
   handleDeleteReminder: (id: string) => Promise<void>;
+  handleUpdateReminder: (
+    id: string,
+    patch: {
+      title?: string;
+      body?: string | null;
+      fire_at?: string;
+      repeat_kind?: RepeatKind;
+      sound?: ReminderSound;
+    }
+  ) => Promise<void>;
 }
 
 /**
@@ -181,6 +191,25 @@ export function useAlertsController({
     }
   };
 
+  const handleUpdateReminder = async (
+    id: string,
+    patch: {
+      title?: string;
+      body?: string | null;
+      fire_at?: string;
+      repeat_kind?: RepeatKind;
+      sound?: ReminderSound;
+    }
+  ) => {
+    try {
+      await remindersApi.update(id, patch);
+      await refreshAll();
+      notify(t("reminders.updated"));
+    } catch (err) {
+      notify(String(err), true);
+    }
+  };
+
   return {
     newReminderTitle,
     setNewReminderTitle,
@@ -196,5 +225,6 @@ export function useAlertsController({
     handleSnoozeReminder,
     handleDismissReminder,
     handleDeleteReminder,
+    handleUpdateReminder,
   };
 }

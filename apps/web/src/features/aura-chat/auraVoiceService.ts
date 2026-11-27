@@ -15,8 +15,25 @@
  * manager both map `127.0.0.1:8925 -> 8880`.
  */
 
+import { isTauriRuntime } from "../../lib/ipc";
+
 /** Base URL of the local voice service. Bound to loopback only. */
 export const AURA_VOICE_SERVICE_URL = "http://127.0.0.1:8925";
+
+function resolveVoiceHttpBaseUrl(baseUrl: string): string {
+  const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const isVitest = Boolean(metaEnv?.VITEST) || metaEnv?.MODE === "test";
+  if (
+    baseUrl === AURA_VOICE_SERVICE_URL &&
+    !isVitest &&
+    !isTauriRuntime() &&
+    typeof window !== "undefined" &&
+    window.location.protocol.startsWith("http")
+  ) {
+    return "/__voice";
+  }
+  return baseUrl;
+}
 
 /** Sample rate of the PCM produced by the service (Kokoro native rate). */
 export const AURA_VOICE_SAMPLE_RATE = 24000;
@@ -135,7 +152,7 @@ export async function listAuraServiceVoices(
   baseUrl: string = AURA_VOICE_SERVICE_URL
 ): Promise<AuraServiceVoice[]> {
   try {
-    const res = await fetch(`${baseUrl}/v1/audio/voices`, {
+    const res = await fetch(`${resolveVoiceHttpBaseUrl(baseUrl)}/v1/audio/voices`, {
       method: "GET",
       headers: { accept: "application/json" },
     });
@@ -190,7 +207,8 @@ export async function probeAuraVoiceService(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${baseUrl}/health`, {
+    const resolvedBase = resolveVoiceHttpBaseUrl(baseUrl);
+    const res = await fetch(`${resolvedBase}/health`, {
       method: "GET",
       signal: controller.signal,
     });
@@ -198,7 +216,7 @@ export async function probeAuraVoiceService(
     const data = (await res.json().catch(() => ({}))) as { status?: string };
     if (data.status !== "healthy") return { available: false, voiceCount: 0 };
 
-    const voices = await listAuraServiceVoices(baseUrl);
+    const voices = await listAuraServiceVoices(resolvedBase);
     return {
       available: true,
       voiceCount: voices.length,
@@ -236,7 +254,7 @@ export async function synthesizeAuraPcm(
   options: AuraSynthesisOptions,
   onChunk?: (chunk: Uint8Array) => void
 ): Promise<number> {
-  const baseUrl = options.baseUrl ?? AURA_VOICE_SERVICE_URL;
+  const baseUrl = resolveVoiceHttpBaseUrl(options.baseUrl ?? AURA_VOICE_SERVICE_URL);
   const body: Record<string, unknown> = {
     model: "kokoro",
     input: text,

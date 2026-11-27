@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::runtime::{db_from, AppState};
 
@@ -48,6 +48,19 @@ pub async fn desktop_show_main(app: AppHandle) -> Result<(), String> {
     })
     .await
     .map_err(|e| format!("desktop_show_main join: {e}"))
+}
+
+#[tauri::command]
+pub fn desktop_set_tray_live_voice(app: AppHandle, active: bool) -> Result<(), String> {
+    if let Some(tray_live) = app.try_state::<crate::runtime::TrayLiveMenu>() {
+        if let Ok(guard) = tray_live.0.lock() {
+            if let Some(item) = guard.as_ref() {
+                let key = if active { "tray.live_off" } else { "tray.live_on" };
+                let _ = item.set_text(auradesk_core::i18n::t(key));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

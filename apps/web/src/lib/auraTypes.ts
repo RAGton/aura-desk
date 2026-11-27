@@ -528,3 +528,29 @@ export interface AgentsOverview {
   skills?: AgentSkillRecord[];
   mcpPlugins?: McpPluginRecord[];
 }
+
+export interface AgentExecutionSummary {
+  runId: string;
+  status: string;
+  goal: string;
+  completedSteps: number;
+  totalSteps: number;
+  finalResult?: unknown;
+  error?: string | null;
+  eventsCount: number;
+}
+
+export interface UnifiedCapability {
+  id: string;
+  name: string;
+  description: string;
+  permission: string;
+  status: string;
+  tags: string[];
+}
+
+export interface SelectedCapability {
+  capability: UnifiedCapability;
+  relevanceScore: number;
+  reason: string;
+}

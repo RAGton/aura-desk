@@ -7,6 +7,8 @@ en:
     focus_completed_body: Time to stretch. Click ✓ to start the break.
   tray:
     show: Show AuraDesk
+    live_on: Start Live Voice
+    live_off: Stop Live Voice
     compact: Toggle Compact Mode
     proposals: Open Hermes Proposals
     check_updates: Check for Updates

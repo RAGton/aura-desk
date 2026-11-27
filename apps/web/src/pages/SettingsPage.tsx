@@ -7,7 +7,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-import { Badge, Button, Toast } from "@/components/ui";
+import { Badge, Button, PageHeader, Toast } from "@/components/ui";
 import {
   alertsApi,
   dataIoApi,
@@ -87,6 +87,7 @@ export interface SettingsPageProps {
   externalTheme?: string;
   externalLocale?: string;
   initialSection?: SettingsSectionKey;
+  sectionRequest?: { section: SettingsSectionKey; seq: number } | null;
   onSettingSaved?: (key: string, value: unknown) => void;
   onAlertTriggered?: () => void;
   onVisualPrefsChange?: (prefs: VisualPrefs) => void;
@@ -96,13 +97,14 @@ export function SettingsPage({
   externalTheme,
   externalLocale,
   initialSection,
+  sectionRequest,
   onSettingSaved,
   onAlertTriggered,
   onVisualPrefsChange,
 }: SettingsPageProps = {}) {
   const { t, i18n } = useTranslation();
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>(
-    initialSection ?? "general"
+    sectionRequest?.section ?? initialSection ?? "general"
   );
   const tabRefs = useRef<Partial<Record<SettingsSectionKey, HTMLButtonElement | null>>>({});
   const [values, setValues] = useState<Record<string, unknown>>(() => {
@@ -135,6 +137,11 @@ export function SettingsPage({
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!sectionRequest) return;
+    setActiveSection(sectionRequest.section);
+  }, [sectionRequest]);
 
   useEffect(() => {
     if (!externalTheme) return;
@@ -498,9 +505,9 @@ export function SettingsPage({
 
   function handleTabKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number) {
     let nextIndex: number | null = null;
-    if (e.key === "ArrowRight") {
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       nextIndex = (index + 1) % SETTINGS_SECTIONS.length;
-    } else if (e.key === "ArrowLeft") {
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       nextIndex = (index - 1 + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length;
     } else if (e.key === "Home") {
       nextIndex = 0;
@@ -517,97 +524,104 @@ export function SettingsPage({
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto aura-scrollbar pr-1">
-      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <Settings className="h-5 w-5 text-aura-accent" aria-hidden="true" />
-            <h2 className="text-xl font-bold text-slate-50">{t("settings.title")}</h2>
-          </div>
-          <p className="text-xs text-slate-400">{t("settings.subtitle")}</p>
+      <PageHeader
+        icon={<Settings className="h-5 w-5" aria-hidden="true" />}
+        title={t("settings.title")}
+        subtitle={t("settings.subtitle")}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-[230px_1fr] gap-5 items-start">
+        {/* Dedicated Settings Subgroup Navbar (Linear/Raycast 2-column style) */}
+        <div
+          role="tablist"
+          aria-label={t("settings.navAriaLabel")}
+          aria-orientation="vertical"
+          className="aura-glass rounded-2xl p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible md:sticky md:top-4 shrink-0"
+        >
+          {SETTINGS_SECTIONS.map((section, idx) => {
+            const SectionIcon = section.icon;
+            const isActive = activeSection === section.key;
+            const dirty = sectionDirtyMap[section.key];
+            const showUpdateDot = section.key === "system" && hasPendingUpdate;
+            return (
+              <button
+                key={section.key}
+                ref={(el) => {
+                  tabRefs.current[section.key] = el;
+                }}
+                id={`settings-tab-${section.key}`}
+                data-testid={`settings-tab-${section.key}`}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`settings-panel-${section.key}`}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => setActiveSection(section.key)}
+                onKeyDown={(e) => handleTabKeyDown(e, idx)}
+                className={`relative inline-flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer touch-manipulation whitespace-nowrap md:w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
+                  isActive
+                    ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35 shadow-sm"
+                    : "text-aura-text-muted hover:text-aura-primary hover:bg-aura-elevated/60"
+                }`}
+              >
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <SectionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t(section.labelKey)}</span>
+                </span>
+                {dirty && (
+                  <span
+                    aria-hidden="true"
+                    title={t("settings.unsavedIndicator")}
+                    className="h-2 w-2 shrink-0 rounded-full bg-amber-400 ring-2 ring-amber-400/25"
+                  />
+                )}
+                {!dirty && showUpdateDot && (
+                  <span
+                    aria-hidden="true"
+                    title={t("settings.updates.available", {
+                      version: updateState?.latestVersion ?? updateState?.currentVersion ?? "",
+                    })}
+                    className="h-2 w-2 shrink-0 rounded-full bg-indigo-400 animate-pulse ring-2 ring-indigo-400/25"
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      {/* Dedicated Settings Subgroup Navbar */}
-      <div
-        role="tablist"
-        aria-label={t("settings.navAriaLabel")}
-        aria-orientation="horizontal"
-        className="aura-glass rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5 shrink-0"
-      >
-        {SETTINGS_SECTIONS.map((section, idx) => {
-          const SectionIcon = section.icon;
-          const isActive = activeSection === section.key;
-          const dirty = sectionDirtyMap[section.key];
-          const showUpdateDot = section.key === "system" && hasPendingUpdate;
-          return (
-            <button
-              key={section.key}
-              ref={(el) => {
-                tabRefs.current[section.key] = el;
-              }}
-              id={`settings-tab-${section.key}`}
-              data-testid={`settings-tab-${section.key}`}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`settings-panel-${section.key}`}
-              tabIndex={isActive ? 0 : -1}
-              onClick={() => setActiveSection(section.key)}
-              onKeyDown={(e) => handleTabKeyDown(e, idx)}
-              className={`relative inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition-all cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus ${
-                isActive
-                  ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-              }`}
-            >
-              <SectionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span>{t(section.labelKey)}</span>
-              {dirty && (
-                <span
-                  aria-hidden="true"
-                  title={t("settings.unsavedIndicator")}
-                  className="h-2 w-2 rounded-full bg-amber-400 ring-2 ring-amber-400/25"
-                />
-              )}
-              {!dirty && showUpdateDot && (
-                <span
-                  aria-hidden="true"
-                  title={t("settings.updates.available", {
-                    version: updateState?.latestVersion ?? updateState?.currentVersion ?? "",
-                  })}
-                  className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse ring-2 ring-indigo-400/25"
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
+        <div className="fixed bottom-20 md:bottom-6 right-4 z-50 flex flex-col items-end gap-2 max-w-[calc(100vw-2rem)]">
+          <Toast
+            open={Boolean(savedMsg)}
+            variant="success"
+            message={savedMsg ? `✓ ${savedMsg}` : ""}
+            onClose={() => setSavedMsg(null)}
+          />
+          <Toast
+            open={Boolean(error)}
+            variant="error"
+            message={error ?? ""}
+            onClose={() => setError(null)}
+          />
+        </div>
 
-      <div className="fixed bottom-20 md:bottom-6 right-4 z-50 flex flex-col items-end gap-2 max-w-[calc(100vw-2rem)]">
-        <Toast
-          open={Boolean(savedMsg)}
-          variant="success"
-          message={savedMsg ? `✓ ${savedMsg}` : ""}
-          onClose={() => setSavedMsg(null)}
-        />
-        <Toast
-          open={Boolean(error)}
-          variant="error"
-          message={error ?? ""}
-          onClose={() => setError(null)}
-        />
-      </div>
-
-      <div
-        key={activeSection}
-        role="tabpanel"
-        id={`settings-panel-${activeSection}`}
-        aria-labelledby={`settings-tab-${activeSection}`}
-        className="space-y-4 aura-panel-enter"
-      >
-        <p className="rounded-xl aura-glass-pill px-3.5 py-2 text-xs text-slate-400">
-          {t(activeSectionDef.descriptionKey)}
-        </p>
+        <div
+          key={activeSection}
+          role="tabpanel"
+          id={`settings-panel-${activeSection}`}
+          aria-labelledby={`settings-tab-${activeSection}`}
+          className="space-y-4 aura-panel-enter min-w-0"
+        >
+          <div className="rounded-2xl aura-glass-pill px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-aura-accent">
+                {t(activeSectionDef.labelKey)}
+              </span>
+              <span className="text-slate-500">·</span>
+              <p className="text-xs text-slate-400">
+                {t(activeSectionDef.descriptionKey)}
+              </p>
+            </div>
+          </div>
 
         {activeSectionDef.groups.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -799,6 +813,7 @@ export function SettingsPage({
             />
           </div>
         )}
+        </div>
       </div>
     </div>
   );

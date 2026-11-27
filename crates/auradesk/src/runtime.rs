@@ -53,6 +53,10 @@ pub struct AppState {
     pub instance_lock: Option<std::fs::File>,
 }
 
+/// Handle to the system tray "Live Voice" menu item so its label can toggle
+/// dynamically between start and stop states.
+pub struct TrayLiveMenu(pub std::sync::Mutex<Option<MenuItem<tauri::Wry>>>);
+
 #[cfg(windows)]
 fn try_acquire_instance_lock(data_dir: &std::path::Path) -> Option<std::fs::File> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -257,6 +261,16 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 true,
                 None::<&str>,
             )?;
+            let live_voice = MenuItem::with_id(
+                app,
+                "toggle_live",
+                auradesk_core::i18n::t("tray.live_on"),
+                true,
+                None::<&str>,
+            )?;
+            app.manage(TrayLiveMenu(std::sync::Mutex::new(Some(
+                live_voice.clone(),
+            ))));
             let compact = MenuItem::with_id(
                 app,
                 "compact",
@@ -296,6 +310,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                 app,
                 &[
                     &show,
+                    &live_voice,
                     &compact,
                     &proposals,
                     &check_updates,
@@ -314,6 +329,11 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                     }
                     "show" => {
                         crate::desktop::show_main_window(app);
+                    }
+                    "toggle_live" => {
+                        crate::desktop::show_main_window(app);
+                        let _ = app.emit("auradesk://navigate", "hermes");
+                        let _ = app.emit("auradesk://toggle-live-voice", ());
                     }
                     "compact" => {
                         if let Some(state) = app.try_state::<AppState>() {
@@ -595,6 +615,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::desktop::desktop_apply_monitor_preference,
             crate::ipc::desktop::desktop_toggle_compact,
             crate::ipc::desktop::desktop_show_main,
+            crate::ipc::desktop::desktop_set_tray_live_voice,
             crate::ipc::desktop::desktop_get_state,
             crate::ipc::desktop::desktop_set_autostart,
             crate::ipc::desktop::desktop_get_idle_state,

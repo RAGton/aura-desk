@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
@@ -12,7 +12,7 @@ import {
   Timer,
 } from "lucide-react";
 
-import { Badge, Button, EmptyState, Input, Select } from "../components/ui";
+import { Badge, Button, EmptyState, Input, PageHeader, Select } from "../components/ui";
 import type { PomodoroSession, SessionKind, Task } from "../lib/ipc";
 
 export interface PomodoroPageProps {
@@ -90,45 +90,64 @@ export function PomodoroPage({
     setCustomMin("");
   };
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* Main Focus Studio */}
-      <div className="lg:col-span-7 rounded-2xl aura-glass p-7 flex flex-col items-center text-center gap-5">
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-center gap-3">
-            <div className="rounded-xl bg-sky-500/15 p-2 ring-1 ring-sky-400/30">
-              <Timer className="h-7 w-7 text-sky-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-50">{t("pomodoro.title")}</h2>
-          </div>
-          <p className="text-xs text-slate-400">{t("pomodoro.subtitle")}</p>
-        </div>
+  useEffect(() => {
+    if (!activePomo) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        tag === "BUTTON" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      onTogglePause();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activePomo, onTogglePause]);
 
-        <div className="flex flex-wrap items-center justify-center gap-2.5">
-          <Badge variant="info" className="rounded-full px-3.5 py-1 text-xs font-medium">
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        icon={<Timer className="h-5 w-5" aria-hidden="true" />}
+        title={t("pomodoro.title")}
+        subtitle={t("pomodoro.subtitle")}
+        badges={
+          <Badge variant="info" className="rounded-full px-3 py-0.5 text-[11px] font-medium">
             {t("pomodoro.cycleProgress", { current: cycleCurrent, total: safeCyclesTotal })}
           </Badge>
-          <div className="inline-flex items-center gap-1.5 rounded-full aura-glass-pill px-2.5 py-1.5">
+        }
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Main Focus Studio */}
+        <div className="lg:col-span-7 rounded-2xl aura-glass p-6 flex flex-col items-center text-center gap-5">
+          <div className="inline-flex items-center gap-1.5 rounded-full aura-glass-pill px-3 py-1.5">
             {Array.from({ length: safeCyclesTotal }).map((_, idx) => {
               const filled = idx < completedFocusCount % safeCyclesTotal;
               const isCurrent = idx === completedFocusCount % safeCyclesTotal;
               return (
                 <span
                   key={idx}
-                  className={`h-2 w-2 rounded-full transition-colors ${
+                  className={`h-2.5 w-2.5 rounded-full transition-colors ${
                     filled
                       ? "bg-emerald-400"
                       : isCurrent && activePomo
                         ? "bg-sky-400 animate-pulse"
                         : isCurrent
-                          ? "bg-sky-400/70"
-                          : "bg-slate-700"
+                          ? "bg-sky-400/75"
+                          : "bg-aura-muted/60"
                   }`}
                 />
               );
             })}
           </div>
-        </div>
 
         {activePomo ? (
           <div className="space-y-5 w-full max-w-md flex flex-col items-center">
@@ -215,11 +234,34 @@ export function PomodoroPage({
           </div>
         ) : (
           <div className="space-y-4 w-full max-w-lg">
-            <div className="relative mx-auto flex items-center justify-center w-44 h-44 rounded-full aura-glass-elevated ring-1 ring-sky-400/25">
-              <div className="absolute inset-3 rounded-full bg-sky-500/10 blur-xl pointer-events-none" />
+            <div className="relative mx-auto flex items-center justify-center w-52 h-52">
+              <div className="absolute inset-4 rounded-full bg-sky-500/10 blur-2xl pointer-events-none" />
+              <svg viewBox="0 0 192 192" className="w-full h-full -rotate-90" aria-hidden="true">
+                <circle
+                  cx="96"
+                  cy="96"
+                  r={radius}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="7"
+                  className="text-slate-800/60"
+                />
+                <circle
+                  cx="96"
+                  cy="96"
+                  r={radius}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={circumference * 0.25}
+                  className="text-sky-400/75"
+                />
+              </svg>
               <span
                 data-testid="pomodoro-clock"
-                className="text-4xl font-extrabold tracking-tight text-slate-100 tabular-nums"
+                className="absolute text-5xl font-extrabold tracking-tight text-slate-100 tabular-nums"
               >
                 {formatClock(focusMin * 60)}
               </span>
@@ -229,7 +271,7 @@ export function PomodoroPage({
               aria-label={t("pomodoro.selectTaskLabel")}
               value={selectedTaskId}
               onChange={(e) => onSelectTaskId(e.target.value)}
-              className="rounded-xl py-2.5 text-xs"
+              className="rounded-xl text-xs"
             >
               <option value="">{t("pomodoro.noTaskLinked")}</option>
               {tasks
@@ -240,33 +282,33 @@ export function PomodoroPage({
                   </option>
                 ))}
             </Select>
-            <div className="flex flex-wrap justify-center gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 w-full">
               <Button
-                size="lg"
+                size="md"
                 variant="primary"
                 onClick={() => void onStart("focus", focusMin, selectedTaskId || null)}
-                className="rounded-xl font-bold shadow-sm shadow-sky-500/25"
+                className="min-h-[44px] rounded-xl font-bold text-xs shadow-sm shadow-sky-500/25 w-full"
               >
-                <Flame className="h-4 w-4" />
-                {t("pomodoro.startFocusCustom", { min: focusMin })}
+                <Flame className="h-4 w-4 shrink-0" />
+                <span>{t("pomodoro.startFocusCustom", { min: focusMin })}</span>
               </Button>
               <Button
-                size="lg"
+                size="md"
                 variant="secondary"
                 onClick={() => void onStart("short_break", shortMin, null)}
-                className="rounded-xl font-semibold"
+                className="min-h-[44px] rounded-xl font-semibold text-xs w-full"
               >
-                <Coffee className="h-4 w-4" />
-                {t("pomodoro.startShortBreakCustom", { min: shortMin })}
+                <Coffee className="h-4 w-4 shrink-0" />
+                <span>{t("pomodoro.startShortBreakCustom", { min: shortMin })}</span>
               </Button>
               <Button
-                size="lg"
+                size="md"
                 variant="secondary"
                 onClick={() => void onStart("long_break", longMin, null)}
-                className="rounded-xl font-semibold"
+                className="min-h-[44px] rounded-xl font-semibold text-xs w-full"
               >
-                <Leaf className="h-4 w-4" />
-                {t("pomodoro.startLongBreakCustom", { min: longMin })}
+                <Leaf className="h-4 w-4 shrink-0" />
+                <span>{t("pomodoro.startLongBreakCustom", { min: longMin })}</span>
               </Button>
             </div>
 
@@ -283,9 +325,9 @@ export function PomodoroPage({
                 value={customMin}
                 onChange={(e) => setCustomMin(e.target.value)}
                 placeholder={t("pomodoro.customMinutesPlaceholder")}
-                className="py-1.5 text-xs text-center"
+                className="rounded-xl text-xs text-center"
               />
-              <Button type="submit" size="sm" variant="outline" className="rounded-xl text-xs font-semibold text-sky-300">
+              <Button type="submit" size="md" variant="outline" className="rounded-xl text-xs font-semibold text-sky-300">
                 {t("pomodoro.startCustomFocus")}
               </Button>
             </form>
@@ -297,7 +339,7 @@ export function PomodoroPage({
       <div className="lg:col-span-5 space-y-4">
         <div className="grid grid-cols-2 gap-3.5">
           <div className="rounded-2xl aura-glass p-4 border-t-2 border-t-emerald-400/70">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-aura-text-muted">
               <span>{t("pomodoro.completedSessions")}</span>
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
             </div>
@@ -306,7 +348,7 @@ export function PomodoroPage({
             </div>
           </div>
           <div className="rounded-2xl aura-glass p-4 border-t-2 border-t-sky-400/70">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-aura-text-muted">
               <span>{t("pomodoro.loggedFocus")}</span>
               <Flame className="h-3.5 w-3.5 text-sky-400" />
             </div>
@@ -318,7 +360,7 @@ export function PomodoroPage({
 
         <div className="rounded-2xl aura-glass p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-aura-primary flex items-center gap-2">
               <Clock className="h-4 w-4 text-sky-400" />
               {t("pomodoro.history")}
             </h3>
@@ -356,11 +398,11 @@ export function PomodoroPage({
                         <KindIcon className="h-3.5 w-3.5" />
                       </span>
                       <div className="min-w-0">
-                        <div className="font-medium text-slate-200 truncate">
+                        <div className="font-medium text-aura-primary truncate">
                           {t(`pomodoro.kinds.${s.kind}`)} • {s.actual_min ?? s.planned_min} min
                         </div>
                         {startedAt && (
-                          <div className="text-[11px] text-slate-400 tabular-nums">{startedAt}</div>
+                          <div className="text-[11px] text-aura-text-muted tabular-nums">{startedAt}</div>
                         )}
                       </div>
                     </div>
@@ -373,6 +415,7 @@ export function PomodoroPage({
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

@@ -144,10 +144,10 @@ export function HindsightSection({
         </div>
       </div>
 
-      <p className="text-xs text-slate-400">{t("settings.hindsight.description")}</p>
+      <p className="text-xs text-aura-text-muted">{t("settings.hindsight.description")}</p>
 
       {showGuide && (
-        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3.5 space-y-1.5 text-xs text-slate-200">
+        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3.5 space-y-1.5 text-xs text-aura-primary">
           <p className="font-semibold text-violet-300">{t("settings.hindsight.guideTitle")}</p>
           <p>{t("settings.hindsight.guideBody")}</p>
         </div>
@@ -155,12 +155,12 @@ export function HindsightSection({
 
       {/* Toggles */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3.5 py-2.5">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-aura-border/40 bg-aura-surface/70 px-3.5 py-2.5">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-100">
+            <div className="text-xs font-medium text-aura-primary">
               {t("settings.hindsight.enableLabel")}
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-aura-text-muted">
               {t("settings.hindsight.enableDescription")}
             </div>
           </div>
@@ -175,12 +175,12 @@ export function HindsightSection({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3.5 py-2.5">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-aura-border/40 bg-aura-surface/70 px-3.5 py-2.5">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-100">
+            <div className="text-xs font-medium text-aura-primary">
               {t("settings.hindsight.autoBanksLabel")}
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-aura-text-muted">
               {t("settings.hindsight.autoBanksDescription")}
             </div>
           </div>
@@ -195,12 +195,12 @@ export function HindsightSection({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3.5 py-2.5">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-aura-border/40 bg-aura-surface/70 px-3.5 py-2.5">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-100">
+            <div className="text-xs font-medium text-aura-primary">
               {t("settings.hindsight.dailyMaintenanceLabel")}
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-aura-text-muted">
               {t("settings.hindsight.dailyMaintenanceDescription")}
             </div>
           </div>
@@ -220,7 +220,7 @@ export function HindsightSection({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.hindsight.baseUrlLabel")}
             </label>
             <Input
@@ -231,7 +231,7 @@ export function HindsightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("hindsight.base_url", baseUrl)}
@@ -242,7 +242,7 @@ export function HindsightSection({
 
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.hindsight.defaultBankLabel")}
             </label>
             <Input
@@ -253,7 +253,7 @@ export function HindsightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("hindsight.default_bank", defaultBank)}
@@ -291,7 +291,7 @@ export function HindsightSection({
           </Button>
         </div>
 
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-aura-text-muted">
           {status?.lastMaintenanceDate
             ? t("settings.hindsight.lastMaintenance", { date: status.lastMaintenanceDate })
             : t("settings.hindsight.neverMaintained")}
@@ -299,11 +299,11 @@ export function HindsightSection({
       </div>
 
       {/* Retrieval and graph limits */}
-      <div className="grid gap-3 pt-3 border-t border-slate-800/60 sm:grid-cols-2">
+      <div className="grid gap-3 pt-3 border-t border-aura-border/35 sm:grid-cols-2">
         <label className="space-y-1">
-          <span className="flex items-center justify-between text-[11px] text-slate-400">
+          <span className="flex items-center justify-between text-[11px] text-aura-text-muted">
             {t("settings.hindsight.recallTopK")}
-            <span className="font-semibold text-slate-200 tabular-nums">
+            <span className="font-semibold text-aura-primary tabular-nums">
               {recallTopK}
             </span>
           </span>
@@ -326,9 +326,9 @@ export function HindsightSection({
         </label>
 
         <label className="space-y-1">
-          <span className="flex items-center justify-between text-[11px] text-slate-400">
+          <span className="flex items-center justify-between text-[11px] text-aura-text-muted">
             {t("settings.hindsight.graphNodeLimit")}
-            <span className="font-semibold text-slate-200 tabular-nums">
+            <span className="font-semibold text-aura-primary tabular-nums">
               {graphNodeLimit}
             </span>
           </span>
@@ -352,7 +352,7 @@ export function HindsightSection({
       </div>
 
       {/* Recall test */}
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60">
+      <div className="flex items-center gap-2 pt-2 border-t border-aura-border/35">
         <Input
           containerClassName="flex-1"
           aria-label={t("settings.hindsight.testRecallPlaceholder")}
@@ -361,7 +361,7 @@ export function HindsightSection({
           onChange={(e) => setRecallQuery(e.target.value)}
         />
         <Button
-          size="sm"
+          size="md"
           variant="secondary"
           disabled={isWorking || !recallQuery.trim()}
           onClick={() => void handleRecall()}
@@ -372,16 +372,16 @@ export function HindsightSection({
       </div>
 
       {feedback && (
-        <p className="text-xs text-violet-300 break-all">{feedback}</p>
+        <p className="text-xs text-violet-400 break-all">{feedback}</p>
       )}
 
       {recallResults !== null && (
-        <div className="rounded-xl border border-slate-800/70 bg-slate-950/60 p-3 space-y-2 text-xs text-slate-200">
+        <div className="rounded-xl border border-aura-border/40 bg-aura-surface/75 p-3 space-y-2 text-xs text-aura-primary">
           {recallResults.length === 0 ? (
-            <p className="text-slate-400">{t("settings.hindsight.emptyRecall")}</p>
+            <p className="text-aura-text-muted">{t("settings.hindsight.emptyRecall")}</p>
           ) : (
             recallResults.map((item) => (
-              <div key={item.id} className="flex items-start justify-between gap-2 border-b border-slate-800/50 pb-1.5 last:border-0 last:pb-0">
+              <div key={item.id} className="flex items-start justify-between gap-2 border-b border-aura-border/30 pb-1.5 last:border-0 last:pb-0">
                 <span>{item.content}</span>
                 <Badge variant="neutral" className="shrink-0 text-[10px]">
                   {item.bank} ({item.source})

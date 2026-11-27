@@ -27,6 +27,7 @@ import {
   Button,
   EmptyState,
   Input,
+  PageHeader,
   Select,
   Skeleton,
 } from "../components/ui";
@@ -435,25 +436,48 @@ export function SessionsCenterPage({
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-aura-text-muted tabular-nums">
-              <span>
-                {t("sessions.messagesCount", { count: session.messageCount })}
-              </span>
-              <span>
-                {t("sessions.compressionsCount", {
-                  count: session.compressionCount,
-                })}
-              </span>
-              <span>
-                {t("sessions.tokensUsage", {
-                  used: session.estimatedTokens,
-                  budget: session.tokenBudget,
-                })}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Clock className="h-3 w-3" aria-hidden="true" />
-                {formatDateTime(session.lastActivityAt)}
-              </span>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-aura-text-muted tabular-nums">
+                <span>
+                  {t("sessions.messagesCount", { count: session.messageCount })}
+                </span>
+                <span>
+                  {t("sessions.compressionsCount", {
+                    count: session.compressionCount,
+                  })}
+                </span>
+                <span>
+                  {t("sessions.tokensUsage", {
+                    used: session.estimatedTokens,
+                    budget: session.tokenBudget,
+                  })}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3" aria-hidden="true" />
+                  {formatDateTime(session.lastActivityAt)}
+                </span>
+              </div>
+              {(() => {
+                const budget = Math.max(1, session.tokenBudget);
+                const pct = Math.min(100, Math.round((session.estimatedTokens / budget) * 100));
+                const barTone =
+                  pct >= 90
+                    ? "bg-rose-400"
+                    : pct >= 75
+                      ? "bg-amber-400"
+                      : "bg-aura-accent";
+                return (
+                  <div
+                    className="h-1 w-full max-w-sm overflow-hidden rounded-full bg-aura-muted/40"
+                    aria-hidden="true"
+                  >
+                    <div
+                      className={`h-full transition-[width] duration-300 ${barTone}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -518,7 +542,7 @@ export function SessionsCenterPage({
             disabled={session.id === "default" || isBusy}
             onClick={() => void handleDeleteSession(session)}
             data-testid={`session-delete-${session.id}`}
-            className="text-aura-danger hover:text-aura-danger"
+            className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             {t("sessions.delete")}
@@ -530,38 +554,25 @@ export function SessionsCenterPage({
 
   return (
     <div className="space-y-5" data-testid="sessions-center-page">
-      {/* Page Header */}
-      <header className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-aura-lg border border-aura-accent/30 bg-aura-surface/80">
-            <MessageSquare
-              className="h-5 w-5 text-aura-accent"
-              aria-hidden="true"
-            />
-          </span>
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-aura-primary">
-              {t("sessions.title")}
-            </h2>
-            <p className="text-xs text-aura-text-muted">
-              {t("sessions.subtitle")}
-            </p>
-          </div>
-        </div>
-
-        <Button
-          type="button"
-          size="md"
-          variant="primary"
-          loading={creating}
-          disabled={creating}
-          onClick={() => void handleCreateSession()}
-          data-testid="sessions-new-btn"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {t("sessions.newSession")}
-        </Button>
-      </header>
+      <PageHeader
+        icon={<MessageSquare className="h-5 w-5" aria-hidden="true" />}
+        title={t("sessions.title")}
+        subtitle={t("sessions.subtitle")}
+        actions={
+          <Button
+            type="button"
+            size="md"
+            variant="primary"
+            loading={creating}
+            disabled={creating}
+            onClick={() => void handleCreateSession()}
+            data-testid="sessions-new-btn"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t("sessions.newSession")}
+          </Button>
+        }
+      />
 
       {/* Sub-Tabs */}
       <div
@@ -646,7 +657,10 @@ export function SessionsCenterPage({
               </Select>
             </div>
 
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 space-y-1">
+              <span className="block text-[10px] font-medium uppercase tracking-wider text-aura-text-muted">
+                {t("sessions.dateFrom")}
+              </span>
               <Input
                 type="date"
                 value={dateFrom}
@@ -656,27 +670,32 @@ export function SessionsCenterPage({
               />
             </div>
 
-            <div className="md:col-span-2 flex items-center gap-2">
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                aria-label={t("reports.dateLabel")}
-                data-testid="sessions-date-to"
-                containerClassName="flex-1"
-              />
-              {hasFilters && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={handleClearFilters}
-                  aria-label={t("kanban.clearFilters")}
-                  title={t("kanban.clearFilters")}
-                >
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-              )}
+            <div className="md:col-span-2 space-y-1">
+              <span className="block text-[10px] font-medium uppercase tracking-wider text-aura-text-muted">
+                {t("sessions.dateTo")}
+              </span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  aria-label={t("reports.dateLabel")}
+                  data-testid="sessions-date-to"
+                  containerClassName="flex-1"
+                />
+                {hasFilters && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleClearFilters}
+                    aria-label={t("kanban.clearFilters")}
+                    title={t("kanban.clearFilters")}
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </section>

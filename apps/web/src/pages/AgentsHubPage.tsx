@@ -34,6 +34,7 @@ import {
   Button,
   EmptyState,
   Input,
+  PageHeader,
   Select,
   Skeleton,
   Switch,
@@ -154,8 +155,10 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
   const [planError, setPlanError] = useState<string | null>(null);
   const [hubActionError, setHubActionError] = useState<string | null>(null);
   const [pendingTools, setPendingTools] = useState<Record<string, boolean>>({});
+  const [toolSearch, setToolSearch] = useState("");
   const [goal, setGoal] = useState("");
   const [planning, setPlanning] = useState(false);
+  const [runningPlanId, setRunningPlanId] = useState<string | null>(null);
 
   // Bot composer state
   const [botName, setBotName] = useState("");
@@ -287,6 +290,49 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
     } finally {
       if (mountedRef.current) {
         setPlanning(false);
+      }
+    }
+  };
+
+  const handleRunExecution = async (run: AgentRunRecord, approveAndResume: boolean) => {
+    if (runningPlanId) return;
+    setPlanError(null);
+    setRunningPlanId(run.id);
+    try {
+      const summary = approveAndResume
+        ? await agentsApi.resumeRun(run.id)
+        : await agentsApi.executeRun(run.id);
+      if (!mountedRef.current) return;
+      setOverview((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          runs: asArray<AgentRunRecord>(prev.runs).map((item) => {
+            if (item.id !== run.id) return item;
+            const steps = asArray<AgentPlanStep>(item.plan).map((step) =>
+              approveAndResume || summary.status === "completed"
+                ? { ...step, requiresApproval: false }
+                : step
+            );
+            return {
+              ...item,
+              status: summary.status,
+              plan: steps,
+              resultSummary:
+                summary.error ||
+                (summary.status === "completed"
+                  ? `agentsHub.plan.summary_safe`
+                  : item.resultSummary),
+            };
+          }),
+        };
+      });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setPlanError(extractErrorMessage(err));
+    } finally {
+      if (mountedRef.current) {
+        setRunningPlanId(null);
       }
     }
   };
@@ -613,46 +659,52 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
   const agents = asArray<AgentDescriptor>(overview?.agents);
   const tools = asArray<AgentToolEntry>(overview?.tools);
   const runs = asArray<AgentRunRecord>(overview?.runs);
+  const filteredTools = toolSearch.trim()
+    ? tools.filter((tool) => {
+        const q = toolSearch.toLowerCase();
+        return (
+          tool.toolName.toLowerCase().includes(q) ||
+          tool.description.toLowerCase().includes(q) ||
+          tool.agentRole.toLowerCase().includes(q) ||
+          (tool.source ?? "").toLowerCase().includes(q)
+        );
+      })
+    : tools;
 
   return (
     <div className="space-y-6" data-testid="agents-hub-page">
-      <header className="flex flex-wrap items-start justify-between gap-4 rounded-aura-lg border border-aura-border/40 bg-aura-surface/80 p-5 shadow-aura-surface backdrop-blur-md">
-        <div className="min-w-0 space-y-1">
-          <h2 className="flex items-center gap-2.5 text-xl font-bold text-aura-primary">
-            <Bot className="h-5 w-5 shrink-0 text-aura-accent" aria-hidden="true" />
-            <span>{t("agentsHub.title")}</span>
-          </h2>
-          <p className="text-xs leading-relaxed text-aura-text-muted">
-            {t("agentsHub.subtitle")}
-          </p>
-        </div>
+      <PageHeader
+        icon={<Bot className="h-5 w-5" aria-hidden="true" />}
+        title={t("agentsHub.title")}
+        subtitle={t("agentsHub.subtitle")}
+        actions={
+          <>
+            {overview ? (
+              <Badge
+                variant={overview.pendingProposals > 0 ? "warning" : "neutral"}
+                data-testid="agents-pending-proposals"
+              >
+                {t("agentsHub.pendingProposals", { count: overview.pendingProposals })}
+              </Badge>
+            ) : (
+              <Skeleton className="h-6 w-44 rounded-aura-sm" />
+            )}
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {overview ? (
-            <Badge
-              variant={overview.pendingProposals > 0 ? "warning" : "neutral"}
-              data-testid="agents-pending-proposals"
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              loading={refreshing}
+              disabled={loading || refreshing}
+              onClick={() => void loadOverview(true)}
+              data-testid="agents-refresh-btn"
             >
-              {t("agentsHub.pendingProposals", { count: overview.pendingProposals })}
-            </Badge>
-          ) : (
-            <Skeleton className="h-6 w-44 rounded-aura-sm" />
-          )}
-
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            loading={refreshing}
-            disabled={loading || refreshing}
-            onClick={() => void loadOverview(true)}
-            data-testid="agents-refresh-btn"
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("hindsightPanel.refresh")}
-          </Button>
-        </div>
-      </header>
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("hindsightPanel.refresh")}
+            </Button>
+          </>
+        }
+      />
 
       {/* Sub-navigation bar: Overview, Bots & Squads, Skills (SKILL.md), MCP Plugins */}
       <div
@@ -752,7 +804,7 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
 
       {loading && !overview ? (
         <div className="space-y-6" data-testid="agents-loading">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 8 }, (_, idx) => (
               <div
                 key={idx}
@@ -1570,7 +1622,7 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
             {agents.length === 0 ? (
               <EmptyState title={t("hindsightPanel.emptyList")} />
             ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {agents.map((agent) => {
                   const isGuarded = agent.status === "guarded";
                   const capabilities = asArray<string>(agent.capabilities);
@@ -1588,7 +1640,7 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
                               {renderAgentIcon(agent.role)}
                             </span>
                             <div className="min-w-0">
-                              <h4 className="truncate text-sm font-semibold text-aura-primary">
+                              <h4 className="text-sm font-semibold leading-snug text-aura-primary">
                                 {t(agent.name, { defaultValue: agent.name })}
                               </h4>
                               <p className="truncate font-mono text-[11px] text-aura-text-muted">
@@ -1667,18 +1719,35 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
             aria-labelledby="registry-section-heading"
             className="space-y-4 rounded-aura-lg border border-aura-border/40 bg-aura-surface/80 p-5 shadow-aura-surface backdrop-blur-md"
           >
-            <div>
-              <h3
-                id="registry-section-heading"
-                className="flex items-center gap-2 text-sm font-semibold text-aura-primary"
-              >
-                <Wrench className="h-4 w-4 text-aura-accent" aria-hidden="true" />
-                <span>{t("agentsHub.registrySection")}</span>
-              </h3>
-              <p className="mt-1 flex items-center gap-1.5 text-xs text-aura-text-muted">
-                <Lock className="h-3.5 w-3.5 shrink-0 text-aura-warning" aria-hidden="true" />
-                <span>{t("agentsHub.registryHint")}</span>
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3
+                  id="registry-section-heading"
+                  className="flex items-center gap-2 text-sm font-semibold text-aura-primary"
+                >
+                  <Wrench className="h-4 w-4 text-aura-accent" aria-hidden="true" />
+                  <span>{t("agentsHub.registrySection")}</span>
+                </h3>
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-aura-text-muted">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-aura-warning" aria-hidden="true" />
+                  <span>{t("agentsHub.registryHint")}</span>
+                </p>
+              </div>
+              {tools.length > 0 && (
+                <div className="relative w-full sm:w-72">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-aura-text-muted"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    value={toolSearch}
+                    onChange={(e) => setToolSearch(e.target.value)}
+                    placeholder={t("agentsHub.toolsSearchPlaceholder")}
+                    aria-label={t("agentsHub.toolsSearchPlaceholder")}
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+              )}
             </div>
 
             {policyError && (
@@ -1692,7 +1761,7 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
               </div>
             )}
 
-            {tools.length === 0 ? (
+            {filteredTools.length === 0 ? (
               <EmptyState title={t("hindsightPanel.emptyList")} />
             ) : (
               <div className="overflow-x-auto rounded-aura-md border border-aura-border/40 bg-aura-canvas/40">
@@ -1717,7 +1786,7 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-aura-border/25">
-                    {tools.map((tool) => {
+                    {filteredTools.map((tool) => {
                       const restricted = isRestrictedRisk(tool.riskLevel);
                       const updating = Boolean(pendingTools[tool.toolName]);
                       const roleLabel = t(`agentsHub.roles.${tool.agentRole}.name`, {
@@ -1877,6 +1946,12 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
                     const needsApproval =
                       run.status === "awaiting_approval" ||
                       steps.some((step) => step.requiresApproval);
+                    const canExecute = run.status === "planned";
+                    const canResume =
+                      run.status === "awaiting_approval" ||
+                      run.status === "blocked" ||
+                      run.status === "paused";
+                    const isRunningThis = runningPlanId === run.id;
 
                     return (
                       <article
@@ -1897,9 +1972,30 @@ export function AgentsHubPage({ activeSessionId }: AgentsHubPageProps) {
                             </div>
                           </div>
 
-                          <Badge variant={needsApproval ? "warning" : "success"}>
-                            {run.status}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            {(canExecute || canResume) && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={canResume ? "outline" : "primary"}
+                                loading={isRunningThis}
+                                disabled={Boolean(runningPlanId)}
+                                onClick={() => void handleRunExecution(run, canResume)}
+                                data-testid={`agent-exec-run-${run.id}`}
+                                className="text-xs font-semibold"
+                              >
+                                <Play className="h-3 w-3" aria-hidden="true" />
+                                {isRunningThis
+                                  ? t("agentsHub.runningPlan")
+                                  : canResume
+                                    ? t("agentsHub.approveAndResume")
+                                    : t("agentsHub.executeRun")}
+                              </Button>
+                            )}
+                            <Badge variant={run.status === "completed" ? "success" : needsApproval ? "warning" : "info"}>
+                              {run.status}
+                            </Badge>
+                          </div>
                         </div>
 
                         {steps.length > 0 && (

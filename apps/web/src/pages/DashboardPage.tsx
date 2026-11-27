@@ -84,13 +84,27 @@ export interface DashboardPageProps {
   onChangeNewTaskPriority: (v: TaskPriority) => void;
   onCreateTask: (e: React.FormEvent) => void | Promise<void>;
   onUpdateLayout: (next: DashboardLayoutState) => void;
-  onNavigateTab: (tab: "kanban" | "pomodoro" | "reminders" | "settings") => void;
+  onNavigateTab: (
+    tab: "kanban" | "pomodoro" | "reminders" | "settings",
+    settingsSection?: "general" | "desktop" | "focus" | "reminders" | "ai" | "hindsight" | "raglight" | "system"
+  ) => void;
   onStartQuickFocus: (taskId?: string | null) => void | Promise<void>;
   onMoveTask: (task: Task, status: TaskStatus) => void | Promise<void>;
   onResolveAlert: (id: string) => void | Promise<void>;
   onToggleRoutine?: (id: string, enabled: boolean) => void | Promise<void>;
   onApproveProposal?: (id: string) => void | Promise<void>;
   onRejectProposal?: (id: string) => void | Promise<void>;
+}
+
+function formatRoutineTitle(
+  r: Routine,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  const key = r.title.trim().toLowerCase();
+  if (key === "water" || key === "break" || key === "daily_planning") {
+    return t(`dashboard.routineKinds.${key}`, { defaultValue: r.title });
+  }
+  return r.title;
 }
 
 function formatClock(secs: number): string {
@@ -208,13 +222,13 @@ export function DashboardPage({
               <AuraDeskLogo size={isCompact ? 68 : 84} animated />
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <h2 className="text-2xl font-bold text-slate-50">{t("dashboard.welcome")}</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold text-aura-primary">{t("dashboard.welcome")}</h2>
                   <Badge variant="neutral" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize">
                     <CalendarDays className="h-3 w-3 text-sky-400" />
                     {formattedToday}
                   </Badge>
                 </div>
-                <p className="text-xs text-slate-400">{t("dashboard.subtitle")}</p>
+                <p className="text-xs text-aura-text-muted">{t("dashboard.subtitle")}</p>
                 {activePomo ? (
                   <Button
                     size="sm"
@@ -239,9 +253,9 @@ export function DashboardPage({
               </div>
             </div>
 
-            <div className="rounded-xl aura-glass-elevated p-4 w-full lg:w-96 space-y-2.5">
+            <div className="rounded-xl aura-glass-elevated p-4 w-full lg:w-[24rem] space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider text-aura-text-muted">
                   {t("dashboard.dailyPlan")}
                 </span>
                 <span
@@ -257,35 +271,45 @@ export function DashboardPage({
                   e.preventDefault();
                   void onSavePlanNotes();
                 }}
-                className="flex gap-1.5"
+                className="flex items-center gap-2"
               >
                 <Input
-                  containerClassName="flex-1"
+                  containerClassName="flex-1 min-w-0"
                   type="text"
                   aria-label={t("dashboard.dailyNotesLabel")}
                   value={planNotes}
                   onChange={(e) => onChangePlanNotes(e.target.value)}
                   placeholder={t("dashboard.planNotesPlaceholder")}
-                  className="py-1.5 text-xs"
+                  className="text-xs"
                 />
-                <Button type="submit" size="sm" variant="secondary" className="text-[11px] text-aura-accent">
+                <Button type="submit" size="md" variant="secondary" className="text-xs text-aura-accent shrink-0">
                   {t("dashboard.saveNotes")}
                 </Button>
               </form>
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant={
+                    !dailyPlan || dailyPlan.state === "not_started"
+                      ? "primary"
+                      : "secondary"
+                  }
                   onClick={() => void onSetPlanState("in_progress")}
-                  className="flex-1 text-xs"
+                  className="flex-1 text-xs font-semibold"
                 >
                   {t("dashboard.startPlan")}
                 </Button>
                 <Button
                   size="sm"
-                  variant="primary"
+                  variant={dailyPlan?.state === "in_progress" ? "primary" : "secondary"}
                   onClick={() => void onSetPlanState("completed")}
-                  className="flex-1 bg-aura-success hover:bg-aura-success/90 text-aura-inverse font-semibold text-xs"
+                  className={`flex-1 text-xs font-semibold ${
+                    dailyPlan?.state === "in_progress"
+                      ? "bg-aura-success hover:bg-aura-success/90 text-aura-inverse"
+                      : dailyPlan?.state === "completed"
+                        ? "border-emerald-500/40 text-emerald-400"
+                        : ""
+                  }`}
                 >
                   {t("dashboard.completePlan")}
                 </Button>
@@ -448,33 +472,35 @@ export function DashboardPage({
 
             <form
               onSubmit={(e) => void onCreateTask(e)}
-              className="flex flex-wrap gap-2 pt-1"
+              className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1"
             >
               <Input
-                containerClassName="flex-1 min-w-[200px]"
+                containerClassName="flex-1 min-w-0"
                 type="text"
                 aria-label={t("kanban.newTaskPlaceholder")}
                 value={newTaskTitle}
                 onChange={(e) => onChangeNewTaskTitle(e.target.value)}
                 placeholder={t("dashboard.quickTaskPlaceholder")}
-                className="px-3.5 py-2 text-sm"
+                className="px-3.5 text-sm"
               />
-              <Select
-                containerClassName="w-auto min-w-[110px]"
-                aria-label={t("dashboard.priorityLabel")}
-                value={newTaskPriority}
-                onChange={(e) => onChangeNewTaskPriority(e.target.value as TaskPriority)}
-                className="py-2 text-xs"
-              >
-                <option value="low">{t("kanban.priority.low")}</option>
-                <option value="normal">{t("kanban.priority.normal")}</option>
-                <option value="high">{t("kanban.priority.high")}</option>
-                <option value="urgent">{t("kanban.priority.urgent")}</option>
-              </Select>
-              <Button type="submit" size="md" variant="primary" className="text-xs font-semibold">
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                {t("dashboard.addTask")}
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Select
+                  containerClassName="w-auto min-w-[110px]"
+                  aria-label={t("dashboard.priorityLabel")}
+                  value={newTaskPriority}
+                  onChange={(e) => onChangeNewTaskPriority(e.target.value as TaskPriority)}
+                  className="text-xs"
+                >
+                  <option value="low">{t("kanban.priority.low")}</option>
+                  <option value="normal">{t("kanban.priority.normal")}</option>
+                  <option value="high">{t("kanban.priority.high")}</option>
+                  <option value="urgent">{t("kanban.priority.urgent")}</option>
+                </Select>
+                <Button type="submit" size="md" variant="primary" className="text-xs font-semibold shrink-0">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  {t("dashboard.addTask")}
+                </Button>
+              </div>
             </form>
           </div>
         );
@@ -486,14 +512,14 @@ export function DashboardPage({
             className={`${colClass} rounded-2xl aura-glass ${padClass} space-y-3`}
           >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-aura-primary flex items-center gap-2">
                 <Droplets className="h-4 w-4 text-sky-400" />
                 {t("dashboard.routinesTitle")}
               </h3>
               <button
                 type="button"
-                onClick={() => onNavigateTab("settings")}
-                className="text-xs text-sky-400 hover:underline cursor-pointer"
+                onClick={() => onNavigateTab("settings", "focus")}
+                className="text-xs text-aura-accent hover:underline cursor-pointer"
               >
                 {t("dashboard.openRoutinesSettings")} →
               </button>
@@ -523,7 +549,9 @@ export function DashboardPage({
                           <RoutineIcon className="h-3.5 w-3.5" />
                         </span>
                         <div className="min-w-0">
-                          <div className="font-medium text-slate-100 truncate">{r.title}</div>
+                          <div className="font-medium text-slate-100 truncate">
+                            {formatRoutineTitle(r, t)}
+                          </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
                             <span
                               className={`h-1.5 w-1.5 rounded-full ${
@@ -653,23 +681,23 @@ export function DashboardPage({
   return (
     <div className="space-y-5">
       {customizingLayout && (
-        <div className="rounded-2xl aura-glass-elevated p-5 ring-1 ring-sky-500/40 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
+        <div className="rounded-2xl aura-glass-elevated p-5 ring-1 ring-aura-accent/40 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-aura-border/40 pb-3">
             <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-sky-400" />
-              <h3 className="text-sm font-bold text-slate-100">
+              <SlidersHorizontal className="h-4 w-4 text-aura-accent" />
+              <h3 className="text-sm font-bold text-aura-primary">
                 {t("dashboard.customizeLayout")}
               </h3>
             </div>
             <div className="flex items-center gap-3">
-              <div className="inline-flex items-center gap-1 rounded-lg bg-slate-950 p-1 ring-1 ring-slate-800 text-xs">
+              <div className="inline-flex items-center gap-1 rounded-lg border border-aura-border/40 bg-aura-surface/70 p-1 text-xs">
                 <button
                   type="button"
                   onClick={() => onUpdateLayout({ ...layout, density: "comfortable" })}
                   className={`px-2.5 py-1 rounded-md cursor-pointer ${
                     layout.density === "comfortable"
                       ? "bg-aura-accent text-aura-inverse font-semibold"
-                      : "text-slate-400"
+                      : "text-aura-text-muted"
                   }`}
                 >
                   {t("dashboard.densityComfortable")}
@@ -680,7 +708,7 @@ export function DashboardPage({
                   className={`px-2.5 py-1 rounded-md cursor-pointer ${
                     layout.density === "compact"
                       ? "bg-aura-accent text-aura-inverse font-semibold"
-                      : "text-slate-400"
+                      : "text-aura-text-muted"
                   }`}
                 >
                   {t("dashboard.densityCompact")}
@@ -689,7 +717,7 @@ export function DashboardPage({
               <button
                 type="button"
                 onClick={() => onUpdateLayout(DEFAULT_LAYOUT)}
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-lg bg-aura-elevated hover:bg-aura-muted/70 px-3 py-1.5 text-xs font-medium text-aura-secondary cursor-pointer"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 {t("dashboard.resetLayout")}
@@ -703,14 +731,14 @@ export function DashboardPage({
                 key={w.id}
                 className="flex items-center justify-between rounded-xl aura-glass-pill px-3.5 py-2.5"
               >
-                <span className="text-xs font-medium text-slate-200">
+                <span className="text-xs font-medium text-aura-primary">
                   {t(`dashboard.widgets.${w.id}`)}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => toggleWidgetSpan(w.id)}
-                    className="rounded bg-slate-800 px-2 py-1 text-[11px] font-semibold text-sky-300 hover:bg-slate-700 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
+                    className="rounded bg-aura-elevated px-2 py-1 text-[11px] font-semibold text-aura-accent hover:bg-aura-muted/70 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
                     title={t("dashboard.widgetWidth")}
                   >
                     {w.span === "full" ? t("dashboard.widthFull") : t("dashboard.widthHalf")}
@@ -720,7 +748,7 @@ export function DashboardPage({
                     aria-label={`${t("dashboard.moveWidgetUp")}: ${t(`dashboard.widgets.${w.id}`)}`}
                     onClick={() => moveWidget(idx, -1)}
                     disabled={idx === 0}
-                    className="p-1.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
+                    className="p-1.5 rounded bg-aura-elevated text-aura-secondary hover:bg-aura-muted/70 disabled:opacity-30 cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
                   >
                     <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>

@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 
-import { Badge, Button, EmptyState, Input, Skeleton } from "../components/ui";
+import { Badge, Button, EmptyState, Input, PageHeader, Skeleton } from "../components/ui";
 import {
   knowledgeApi,
   raglightApi,
@@ -455,47 +455,39 @@ export function LightRagExplorerPage({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-xl font-bold text-aura-primary">
-            <Compass className="h-5 w-5 text-aura-accent" aria-hidden="true" />
-            {t("knowledgePanel.title")}
-          </h2>
-          <p className="mt-1 text-xs text-aura-text-muted">
-            {t("knowledgePanel.subtitle")}
-          </p>
-          {/* Which of the two services this page is talking about. The title
-              names both, and that alone left the reader guessing. */}
-          {overview && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <Badge variant={overview.online ? "success" : "warning"}>
-                {overview.serviceKind === "lightrag"
-                  ? t("knowledgePanel.service.lightrag")
-                  : t("knowledgePanel.service.raglight")}
-              </Badge>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleRefresh}
-            loading={loadingOverview}
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("knowledgePanel.refresh")}
-          </Button>
-          {overview?.online && onOpenSettings && (
-            <Button size="sm" variant="outline" onClick={onOpenSettings}>
-              <Settings className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("knowledgePanel.openSettings")}
+      <PageHeader
+        icon={<Compass className="h-5 w-5" aria-hidden="true" />}
+        title={t("knowledgePanel.title")}
+        subtitle={t("knowledgePanel.subtitle")}
+        badges={
+          overview ? (
+            <Badge variant={overview.online ? "success" : "warning"}>
+              {overview.serviceKind === "lightrag"
+                ? t("knowledgePanel.service.lightrag")
+                : t("knowledgePanel.service.raglight")}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleRefresh}
+              loading={loadingOverview}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("knowledgePanel.refresh")}
             </Button>
-          )}
-        </div>
-      </div>
+            {overview?.online && onOpenSettings && (
+              <Button size="sm" variant="outline" onClick={onOpenSettings}>
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("knowledgePanel.openSettings")}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {/* Honest Connection & Diagnostics Banner */}
       {loadingOverview && !overview ? (
@@ -503,7 +495,7 @@ export function LightRagExplorerPage({
       ) : overviewError && !overview ? (
         <div
           role="alert"
-          className="rounded-aura-lg border border-aura-danger/40 bg-aura-danger/10 p-4 space-y-2"
+          className="rounded-aura-lg aura-glass border border-aura-danger/50 p-4 space-y-2"
         >
           <div className="flex items-center gap-2 text-sm font-semibold text-aura-danger">
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
@@ -629,7 +621,7 @@ export function LightRagExplorerPage({
         ) : (
           <section
             role="status"
-            className="rounded-aura-lg border border-aura-warning/45 bg-aura-warning/10 p-4 space-y-3"
+            className="rounded-aura-lg aura-glass border border-aura-warning/50 p-4 space-y-3"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -650,7 +642,7 @@ export function LightRagExplorerPage({
                     </p>
                   )}
                   {overview.diagnosticMessage && (
-                    <p className="rounded-aura-sm border border-aura-warning/30 bg-aura-canvas/60 px-2.5 py-1.5 font-mono text-xs text-aura-primary break-words">
+                    <p className="rounded-aura-sm border border-aura-warning/35 bg-aura-elevated/80 px-2.5 py-1.5 font-mono text-xs text-aura-primary break-words">
                       {overview.diagnosticMessage}
                     </p>
                   )}

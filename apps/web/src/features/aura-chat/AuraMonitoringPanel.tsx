@@ -149,7 +149,7 @@ export function AuraMonitoringPanel({ onProposalApplied }: AuraMonitoringPanelPr
   return (
     <section
       aria-label={t("hermes.monitoringTitle")}
-      className="space-y-4"
+      className="rounded-2xl aura-glass p-5 space-y-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-aura-primary flex items-center gap-2">

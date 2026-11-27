@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderKanban, FolderPlus, GitPullRequest, Plus, Search, X } from "lucide-react";
+import { FolderKanban, FolderPlus, GitPullRequest, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { KanbanBoard, type TaskEditExtra } from "../components/KanbanBoard";
-import { Badge, Button, Input, Select } from "../components/ui";
+import { Badge, Button, Input, PageHeader, Select } from "../components/ui";
 import type { GithubIssueLink, Project, Task, TaskPriority, TaskStatus } from "../lib/ipc";
 
 export interface KanbanPageProps {
@@ -87,6 +87,7 @@ export function KanbanPage({
   const { t } = useTranslation();
   const [showNewProject, setShowNewProject] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState("");
+  const [showExtraFields, setShowExtraFields] = useState(false);
 
   const filteredTasks = tasks.filter((task) => {
     if (priorityFilter !== "all" && task.priority !== priorityFilter) {
@@ -121,52 +122,49 @@ export function KanbanPage({
   };
 
   const hasFilters = Boolean(search.trim()) || priorityFilter !== "all" || projectFilter !== "all";
+  const extraFieldsExpanded =
+    showExtraFields || Boolean(newTaskTags.trim() || newTaskDueAt || newTaskProjectId);
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl aura-glass-elevated ring-1 ring-aura-accent/30">
-            <FolderKanban className="h-5 w-5 text-aura-accent" aria-hidden="true" />
-          </span>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-xl font-bold text-slate-50">{t("kanban.title")}</h2>
-              <Badge variant="info" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
-                {t("kanban.showingCount", { shown: filteredTasks.length, total: tasks.length })}
-              </Badge>
-            </div>
-            <p className="text-xs text-slate-400">{t("kanban.subtitle")}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {onCreateProject && (
+      <PageHeader
+        icon={<FolderKanban className="h-5 w-5" aria-hidden="true" />}
+        title={t("kanban.title")}
+        subtitle={t("kanban.subtitle")}
+        badges={
+          <Badge variant="info" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
+            {t("kanban.showingCount", { shown: filteredTasks.length, total: tasks.length })}
+          </Badge>
+        }
+        actions={
+          <>
+            {onCreateProject && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowNewProject((v) => !v)}
+                className="rounded-xl text-xs font-semibold"
+              >
+                <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("kanban.newProject")}
+              </Button>
+            )}
             <Button
               size="sm"
-              variant="secondary"
-              onClick={() => setShowNewProject((v) => !v)}
-              className="rounded-xl text-xs font-semibold"
+              variant="outline"
+              disabled={importingGithub}
+              loading={importingGithub}
+              onClick={() => void onImportGithub()}
+              className="rounded-xl bg-indigo-500/20 text-indigo-200 border-indigo-500/40 hover:bg-indigo-500/30 text-xs font-semibold"
             >
-              <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("kanban.newProject")}
+              {!importingGithub && <GitPullRequest className="h-3.5 w-3.5" aria-hidden="true" />}
+              {importingGithub
+                ? t("kanban.github.importing")
+                : t("kanban.github.importButton")}
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={importingGithub}
-            loading={importingGithub}
-            onClick={() => void onImportGithub()}
-            className="rounded-xl bg-indigo-500/20 text-indigo-200 border-indigo-500/40 hover:bg-indigo-500/30 text-xs font-semibold"
-          >
-            {!importingGithub && <GitPullRequest className="h-3.5 w-3.5" aria-hidden="true" />}
-            {importingGithub
-              ? t("kanban.github.importing")
-              : t("kanban.github.importButton")}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Unified Filter Toolbar */}
       <div className="rounded-2xl aura-glass aura-card-interactive p-3.5 flex flex-wrap items-center gap-2.5">
@@ -253,7 +251,7 @@ export function KanbanPage({
 
       <form
         onSubmit={(e) => void onCreateTask(e)}
-        className="rounded-2xl aura-glass-elevated aura-card-interactive border-t-2 border-t-aura-accent/55 p-4 space-y-3"
+        className="rounded-2xl aura-glass-elevated aura-card-interactive border-t-2 border-t-aura-accent/55 p-3.5 space-y-3"
       >
         <div className="flex flex-wrap items-center gap-2.5">
           <Input
@@ -288,6 +286,19 @@ export function KanbanPage({
             <option value="high">{t("kanban.priority.high")}</option>
             <option value="urgent">{t("kanban.priority.urgent")}</option>
           </Select>
+          {(onChangeNewTags || onChangeNewDueAt || onChangeNewProjectId) && (
+            <Button
+              type="button"
+              size="md"
+              variant="outline"
+              aria-expanded={extraFieldsExpanded}
+              onClick={() => setShowExtraFields((v) => !v)}
+              className="h-9 rounded-xl px-3 text-xs text-aura-secondary hover:text-aura-accent"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{extraFieldsExpanded ? t("kanban.lessOptions") : t("kanban.moreOptions")}</span>
+            </Button>
+          )}
           <Button
             type="submit"
             size="md"
@@ -299,7 +310,7 @@ export function KanbanPage({
           </Button>
         </div>
 
-        {(onChangeNewTags || onChangeNewDueAt || onChangeNewProjectId) && (
+        {(onChangeNewTags || onChangeNewDueAt || onChangeNewProjectId) && extraFieldsExpanded && (
           <div className="flex flex-wrap items-center gap-2.5 pt-2.5 border-t border-aura-border/25 text-xs">
             {onChangeNewProjectId && (
               <Select

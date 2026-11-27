@@ -37,7 +37,12 @@
     "hindsight": "Hindsight",
     "knowledge": "LightRAG",
     "agents": "Agentes",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "groups": {
+      "intelligence": "Inteligência",
+      "productivity": "Produtividade",
+      "system": "Sistema"
+    }
   },
   "dashboard": {
     "welcome": "Visão do Dia",
@@ -101,7 +106,12 @@
     "proposalsApprove": "Aprovar",
     "proposalsReject": "Rejeitar",
     "proposalApproved": "✓ Proposta aprovada e aplicada!",
-    "proposalRejected": "Proposta rejeitada."
+    "proposalRejected": "Proposta rejeitada.",
+    "routineKinds": {
+      "water": "Hidratação (Beber água)",
+      "break": "Pausa Ativa",
+      "daily_planning": "Planejamento Diário"
+    }
   },
   "kanban": {
     "title": "Quadro Kanban (Arraste ou Clique para Mover)",
@@ -167,7 +177,9 @@
       "openExternal": "Abrir no GitHub",
       "issueOpen": "Aberta",
       "issueClosed": "Fechada"
-    }
+    },
+    "moreOptions": "Mais opções",
+    "lessOptions": "Menos opções"
   },
   "pomodoro": {
     "title": "Timer Pomodoro & Deep Work",
@@ -242,6 +254,8 @@
     "dndEnabledToast": "Modo Não Perturbe ativado por 1h.",
     "dndDisabledToast": "Modo Não Perturbe desativado.",
     "confirmDelete": "Remover",
+    "edit": "Editar",
+    "updated": "Lembrete atualizado!",
     "addNow": "Disparar Agora (Teste)",
     "addIn1Min": "Agendar (+1 min)",
     "addIn15Min": "Agendar (+15 min)",
@@ -312,7 +326,8 @@
     "dateLabel": "Data",
     "exportCsv": "Exportar CSV",
     "exportJson": "Exportar JSON",
-    "noData": "Nenhuma métrica registrada no período ainda."
+    "noData": "Nenhuma métrica registrada no período ainda.",
+    "emptyHint": "Conclua um ciclo Pomodoro ou finalize tarefas para preencher seu histórico de 14 dias."
   },
   "settings": {
     "title": "Configurações do Sistema",
@@ -591,6 +606,7 @@
       "ingestButton": "Indexar pastas agora",
       "ingesting": "Indexando arquivos...",
       "refreshButton": "Atualizar status",
+      "pickFolderDesktopOnly": "O seletor nativo de pastas funciona no app desktop. Digite ou cole o caminho abaixo no modo navegador.",
       "testQueryPlaceholder": "Testar busca nos arquivos indexados...",
       "testQueryButton": "Buscar",
       "actionOk": "Concluído ({{msg}}).",
@@ -730,6 +746,12 @@
       "liveModeOff": "Conversa Live",
       "transcribeAudio": "Transcrever Áudio",
       "transcribing": "Ouvindo voz...",
+      "connectingLive": "Conectando transcrição local...",
+      "connectionTimedOut": "Tempo esgotado ao conectar ao serviço de transcrição.",
+      "connectionFailed": "Não foi possível conectar ao serviço de transcrição.",
+      "socketError": "Erro na conexão com o serviço de transcrição.",
+      "transcriptionHttpError": "Erro no serviço de transcrição ({{detail}}).",
+      "voiceHttpError": "Erro no serviço de voz ({{detail}}).",
       "liveUnsupported": "Reconhecimento de voz ao vivo indisponível neste navegador — capturando nota em WAV.",
       "toggleTranscript": "Conversa ({{count}})",
       "hideTranscript": "Ocultar conversa",
@@ -923,7 +945,9 @@
         "working": "Working Workspace",
         "tool": "Tool Context"
       }
-    }
+    },
+    "dateFrom": "De",
+    "dateTo": "Até"
   },
   "hindsightPanel": {
     "title": "Hindsight Memory Explorer",
@@ -1085,7 +1109,10 @@
     "banks": {
       "rename": "Renomear",
       "delete": "Excluir"
-    }
+    },
+    "offlineSidebarHint": "Conecte o daemon Hindsight para listar seus bancos de memória.",
+    "offlineMainHint": "Configure o endereço do daemon ou clique em Atualizar após iniciá-lo.",
+    "openSettings": "Configurar Hindsight"
   },
   "knowledgePanel": {
     "title": "LightRAG & RAGLight Knowledge Explorer",
@@ -1139,6 +1166,9 @@
     "plannerSection": "Orquestrador — Simulação Segura de Plano",
     "goalPlaceholder": "Descreva um objetivo multi-etapas (ex: ler docs, abrir site e verificar logs)...",
     "planAction": "Gerar Plano Seguro",
+    "executeRun": "Executar Plano",
+    "approveAndResume": "Aprovar e Executar",
+    "runningPlan": "Executando...",
     "recentRuns": "Execuções Planejadas Recentes",
     "noRuns": "Nenhum plano simulado ainda.",
     "requiresApproval": "Requer aprovação humana",
@@ -1351,7 +1381,8 @@
       "mcp_github_name": "GitHub Repository MCP",
       "mcp_playwright_name": "Playwright Browser MCP",
       "mcp_podman_name": "Podman Container Engine MCP"
-    }
+    },
+    "toolsSearchPlaceholder": "Filtrar ferramentas por nome, descrição ou origem..."
   },
   "updater": {
     "banner": {

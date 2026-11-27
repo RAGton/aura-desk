@@ -51,6 +51,8 @@ fn both_locales_carry_the_same_keys() {
         "alerts.focus_interrupted_body",
         "alerts.focus_completed_body",
         "tray.show",
+        "tray.live_on",
+        "tray.live_off",
         "tray.quit",
         "github.issue_label",
     ];

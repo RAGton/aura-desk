@@ -19,6 +19,7 @@ import {
 import { Badge, Button, Input, Select, Switch } from "@/components/ui";
 import {
   desktopApi,
+  isTauriRuntime,
   raglightApi,
   type RaglightQueryResult,
   type RaglightStatus,
@@ -137,6 +138,8 @@ export function RaglightSection({
       const chosen = await desktopApi?.pickFolder?.();
       if (chosen && chosen.trim()) {
         commitFolders([...folderList, chosen.trim()]);
+      } else if (!isTauriRuntime()) {
+        setFeedback(t("settings.raglight.pickFolderDesktopOnly"));
       }
     } catch (err) {
       setFeedback(String(err));
@@ -234,11 +237,11 @@ export function RaglightSection({
         </div>
       </div>
 
-      <p className="text-xs text-slate-400">{t("settings.raglight.description")}</p>
+      <p className="text-xs text-aura-text-muted">{t("settings.raglight.description")}</p>
 
       {showGuide && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-1.5 text-xs text-slate-200">
-          <p className="font-semibold text-emerald-300">{t("settings.raglight.guideTitle")}</p>
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-1.5 text-xs text-aura-primary">
+          <p className="font-semibold text-emerald-400">{t("settings.raglight.guideTitle")}</p>
           <p>{t("settings.raglight.guideStep1")}</p>
           <p>{t("settings.raglight.guideStep2")}</p>
           <p>{t("settings.raglight.guideStep3")}</p>
@@ -246,12 +249,12 @@ export function RaglightSection({
       )}
 
       {/* Enable switch */}
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-800/70 bg-slate-950/40 px-4 py-3">
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-aura-border/40 bg-aura-surface/70 px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">
+          <div className="text-sm font-medium text-aura-primary">
             {t("settings.raglight.enableLabel")}
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-aura-text-muted">
             {t("settings.raglight.enableDescription")}
           </div>
         </div>
@@ -269,7 +272,7 @@ export function RaglightSection({
       {/* Mode + Provider + Vector Store */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="space-y-1">
-          <label className="text-xs font-medium text-slate-300">
+          <label className="text-xs font-medium text-aura-secondary">
             {t("settings.raglight.modeLabel")}
           </label>
           <Select
@@ -287,7 +290,7 @@ export function RaglightSection({
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-slate-300">
+          <label className="text-xs font-medium text-aura-secondary">
             {t("settings.raglight.providerLabel")}
           </label>
           <Select
@@ -309,7 +312,7 @@ export function RaglightSection({
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-slate-300">
+          <label className="text-xs font-medium text-aura-secondary">
             {t("settings.raglight.vectorStoreLabel")}
           </label>
           <Select
@@ -331,7 +334,7 @@ export function RaglightSection({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.raglight.baseUrlLabel")}
             </label>
             <Input
@@ -342,7 +345,7 @@ export function RaglightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("raglight.base_url", baseUrl)}
@@ -353,7 +356,7 @@ export function RaglightSection({
 
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.raglight.apiKeyLabel")}
             </label>
             <Input
@@ -365,7 +368,7 @@ export function RaglightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("raglight.api_key", apiKey)}
@@ -376,7 +379,7 @@ export function RaglightSection({
 
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.raglight.llmModelLabel")}
             </label>
             <Input
@@ -387,7 +390,7 @@ export function RaglightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("raglight.llm_model", llmModel)}
@@ -398,7 +401,7 @@ export function RaglightSection({
 
         <div className="flex items-end gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-slate-300">
+            <label className="text-xs font-medium text-aura-secondary">
               {t("settings.raglight.embeddingModelLabel")}
             </label>
             <Input
@@ -409,7 +412,7 @@ export function RaglightSection({
             />
           </div>
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             disabled={isWorking}
             onClick={() => onSave("raglight.embedding_model", embeddingModel)}
@@ -420,9 +423,9 @@ export function RaglightSection({
       </div>
 
       {/* Visual Folder Picker & Chips */}
-      <div className="rounded-xl border border-slate-800/70 bg-slate-950/40 p-3.5 space-y-3">
+      <div className="rounded-xl border border-aura-border/40 bg-aura-surface/70 p-3.5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-200">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-aura-primary">
             <FolderOpen className="h-3.5 w-3.5 text-emerald-400" />
             {t("settings.raglight.foldersLabel")}
           </span>
@@ -440,13 +443,13 @@ export function RaglightSection({
         </div>
 
         {folderList.length === 0 ? (
-          <p className="text-xs text-slate-400">{t("settings.raglight.noFoldersSelected")}</p>
+          <p className="text-xs text-aura-text-muted">{t("settings.raglight.noFoldersSelected")}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {folderList.map((folder) => (
               <span
                 key={folder}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] text-emerald-200"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] text-emerald-300"
               >
                 <span className="truncate max-w-[260px]">{folder}</span>
                 <button
@@ -454,7 +457,7 @@ export function RaglightSection({
                   disabled={isWorking}
                   aria-label={`${t("settings.raglight.removeFolder")}: ${folder}`}
                   onClick={() => commitFolders(folderList.filter((f) => f !== folder))}
-                  className="rounded p-0.5 text-slate-300 hover:bg-rose-500/20 hover:text-rose-300"
+                  className="rounded p-0.5 text-aura-secondary hover:bg-rose-500/20 hover:text-rose-300"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -473,7 +476,7 @@ export function RaglightSection({
             onKeyDown={handleManualKeyDown}
           />
           <Button
-            size="sm"
+            size="md"
             variant="secondary"
             type="button"
             disabled={isWorking || !newFolderInput.trim()}
@@ -595,7 +598,7 @@ export function RaglightSection({
       </div>
 
       {/* Quick search test against the RAGLight bank */}
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60">
+      <div className="flex items-center gap-2 pt-2 border-t border-aura-border/35">
         <Input
           containerClassName="flex-1"
           aria-label={t("settings.raglight.testQueryPlaceholder")}
@@ -604,7 +607,7 @@ export function RaglightSection({
           onChange={(e) => setTestQuery(e.target.value)}
         />
         <Button
-          size="sm"
+          size="md"
           variant="secondary"
           disabled={isWorking || !testQuery.trim()}
           onClick={() => void handleTestQuery()}
@@ -615,20 +618,20 @@ export function RaglightSection({
       </div>
 
       {feedback && (
-        <p className="text-xs text-emerald-300 break-all">{feedback}</p>
+        <p className="text-xs text-emerald-400 break-all">{feedback}</p>
       )}
 
       {outputTail && (
-        <pre className="max-h-32 overflow-auto rounded-xl border border-slate-800/70 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-300">
+        <pre className="max-h-32 overflow-auto rounded-xl border border-aura-border/40 bg-aura-surface/75 p-3 font-mono text-[11px] text-aura-secondary">
           {outputTail}
         </pre>
       )}
 
       {queryResult && (
-        <div className="rounded-xl border border-slate-800/70 bg-slate-950/60 p-3 space-y-1.5 text-xs text-slate-200">
+        <div className="rounded-xl border border-aura-border/40 bg-aura-surface/75 p-3 space-y-1.5 text-xs text-aura-primary">
           <p className="whitespace-pre-wrap">{queryResult.answer || t("settings.raglight.emptyResult")}</p>
           {queryResult.sources.length > 0 && (
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-aura-text-muted">
               {t("settings.raglight.sourcesLabel")}: {queryResult.sources.join(", ")}
             </p>
           )}

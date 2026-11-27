@@ -226,6 +226,8 @@ export class AuraSpeechQueue {
           this.options.onError?.(
             error instanceof Error ? error : new Error(String(error))
           );
+        } finally {
+          this.options.player.resetStreamAlignment?.();
         }
       }
     } finally {

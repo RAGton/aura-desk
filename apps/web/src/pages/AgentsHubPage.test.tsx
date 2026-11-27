@@ -13,6 +13,10 @@ vi.mock("../lib/ipc", async (importOriginal) => {
       overview: vi.fn(),
       setToolPolicy: vi.fn(),
       planPreview: vi.fn(),
+      executeRun: vi.fn(),
+      resumeRun: vi.fn(),
+      listCapabilities: vi.fn(),
+      selectCapabilities: vi.fn(),
       listBots: vi.fn(),
       upsertBot: vi.fn(),
       deleteBot: vi.fn(),
@@ -664,5 +668,82 @@ describe("AgentsHubPage", () => {
     });
     await user.click(screen.getByTestId("mcp-test-hindsight-memory-mcp"));
     expect(await screen.findByText("mcp.hindsight-memory-mcp.recall")).toBeInTheDocument();
+  });
+
+  it("executes planned runs and approves/resumes gated runs from the planner list", async () => {
+    const user = userEvent.setup();
+    const plannedRun: AgentRunRecord = {
+      id: "run-exec-1",
+      sessionId: "default",
+      agentRole: "orchestrator",
+      goal: "List today tasks",
+      status: "planned",
+      resultSummary: "planned_steps:1:safe_only",
+      createdAt: "2026-11-26T10:00:00Z",
+      plan: [
+        {
+          step: 1,
+          agentRole: "orchestrator",
+          toolName: "tasks.list",
+          action: "List tasks",
+          requiresApproval: false,
+        },
+      ],
+    };
+    const gatedRun: AgentRunRecord = {
+      id: "run-gate-2",
+      sessionId: "default",
+      agentRole: "orchestrator",
+      goal: "Open docs in browser",
+      status: "awaiting_approval",
+      resultSummary: "planned_steps:1:approval_required",
+      createdAt: "2026-11-26T10:01:00Z",
+      plan: [
+        {
+          step: 1,
+          agentRole: "browser_agent",
+          toolName: "browser.navigate",
+          action: "Navigate page",
+          requiresApproval: true,
+        },
+      ],
+    };
+
+    mockAgentsApi.overview.mockResolvedValueOnce(
+      makeOverview({ runs: [plannedRun, gatedRun] }),
+    );
+    mockAgentsApi.executeRun.mockResolvedValueOnce({
+      runId: "run-exec-1",
+      status: "completed",
+      goal: "List today tasks",
+      completedSteps: 1,
+      totalSteps: 1,
+      eventsCount: 2,
+    });
+    mockAgentsApi.resumeRun.mockResolvedValueOnce({
+      runId: "run-gate-2",
+      status: "completed",
+      goal: "Open docs in browser",
+      completedSteps: 1,
+      totalSteps: 1,
+      eventsCount: 3,
+    });
+
+    render(<AgentsHubPage />);
+
+    const execBtn = await screen.findByTestId("agent-exec-run-run-exec-1");
+    await user.click(execBtn);
+    await waitFor(() => {
+      expect(mockAgentsApi.executeRun).toHaveBeenCalledWith("run-exec-1");
+    });
+
+    const resumeBtn = screen.getByTestId("agent-exec-run-run-gate-2");
+    await user.click(resumeBtn);
+    await waitFor(() => {
+      expect(mockAgentsApi.resumeRun).toHaveBeenCalledWith("run-gate-2");
+    });
+
+    const gateCard = screen.getByTestId("agent-run-run-gate-2");
+    expect(within(gateCard).getByText("completed")).toBeInTheDocument();
   });
 });

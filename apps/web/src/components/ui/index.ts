@@ -3,6 +3,7 @@ export { Button, buttonVariants, type ButtonProps } from "./Button";
 export { Dialog, type DialogProps } from "./Dialog";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { Input, type InputProps } from "./Input";
+export { PageHeader, type PageHeaderProps } from "./PageHeader";
 export { Select, type SelectProps } from "./Select";
 export { Skeleton, type SkeletonProps } from "./Skeleton";
 export { Switch, type SwitchProps } from "./Switch";

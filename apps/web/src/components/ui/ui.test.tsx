@@ -9,6 +9,7 @@ import {
   Dialog,
   EmptyState,
   Input,
+  PageHeader,
   Select,
   Skeleton,
   Switch,
@@ -167,5 +168,22 @@ describe("Aura Design System primitives", () => {
     expect(toggle).toHaveAttribute("aria-checked", "false");
     fireEvent.click(toggle);
     expect(onSwitchChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders PageHeader with icon, title, subtitle, badges, and actions", () => {
+    render(
+      <PageHeader
+        icon={<Inbox className="h-5 w-5" />}
+        title="Unified Header"
+        subtitle="Consistent description"
+        badges={<Badge variant="info">2 active</Badge>}
+        actions={<Button size="sm">Refresh</Button>}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Unified Header" })).toBeInTheDocument();
+    expect(screen.getByText("Consistent description")).toBeInTheDocument();
+    expect(screen.getByText("2 active")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 });

@@ -9,11 +9,17 @@ use chrono::Utc;
 use rusqlite::params;
 use serde_json::{json, Value};
 
+use crate::application::agents::AgentPlanStep;
 use crate::application::capability_registry::CapabilityRegistry;
+use crate::application::context_engine::ContextEngineService;
+use crate::application::memories::LocalMemoryService;
+use crate::application::settings::SettingsService;
+use crate::capabilities::{dispatch_capability, find_capability};
 use crate::domain::agent_runtime::{
     AgentEventType, AgentExecutionEvent, AgentExecutionStatus, AgentExecutionSummary,
-    AgentLoopConfig, CancellationHandle, ExecutionPlan, PlanStepStatus,
+    AgentLoopConfig, CancellationHandle, ExecutionPlan, PlanStep, PlanStepStatus,
 };
+use crate::domain::settings_key::SettingsKey;
 use crate::infrastructure::db::Db;
 use crate::CoreError;
 
@@ -52,19 +58,94 @@ where
 /// Production tool executor backed by the Unified `CapabilityRegistry` (Issue #25).
 pub struct RegistryToolExecutor<'a> {
     registry: &'a mut CapabilityRegistry,
+    db: Option<&'a Db>,
 }
 
 impl<'a> RegistryToolExecutor<'a> {
     pub fn new(registry: &'a mut CapabilityRegistry) -> Self {
-        Self { registry }
+        Self { registry, db: None }
+    }
+
+    pub fn with_db(registry: &'a mut CapabilityRegistry, db: &'a Db) -> Self {
+        Self {
+            registry,
+            db: Some(db),
+        }
+    }
+}
+
+fn map_tool_to_native_capability(tool_name: &str) -> &str {
+    match tool_name {
+        "tasks.list" => "list_tasks",
+        "tasks.today_overview" => "today_overview",
+        "kanban.board" => "get_kanban_board",
+        "pomodoro.status" => "pomodoro_status",
+        "reminders.list" => "list_reminders",
+        "projects.list" => "list_projects",
+        "plan.today" => "get_today_plan",
+        "proposals.list_pending" => "list_pending_proposals",
+        other => other,
     }
 }
 
 impl<'a> AgentToolExecutor for RegistryToolExecutor<'a> {
     fn execute(&mut self, tool_name: &str, args: Value) -> Result<Value, CoreError> {
-        let res = self.registry.execute_isolated(tool_name, args, |_input| {
-            // Native dispatch or tool stub
-            Ok(json!({ "dispatched": tool_name }))
+        let db_opt = self.db;
+        let res = self.registry.execute_isolated(tool_name, args, |input| {
+            let Some(db) = db_opt else {
+                return Ok(json!({ "dispatched": tool_name }));
+            };
+
+            let mapped = map_tool_to_native_capability(tool_name);
+            if find_capability(mapped).is_some() {
+                return dispatch_capability(db, mapped, input);
+            }
+
+            match tool_name {
+                "memory.hindsight_recall" | "hindsight_recall" => {
+                    let query = input
+                        .get("query")
+                        .or_else(|| input.get("goal"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
+                    let items = LocalMemoryService::new(db).recall(None, query, limit)?;
+                    Ok(json!({
+                        "source": "local_memories",
+                        "count": items.len(),
+                        "items": items
+                    }))
+                }
+                "context.compress_session" | "context_compress_session" => {
+                    let session_id = input.get("sessionId").and_then(|v| v.as_str());
+                    let inspection = ContextEngineService::new(db).inspect_session(session_id)?;
+                    Ok(serde_json::to_value(&inspection)
+                        .map_err(|e| CoreError::internal(format!("serialize context: {e}")))?)
+                }
+                "research.knowledge_query" | "lightrag_query" => {
+                    let folders = SettingsService::new(db)
+                        .get(SettingsKey::RaglightFolders)
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    let query = input
+                        .get("query")
+                        .or_else(|| input.get("goal"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let local_hits = LocalMemoryService::new(db).recall(None, query, 5)?;
+                    Ok(json!({
+                        "source": "offline_index_context",
+                        "configuredFolders": folders,
+                        "localMemories": local_hits
+                    }))
+                }
+                _ => Err(CoreError::validation(
+                    "capability",
+                    format!("tool '{tool_name}' requires an active external runtime or desktop bridge"),
+                )),
+            }
         });
 
         if res.success {
@@ -167,6 +248,18 @@ impl AgentLoop {
                 None,
                 json!({}),
             ));
+        }
+    }
+
+    /// Approve any gated steps waiting on user confirmation so resumption can proceed.
+    pub fn approve_pending_steps(&mut self) {
+        for step in &mut self.plan.steps {
+            if step.status == PlanStepStatus::AwaitingApproval
+                || (step.status == PlanStepStatus::Pending && step.requires_approval)
+            {
+                step.requires_approval = false;
+                step.status = PlanStepStatus::Pending;
+            }
         }
     }
 
@@ -506,8 +599,31 @@ impl AgentLoop {
 
         let (id, session_id, agent_role, goal, plan_raw, status_raw, tool_calls_raw) = row;
 
-        let plan: ExecutionPlan = serde_json::from_str(&plan_raw).unwrap_or_else(|_| {
-            ExecutionPlan::new(&id, &goal)
+        let plan: ExecutionPlan = serde_json::from_str::<ExecutionPlan>(&plan_raw).unwrap_or_else(|_| {
+            if let Ok(legacy_steps) = serde_json::from_str::<Vec<AgentPlanStep>>(&plan_raw) {
+                let mut built = ExecutionPlan::new(&id, &goal);
+                let mut prev_id: Option<String> = None;
+                for s in legacy_steps {
+                    let sid = format!("step-{}", s.step);
+                    let mut step = PlanStep::new(
+                        sid.clone(),
+                        s.step,
+                        s.action,
+                        s.agent_role,
+                        Some(s.tool_name),
+                        json!({ "goal": goal, "sessionId": session_id }),
+                    );
+                    step.requires_approval = s.requires_approval;
+                    if let Some(prev) = prev_id {
+                        step.dependencies.push(prev);
+                    }
+                    prev_id = Some(sid);
+                    built.add_step(step);
+                }
+                built
+            } else {
+                ExecutionPlan::new(&id, &goal)
+            }
         });
 
         let tool_calls: Vec<Value> =

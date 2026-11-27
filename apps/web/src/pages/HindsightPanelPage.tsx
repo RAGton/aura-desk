@@ -32,6 +32,7 @@ import {
   Button,
   EmptyState,
   Input,
+  PageHeader,
   Select,
   Skeleton,
   Textarea,
@@ -62,6 +63,7 @@ import {
 export interface HindsightPanelPageProps {
   initialBank?: string | null;
   onOpenInGalaxy?: (bankId: string, memoryId: string) => void;
+  onOpenSettings?: () => void;
 }
 
 type HindsightTab =
@@ -219,6 +221,7 @@ function computeConstellationLayout(
 export function HindsightPanelPage({
   initialBank = null,
   onOpenInGalaxy,
+  onOpenSettings,
 }: HindsightPanelPageProps) {
   const { t } = useTranslation();
 
@@ -1054,39 +1057,33 @@ export function HindsightPanelPage({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="rounded-2xl aura-glass p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-xl font-bold text-aura-primary">
-            <Brain className="h-5 w-5 text-aura-accent" aria-hidden="true" />
-            {t("hindsightPanel.title")}
-          </h2>
-          <p className="mt-1 text-xs text-aura-text-muted">
-            {t("hindsightPanel.subtitle")}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            data-testid="hindsight-create-bank-btn"
-            onClick={() => setShowCreateBankForm((v) => !v)}
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("hindsightPanel.createBank.button")}
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleRefresh}
-            loading={loadingBanks}
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("hindsightPanel.refresh")}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Brain className="h-5 w-5" aria-hidden="true" />}
+        title={t("hindsightPanel.title")}
+        subtitle={t("hindsightPanel.subtitle")}
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              data-testid="hindsight-create-bank-btn"
+              onClick={() => setShowCreateBankForm((v) => !v)}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("hindsightPanel.createBank.button")}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleRefresh}
+              loading={loadingBanks}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("hindsightPanel.refresh")}
+            </Button>
+          </>
+        }
+      />
 
       {/* Create New Bank Panel */}
       {showCreateBankForm && (
@@ -1210,7 +1207,7 @@ export function HindsightPanelPage({
       {isOffline && (
         <div
           role="status"
-          className="flex flex-wrap items-start justify-between gap-3 rounded-aura-lg border border-aura-warning/40 bg-aura-warning/10 p-4 text-sm text-aura-primary"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-aura-lg aura-glass border border-aura-warning/50 p-4 text-sm text-aura-primary"
         >
           <div className="flex items-start gap-3">
             <AlertTriangle
@@ -1227,6 +1224,22 @@ export function HindsightPanelPage({
                 </p>
               )}
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleRefresh}
+              loading={loadingBanks}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("updater.banner.retry")}
+            </Button>
+            {onOpenSettings && (
+              <Button size="sm" variant="outline" onClick={onOpenSettings}>
+                {t("hindsightPanel.openSettings")}
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -1248,24 +1261,39 @@ export function HindsightPanelPage({
             {/* Health strip: what the daemon reports about itself. */}
             {hindsightStatus && (
               <div
-                className={`rounded-aura-lg border p-3 text-[11px] ${
+                className={`rounded-aura-lg aura-glass border p-3 text-[11px] text-aura-primary ${
                   hindsightStatus.enabled && hindsightStatus.online
-                    ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
-                    : "border-rose-400/30 bg-rose-500/10 text-rose-200"
+                    ? "border-emerald-400/45"
+                    : "border-rose-400/45"
                 }`}
                 data-testid="hindsight-health-strip"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">
+                  <span
+                    className={`inline-flex items-center gap-1.5 font-semibold ${
+                      hindsightStatus.enabled && hindsightStatus.online
+                        ? "text-aura-success"
+                        : "text-aura-danger"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-2 rounded-full ${
+                        hindsightStatus.enabled && hindsightStatus.online
+                          ? "bg-emerald-400"
+                          : "bg-rose-400"
+                      }`}
+                    />
                     {hindsightStatus.enabled && hindsightStatus.online
                       ? t("hindsightPanel.health.online")
                       : t("hindsightPanel.health.offline")}
                   </span>
-                  <span className="font-mono text-[10px] opacity-80">
-                    {hindsightStatus.banks.length} {t("hindsightPanel.health.banks")}
+                  <span className="font-mono text-[10px] text-aura-text-muted">
+                    {hindsightStatus.enabled && hindsightStatus.online ? hindsightStatus.banks.length : 0}{" "}
+                    {t("hindsightPanel.health.banks")}
                   </span>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 opacity-90">
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-aura-secondary">
                   <span>{t("hindsightPanel.health.localMemories")}: {hindsightStatus.localCount}</span>
                   <span>
                     {t("hindsightPanel.health.dailyMaintenance")}:{" "}
@@ -1289,20 +1317,12 @@ export function HindsightPanelPage({
                   <Database className="h-3.5 w-3.5 text-aura-accent" aria-hidden="true" />
                   {t("hindsightPanel.banksTitle", { count: banks.length })}
                 </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateBankForm((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-aura-sm border border-aura-accent/40 bg-aura-accent/10 px-2 py-0.5 text-[11px] font-medium text-aura-accent hover:bg-aura-accent/20 transition-colors"
-                >
-                  <Plus className="h-3 w-3" aria-hidden="true" />
-                  {t("hindsightPanel.createBank.button")}
-                </button>
               </div>
 
               {banks.length === 0 ? (
                 <EmptyState
                   icon={<Database className="h-5 w-5" />}
-                  title={t("hindsightPanel.offlineBanner")}
+                  title={t("hindsightPanel.offlineSidebarHint")}
                 />
               ) : (
                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
@@ -1879,7 +1899,7 @@ export function HindsightPanelPage({
                     {!selectedBank ? (
                       <EmptyState
                         icon={<Brain className="h-5 w-5" />}
-                        title={t("hindsightPanel.offlineBanner")}
+                        title={t("hindsightPanel.offlineMainHint")}
                       />
                     ) : loadingMemories ? (
                       <div className="space-y-3">
@@ -2223,7 +2243,7 @@ export function HindsightPanelPage({
                   {!selectedBank ? (
                     <EmptyState
                       icon={<FileText className="h-5 w-5" />}
-                      title={t("hindsightPanel.offlineBanner")}
+                      title={t("hindsightPanel.offlineMainHint")}
                     />
                   ) : loadingDocuments ? (
                     <div className="space-y-2.5">
@@ -2385,7 +2405,7 @@ export function HindsightPanelPage({
                   {!selectedBank ? (
                     <EmptyState
                       icon={<Layers className="h-5 w-5" />}
-                      title={t("hindsightPanel.offlineBanner")}
+                      title={t("hindsightPanel.offlineMainHint")}
                     />
                   ) : loadingEntities ? (
                     <div className="space-y-2.5">
@@ -2612,7 +2632,7 @@ export function HindsightPanelPage({
                 {!selectedBank ? (
                   <EmptyState
                     icon={<Network className="h-5 w-5" />}
-                    title={t("hindsightPanel.offlineBanner")}
+                    title={t("hindsightPanel.offlineMainHint")}
                   />
                 ) : loadingGraph ? (
                   <Skeleton className="h-[460px]" />
@@ -2855,7 +2875,7 @@ export function HindsightPanelPage({
                 {!selectedBank ? (
                   <EmptyState
                     icon={<Brain className="h-5 w-5" />}
-                    title={t("hindsightPanel.offlineBanner")}
+                    title={t("hindsightPanel.offlineMainHint")}
                   />
                 ) : loadingMentalModels ? (
                   <div className="space-y-3">

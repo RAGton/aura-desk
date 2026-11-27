@@ -55,6 +55,7 @@ describe("RemindersPage", () => {
     const onSnoozeReminder = vi.fn(async () => {});
     const onDismissReminder = vi.fn(async () => {});
     const onDeleteReminder = vi.fn(async () => {});
+    const onUpdateReminder = vi.fn(async () => {});
 
     render(
       <RemindersPage
@@ -72,8 +73,21 @@ describe("RemindersPage", () => {
         onSnoozeReminder={onSnoozeReminder}
         onDismissReminder={onDismissReminder}
         onDeleteReminder={onDeleteReminder}
+        onUpdateReminder={onUpdateReminder}
       />
     );
+
+    // Inline reminder edit
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const editTitleInput = screen.getAllByLabelText("Reminder title")[1];
+    fireEvent.change(editTitleInput, { target: { value: "Deploy check updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(onUpdateReminder).toHaveBeenCalledWith(
+        "r1",
+        expect.objectContaining({ title: "Deploy check updated" })
+      );
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Do Not Disturb (1h)" }));
     expect(onToggleDnd).toHaveBeenCalledTimes(1);

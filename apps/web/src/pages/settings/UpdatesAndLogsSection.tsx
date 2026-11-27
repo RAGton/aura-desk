@@ -93,22 +93,22 @@ export function UpdatesAndLogsSection({
         </div>
       </div>
 
-      <p className="text-xs text-slate-400">{t("settings.updates.description")}</p>
+      <p className="text-xs text-aura-text-muted">{t("settings.updates.description")}</p>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-aura-border/40 bg-aura-surface/70 px-4 py-3">
         <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="text-xs font-medium text-slate-200">
+          <p className="text-xs font-medium text-aura-primary">
             {formatUpdateStatusMessage(t, updateState)}
           </p>
           {updateState?.status === "downloading" && (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-aura-muted/60">
               <div
                 className="h-full bg-indigo-500 transition-all duration-300"
                 style={{ width: `${Math.max(4, updateState.progressPct)}%` }}
               />
             </div>
           )}
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-aura-text-muted">
             {updateState?.lastCheckedAt
               ? t("settings.updates.lastChecked", {
                   time: new Date(updateState.lastCheckedAt).toLocaleString(),
@@ -169,8 +169,8 @@ export function UpdatesAndLogsSection({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
-            <Terminal className="h-3.5 w-3.5 text-slate-400" />
+          <span className="flex items-center gap-1.5 text-xs font-medium text-aura-secondary">
+            <Terminal className="h-3.5 w-3.5 text-aura-text-muted" />
             {t("settings.updates.logsTitle")}
           </span>
           <Button
@@ -182,7 +182,7 @@ export function UpdatesAndLogsSection({
             {t("settings.updates.refreshLogs")}
           </Button>
         </div>
-        <pre className="max-h-40 overflow-auto rounded-xl border border-slate-800/70 bg-slate-950/70 p-3 font-mono text-[11px] leading-relaxed text-slate-300">
+        <pre className="max-h-40 overflow-auto rounded-xl border border-aura-border/40 bg-aura-surface/75 p-3 font-mono text-[11px] leading-relaxed text-aura-secondary">
           {logsTail && logsTail.length > 0
             ? logsTail.join("\n")
             : t("settings.updates.logsEmpty")}

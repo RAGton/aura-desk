@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
@@ -82,6 +82,7 @@ import { PomodoroPage } from "../../pages/PomodoroPage";
 import { RemindersPage } from "../../pages/RemindersPage";
 import { ReportsPage } from "../../pages/ReportsPage";
 import { SettingsPage } from "../../pages/SettingsPage";
+import type { SettingsSectionKey } from "../../pages/settings/settingsSchema";
 import { SessionsCenterPage } from "../../pages/SessionsCenterPage";
 import { HindsightPanelPage } from "../../pages/HindsightPanelPage";
 import { LightRagExplorerPage } from "../../pages/LightRagExplorerPage";
@@ -172,12 +173,19 @@ function formatClock(secs: number): string {
 export function AppShell() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTabFromLocation);
+  const [selectedNavTab, setSelectedNavTab] = useState<TabKey>(initialTabFromLocation);
+  const mainRef = useRef<HTMLElement | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string>("default");
+  const [liveToggleSeq, setLiveToggleSeq] = useState<number>(0);
   const [galaxyFocusMemory, setGalaxyFocusMemory] = useState<{
     bankId: string;
     memoryId: string;
   } | null>(null);
   const [hindsightInitialBank, setHindsightInitialBank] = useState<string | null>(null);
+  const [settingsSectionReq, setSettingsSectionReq] = useState<{
+    section: SettingsSectionKey;
+    seq: number;
+  } | null>(null);
   const [currentLang, setCurrentLang] = useState<string>(i18n.language || "pt-BR");
   const [inTauri] = useState<boolean>(() => isTauriRuntime());
   const [visualPrefs, setVisualPrefs] = useState<VisualPrefs>(loadVisualPrefs);
@@ -267,7 +275,10 @@ export function AppShell() {
       : null;
 
   const selectTab = useCallback((tab: TabKey) => {
-    setActiveTab(tab);
+    setSelectedNavTab(tab);
+    startTransition(() => {
+      setActiveTab(tab);
+    });
     try {
       const target = tabToPath(tab);
       if (window.location.pathname !== target) {
@@ -278,13 +289,31 @@ export function AppShell() {
     }
   }, []);
 
+  const openSettings = useCallback(
+    (section: SettingsSectionKey = "general") => {
+      setSettingsSectionReq((prev) => ({ section, seq: (prev?.seq ?? 0) + 1 }));
+      selectTab("settings");
+    },
+    [selectTab]
+  );
+
   useEffect(() => {
     const onPopState = () => {
-      setActiveTab(initialTabFromLocation());
+      const next = initialTabFromLocation();
+      setSelectedNavTab(next);
+      startTransition(() => {
+        setActiveTab(next);
+      });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (typeof mainRef.current?.scrollTo === "function") {
+      mainRef.current.scrollTo({ top: 0 });
+    }
+  }, [activeTab]);
 
   const notify = useCallback((text: string, isError = false) => {
     setStatusBanner({ text, isError });
@@ -504,6 +533,7 @@ export function AppShell() {
     let unlistenSettings: (() => void) | undefined;
     let unlistenResume: (() => void) | undefined;
     let unlistenNavigate: (() => void) | undefined;
+    let unlistenToggleLive: (() => void) | undefined;
     let unlistenIdle: (() => void) | undefined;
     let unlistenProposals: (() => void) | undefined;
     let unlistenUpdate: (() => void) | undefined;
@@ -571,6 +601,10 @@ export function AppShell() {
               selectTab(target);
             }
           });
+          unlistenToggleLive = await listen("auradesk://toggle-live-voice", () => {
+            selectTab("hermes");
+            setLiveToggleSeq((seq) => seq + 1);
+          });
           unlistenIdle = await listen<IdleStateSnapshot>("auradesk://idle-state", (event) => {
             const payload = event.payload;
             if (!payload) return;
@@ -600,6 +634,7 @@ export function AppShell() {
       if (unlistenProposals) unlistenProposals();
       if (unlistenUpdate) unlistenUpdate();
       if (unlistenNavigate) unlistenNavigate();
+      if (unlistenToggleLive) unlistenToggleLive();
       if (unlistenIdle) unlistenIdle();
     };
   }, [refreshAlertsDomain, refreshAll, refreshSec, refreshTasksDomain, selectTab]);
@@ -619,15 +654,63 @@ export function AppShell() {
   };
 
   useEffect(() => {
+    let gPending = false;
+    let gTimer: number | undefined;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandPaletteOpen((open) => !open);
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (gPending) {
+        gPending = false;
+        if (gTimer) window.clearTimeout(gTimer);
+        const map: Record<string, TabKey> = {
+          a: "hermes",
+          s: "sessions",
+          h: "hindsight",
+          l: "knowledge",
+          g: "agents",
+          d: "dashboard",
+          k: "kanban",
+          p: "pomodoro",
+          r: "reminders",
+          m: "reports",
+          ",": "settings",
+        };
+        const dest = map[key];
+        if (dest) {
+          e.preventDefault();
+          selectTab(dest);
+        }
+        return;
+      }
+      if (key === "g") {
+        gPending = true;
+        if (gTimer) window.clearTimeout(gTimer);
+        gTimer = window.setTimeout(() => {
+          gPending = false;
+        }, 900);
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (gTimer) window.clearTimeout(gTimer);
+    };
+  }, [selectTab]);
 
   const handleQuickCreateTaskFromPalette = useCallback(
     async (title: string) => {
@@ -724,6 +807,7 @@ export function AppShell() {
     handleSnoozeReminder,
     handleDismissReminder,
     handleDeleteReminder,
+    handleUpdateReminder,
   } = useAlertsController({
     dndUntil,
     setSettingsMap,
@@ -741,66 +825,77 @@ export function AppShell() {
   const navItems = [
     {
       key: "hermes" as const,
+      group: "intelligence" as const,
       label: t("nav.hermes"),
       icon: Bot,
       badge: proposals.length > 0 ? proposals.length : undefined,
     },
     {
       key: "sessions" as const,
+      group: "intelligence" as const,
       label: t("nav.sessions"),
       icon: MessageSquareText,
       badge: undefined,
     },
     {
       key: "hindsight" as const,
+      group: "intelligence" as const,
       label: t("nav.hindsight"),
       icon: Brain,
       badge: undefined,
     },
     {
       key: "knowledge" as const,
+      group: "intelligence" as const,
       label: t("nav.knowledge"),
       icon: BookOpen,
       badge: undefined,
     },
     {
       key: "agents" as const,
+      group: "intelligence" as const,
       label: t("nav.agents"),
       icon: Cpu,
       badge: undefined,
     },
     {
       key: "dashboard" as const,
+      group: "productivity" as const,
       label: t("nav.dashboard"),
       icon: LayoutDashboard,
       badge: undefined,
     },
     {
       key: "kanban" as const,
+      group: "productivity" as const,
       label: t("nav.kanban"),
       icon: Kanban,
       badge: tasks.length,
     },
     {
       key: "pomodoro" as const,
+      group: "productivity" as const,
       label: t("nav.pomodoro"),
       icon: Timer,
       badge: activePomo ? formatClock(timerSecondsLeft) : undefined,
     },
     {
       key: "reminders" as const,
+      group: "productivity" as const,
       label: t("nav.reminders"),
       icon: Bell,
       badge: alerts.length > 0 ? alerts.length : undefined,
     },
     {
       key: "reports" as const,
+      group: "productivity" as const,
       label: t("nav.reports"),
       icon: BarChart3,
       badge: undefined,
     },
     {
       key: "settings" as const,
+      group: "system" as const,
       label: t("nav.settings"),
       icon: Settings,
       badge: undefined,
@@ -813,18 +908,18 @@ export function AppShell() {
       return (
         <nav
           aria-label={t("app.title")}
-          className="aura-glass border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
+          className="aura-shell-bar border-b border-slate-800/40 px-6 flex items-center justify-between gap-2 overflow-x-auto max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5"
         >
           <div className="flex items-center gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full">
             {navItems.map(({ key, label, icon: Icon, badge }) => {
-              const active = activeTab === key;
+              const active = selectedNavTab === key;
               return (
                 <button
                   key={key}
                   type="button"
                   onClick={() => selectTab(key)}
                   aria-current={active ? "page" : undefined}
-                  className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:min-w-0 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-0.5 max-md:py-2 max-md:text-[10px] px-4 py-3 border-b-2 max-md:border-b-0 ${
+                  className={`relative flex items-center justify-between gap-2 text-xs font-semibold transition-[background-color,color,box-shadow,border-color,transform] duration-200 ease-out active:scale-[0.98] cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus max-md:min-w-0 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:rounded-lg max-md:px-0.5 max-md:py-2 max-md:text-[10px] px-4 py-3 border-b-2 max-md:border-b-0 ${
                     active
                       ? "border-aura-accent text-aura-accent bg-aura-accent/10 max-md:bg-aura-accent/15"
                       : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700"
@@ -866,42 +961,54 @@ export function AppShell() {
     return (
       <nav
         aria-label={t("app.title")}
-        className={`aura-glass border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 shrink-0 transition-all duration-200 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5 ${
+        className={`aura-shell-bar border-b md:border-b-0 md:border-r border-slate-800/40 p-3 flex md:flex-col justify-between gap-2 shrink-0 md:overflow-y-auto transition-[width] duration-200 max-md:fixed max-md:bottom-0 max-md:inset-x-0 max-md:z-40 max-md:border-t max-md:border-b-0 max-md:border-aura-border/40 max-md:bg-aura-canvas/95 max-md:backdrop-blur-xl max-md:px-1.5 max-md:py-1.5 ${
           iconsOnly ? "md:w-16" : "md:w-60"
         }`}
       >
         <div className="flex md:flex-col gap-1 max-md:flex max-md:overflow-x-auto max-md:w-full">
-          {navItems.map(({ key, label, icon: Icon, badge }) => {
-            const active = activeTab === key;
+          {navItems.map(({ key, group, label, icon: Icon, badge }, idx) => {
+            const active = selectedNavTab === key;
+            const showGroupHeader =
+              !iconsOnly && (idx === 0 || navItems[idx - 1].group !== group);
             return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => selectTab(key)}
-                aria-label={iconsOnly ? label : undefined}
-                title={iconsOnly ? label : undefined}
-                aria-current={active ? "page" : undefined}
-                className={`relative flex items-center gap-2 text-xs font-semibold transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus rounded-xl py-2.5 ${
-                  iconsOnly ? "justify-center px-2 w-full" : "justify-between px-3.5 w-full"
-                } ${
-                  active
-                    ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <span className={`flex items-center gap-2 ${iconsOnly ? "" : ""}`}>
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  {!iconsOnly && <span className="truncate">{label}</span>}
-                </span>
-                {badge !== undefined && !iconsOnly && (
-                  <Badge variant="info" className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums">
-                    {badge}
-                  </Badge>
+              <div key={key} className="contents md:block">
+                {showGroupHeader && (
+                  <div
+                    className={`hidden md:block px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${
+                      idx === 0 ? "pt-0.5 pb-1" : "pt-3 pb-1 border-t border-slate-800/35 mt-2"
+                    }`}
+                  >
+                    {t(`nav.groups.${group}`)}
+                  </div>
                 )}
-                {badge !== undefined && iconsOnly && (
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400" />
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => selectTab(key)}
+                  aria-label={iconsOnly ? label : undefined}
+                  title={iconsOnly ? label : undefined}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex items-center gap-2 text-xs font-semibold transition-[background-color,color,box-shadow,border-color,transform] duration-200 ease-out active:scale-[0.98] cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus rounded-xl py-2.5 ${
+                    iconsOnly ? "justify-center px-2 w-full" : "justify-between px-3.5 w-full"
+                  } ${
+                    active
+                      ? "bg-aura-accent/15 text-aura-accent ring-1 ring-aura-accent/35"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {!iconsOnly && <span className="truncate">{label}</span>}
+                  </span>
+                  {badge !== undefined && !iconsOnly && (
+                    <Badge variant="info" className="ml-1 rounded-full px-2 py-0.5 text-[11px] tabular-nums">
+                      {badge}
+                    </Badge>
+                  )}
+                  {badge !== undefined && iconsOnly && (
+                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400" />
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
@@ -924,171 +1031,21 @@ export function AppShell() {
 
   const renderMainContent = () => (
     <main
+      ref={mainRef}
       id="main-content"
       tabIndex={-1}
       className={
         isAuraCockpit
           ? "flex-1 relative min-h-0 flex flex-col overflow-hidden p-0 max-md:pb-16 focus:outline-none"
-          : "flex-1 p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto space-y-6 focus:outline-none"
+          : "flex-1 min-h-0 overflow-y-auto overflow-x-hidden focus:outline-none"
       }
     >
-      {activeTab === "dashboard" && (
-        <div className="aura-panel-enter space-y-6">
-          <DashboardPage
-          layout={layout}
-          customizingLayout={customizingLayout}
-          summary={summary}
-          dailyPlan={dailyPlan}
-          planNotes={planNotes}
-          tasks={tasks}
-          reminders={reminders}
-          alerts={alerts}
-          routines={routines}
-          proposals={proposals}
-          activePomo={activePomo}
-          timerSecondsLeft={timerSecondsLeft}
-          focusMin={focusMin}
-          newTaskTitle={newTaskTitle}
-          newTaskPriority={newTaskPriority}
-          onChangePlanNotes={setPlanNotes}
-          onSavePlanNotes={async () => {
-            if (!dailyPlan) return;
-            try {
-              const serialized = serializeDailyPlanNotes(planNotes);
-              const updated = await dashboardApi.dailyPlanSetPayload(
-                dailyPlan.id,
-                serialized
-              );
-              const parsed = parseDailyPlanNotes(updated.payload ?? serialized);
-              loadedPlanPayloadRef.current = parsed;
-              setPlanNotes(parsed);
-              await refreshAll();
-              notify(t("dashboard.dailyNotesSaved"));
-            } catch (err) {
-              notify(String(err), true);
-            }
-          }}
-          onSetPlanState={async (state: PlanState) => {
-            if (!dailyPlan) return;
-            try {
-              await dashboardApi.dailyPlanSetState(dailyPlan.id, state);
-              await refreshAll();
-              notify(t("dashboard.planStateUpdated"));
-            } catch (err) {
-              notify(String(err), true);
-            }
-          }}
-          onChangeNewTaskTitle={setNewTaskTitle}
-          onChangeNewTaskPriority={setNewTaskPriority}
-          onCreateTask={handleCreateTask}
-          onUpdateLayout={updateLayout}
-          onNavigateTab={selectTab}
-          onStartQuickFocus={(taskId) =>
-            handleStartPomodoro("focus", focusMin, taskId ?? null)
-          }
-          onMoveTask={handleMoveTask}
-          onResolveAlert={handlePopupResolve}
-          onToggleRoutine={handleToggleRoutine}
-          onApproveProposal={handleApproveProposal}
-          onRejectProposal={handleRejectProposal}
-        />
-        <AuraMonitoringPanel onProposalApplied={() => void refreshAll()} />
-        </div>
-      )}
-
-      {activeTab === "kanban" && (
-        <div className="aura-panel-enter">
-          <KanbanPage
-          tasks={tasks}
-          projects={projects}
-          githubLinks={githubLinks}
-          importingGithub={importingGithub}
-          newTaskTitle={newTaskTitle}
-          newTaskEstimate={newTaskEstimate}
-          newTaskPriority={newTaskPriority}
-          newTaskTags={newTaskTags}
-          newTaskDueAt={newTaskDueAt}
-          newTaskProjectId={newTaskProjectId}
-          search={kanbanSearch}
-          priorityFilter={kanbanPriorityFilter}
-          projectFilter={kanbanProjectFilter}
-          onChangeNewTitle={setNewTaskTitle}
-          onChangeNewEstimate={setNewTaskEstimate}
-          onChangeNewPriority={setNewTaskPriority}
-          onChangeNewTags={setNewTaskTags}
-          onChangeNewDueAt={setNewTaskDueAt}
-          onChangeNewProjectId={setNewTaskProjectId}
-          onChangeSearch={setKanbanSearch}
-          onChangePriorityFilter={setKanbanPriorityFilter}
-          onChangeProjectFilter={setKanbanProjectFilter}
-          onCreateProject={handleCreateProject}
-          onCreateTask={handleCreateTask}
-          onImportGithub={handleImportGithub}
-          onUnlinkGithub={handleUnlinkGithub}
-          onMoveTask={handleMoveTask}
-          onMoveTaskToIndex={handleMoveTaskToIndex}
-          onReorderTask={handleReorderTask}
-          onUpdateTask={handleSaveTaskEdit}
-          onDeleteTask={handleDeleteTask}
-          onFocusTask={(task) => handleStartPomodoro("focus", focusMin, task.id)}
-        />
-        </div>
-      )}
-
-      {activeTab === "pomodoro" && (
-        <div className="aura-panel-enter">
-          <PomodoroPage
-          activePomo={activePomo}
-          pomoHistory={pomoHistory}
-          tasks={tasks}
-          selectedTaskId={selectedPomoTaskId}
-          timerSecondsLeft={timerSecondsLeft}
-          timerPaused={timerPaused}
-          focusMin={focusMin}
-          shortMin={shortMin}
-          longMin={longMin}
-          cyclesToLong={cyclesToLong}
-          onSelectTaskId={setSelectedPomoTaskId}
-          onTogglePause={handleTogglePause}
-          onStart={handleStartPomodoro}
-          onComplete={handleCompletePomodoro}
-          onAbandon={handleAbandonPomodoro}
-        />
-        </div>
-      )}
-
-      {activeTab === "reminders" && (
-        <div className="aura-panel-enter">
-          <RemindersPage
-          reminders={reminders}
-          alerts={alerts}
-          newReminderTitle={newReminderTitle}
-          dndUntil={dndUntil}
-          onChangeTitle={setNewReminderTitle}
-          onCreateReminder={handleCreateReminder}
-          onToggleDnd={handleToggleDnd}
-          onResolveAlert={handlePopupResolve}
-          onSnoozeAlert={handlePopupSnooze}
-          onExceptAlert={handleExceptAlert}
-          onDismissAlert={handlePopupDismiss}
-          onSnoozeReminder={handleSnoozeReminder}
-          onDismissReminder={handleDismissReminder}
-          onDeleteReminder={handleDeleteReminder}
-        />
-        </div>
-      )}
-
-      {activeTab === "reports" && (
-        <div className="aura-panel-enter">
-          <ReportsPage />
-        </div>
-      )}
-
-      {activeTab === "hermes" && (
-        <div className="aura-panel-enter flex-1 flex flex-col min-h-0">
+      {activeTab === "hermes" ? (
+        <div key="hermes" className="aura-panel-enter flex-1 flex flex-col min-h-0">
           <AuraChatPanel
             sessionId={activeSessionId}
             onSessionChange={setActiveSessionId}
+            liveToggleSeq={liveToggleSeq}
             focusMemory={galaxyFocusMemory}
             onFocusMemoryHandled={() => setGalaxyFocusMemory(null)}
             onOpenSessions={() => selectTab("sessions")}
@@ -1097,76 +1054,225 @@ export function AppShell() {
               selectTab("hindsight");
             }}
             onProposalApplied={() => void refreshAll()}
-            onOpenSettings={() => selectTab("settings")}
+            onOpenSettings={() => openSettings("ai")}
           />
         </div>
-      )}
+      ) : (
+        <div
+          key={activeTab}
+          className="aura-panel-enter p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto space-y-6"
+        >
+          {activeTab === "dashboard" && (
+            <>
+              <DashboardPage
+                layout={layout}
+                customizingLayout={customizingLayout}
+                summary={summary}
+                dailyPlan={dailyPlan}
+                planNotes={planNotes}
+                tasks={tasks}
+                reminders={reminders}
+                alerts={alerts}
+                routines={routines}
+                proposals={proposals}
+                activePomo={activePomo}
+                timerSecondsLeft={timerSecondsLeft}
+                focusMin={focusMin}
+                newTaskTitle={newTaskTitle}
+                newTaskPriority={newTaskPriority}
+                onChangePlanNotes={setPlanNotes}
+                onSavePlanNotes={async () => {
+                  if (!dailyPlan) return;
+                  try {
+                    const serialized = serializeDailyPlanNotes(planNotes);
+                    const updated = await dashboardApi.dailyPlanSetPayload(
+                      dailyPlan.id,
+                      serialized
+                    );
+                    const parsed = parseDailyPlanNotes(updated.payload ?? serialized);
+                    loadedPlanPayloadRef.current = parsed;
+                    setPlanNotes(parsed);
+                    await refreshAll();
+                    notify(t("dashboard.dailyNotesSaved"));
+                  } catch (err) {
+                    notify(String(err), true);
+                  }
+                }}
+                onSetPlanState={async (state: PlanState) => {
+                  if (!dailyPlan) return;
+                  try {
+                    await dashboardApi.dailyPlanSetState(dailyPlan.id, state);
+                    await refreshAll();
+                    notify(t("dashboard.planStateUpdated"));
+                  } catch (err) {
+                    notify(String(err), true);
+                  }
+                }}
+                onChangeNewTaskTitle={setNewTaskTitle}
+                onChangeNewTaskPriority={setNewTaskPriority}
+                onCreateTask={handleCreateTask}
+                onUpdateLayout={updateLayout}
+                onNavigateTab={(tab, section) => {
+                  if (tab === "settings" && section) {
+                    openSettings(section);
+                  } else {
+                    selectTab(tab);
+                  }
+                }}
+                onStartQuickFocus={(taskId) =>
+                  handleStartPomodoro("focus", focusMin, taskId ?? null)
+                }
+                onMoveTask={handleMoveTask}
+                onResolveAlert={handlePopupResolve}
+                onToggleRoutine={handleToggleRoutine}
+                onApproveProposal={handleApproveProposal}
+                onRejectProposal={handleRejectProposal}
+              />
+              <AuraMonitoringPanel onProposalApplied={() => void refreshAll()} />
+            </>
+          )}
 
-      {activeTab === "sessions" && (
-        <div className="aura-panel-enter">
-          <SessionsCenterPage
-            activeSessionId={activeSessionId}
-            onContinueSession={(sid) => {
-              setActiveSessionId(sid);
-              selectTab("hermes");
-            }}
-            onActiveSessionDeleted={() => setActiveSessionId("default")}
-          />
-        </div>
-      )}
+          {activeTab === "kanban" && (
+            <KanbanPage
+              tasks={tasks}
+              projects={projects}
+              githubLinks={githubLinks}
+              importingGithub={importingGithub}
+              newTaskTitle={newTaskTitle}
+              newTaskEstimate={newTaskEstimate}
+              newTaskPriority={newTaskPriority}
+              newTaskTags={newTaskTags}
+              newTaskDueAt={newTaskDueAt}
+              newTaskProjectId={newTaskProjectId}
+              search={kanbanSearch}
+              priorityFilter={kanbanPriorityFilter}
+              projectFilter={kanbanProjectFilter}
+              onChangeNewTitle={setNewTaskTitle}
+              onChangeNewEstimate={setNewTaskEstimate}
+              onChangeNewPriority={setNewTaskPriority}
+              onChangeNewTags={setNewTaskTags}
+              onChangeNewDueAt={setNewTaskDueAt}
+              onChangeNewProjectId={setNewTaskProjectId}
+              onChangeSearch={setKanbanSearch}
+              onChangePriorityFilter={setKanbanPriorityFilter}
+              onChangeProjectFilter={setKanbanProjectFilter}
+              onCreateProject={handleCreateProject}
+              onCreateTask={handleCreateTask}
+              onImportGithub={handleImportGithub}
+              onUnlinkGithub={handleUnlinkGithub}
+              onMoveTask={handleMoveTask}
+              onMoveTaskToIndex={handleMoveTaskToIndex}
+              onReorderTask={handleReorderTask}
+              onUpdateTask={handleSaveTaskEdit}
+              onDeleteTask={handleDeleteTask}
+              onFocusTask={(task) => handleStartPomodoro("focus", focusMin, task.id)}
+            />
+          )}
 
-      {activeTab === "hindsight" && (
-        <div className="aura-panel-enter">
-          <HindsightPanelPage
-            initialBank={hindsightInitialBank}
-            onOpenInGalaxy={(bankId, memoryId) => {
-              setGalaxyFocusMemory({ bankId, memoryId });
-              selectTab("hermes");
-            }}
-          />
-        </div>
-      )}
+          {activeTab === "pomodoro" && (
+            <PomodoroPage
+              activePomo={activePomo}
+              pomoHistory={pomoHistory}
+              tasks={tasks}
+              selectedTaskId={selectedPomoTaskId}
+              timerSecondsLeft={timerSecondsLeft}
+              timerPaused={timerPaused}
+              focusMin={focusMin}
+              shortMin={shortMin}
+              longMin={longMin}
+              cyclesToLong={cyclesToLong}
+              onSelectTaskId={setSelectedPomoTaskId}
+              onTogglePause={handleTogglePause}
+              onStart={handleStartPomodoro}
+              onComplete={handleCompletePomodoro}
+              onAbandon={handleAbandonPomodoro}
+            />
+          )}
 
-      {activeTab === "knowledge" && (
-        <div className="aura-panel-enter">
-          <LightRagExplorerPage onOpenSettings={() => selectTab("settings")} />
-        </div>
-      )}
+          {activeTab === "reminders" && (
+            <RemindersPage
+              reminders={reminders}
+              alerts={alerts}
+              newReminderTitle={newReminderTitle}
+              dndUntil={dndUntil}
+              onChangeTitle={setNewReminderTitle}
+              onCreateReminder={handleCreateReminder}
+              onToggleDnd={handleToggleDnd}
+              onResolveAlert={handlePopupResolve}
+              onSnoozeAlert={handlePopupSnooze}
+              onExceptAlert={handleExceptAlert}
+              onDismissAlert={handlePopupDismiss}
+              onSnoozeReminder={handleSnoozeReminder}
+              onDismissReminder={handleDismissReminder}
+              onDeleteReminder={handleDeleteReminder}
+              onUpdateReminder={handleUpdateReminder}
+            />
+          )}
 
-      {activeTab === "agents" && (
-        <div className="aura-panel-enter">
-          <AgentsHubPage activeSessionId={activeSessionId} />
-        </div>
-      )}
+          {activeTab === "reports" && <ReportsPage />}
 
-      {activeTab === "settings" && (
-        <div className="aura-panel-enter">
-          <SettingsPage
-          externalTheme={
-            typeof settingsMap["app.theme"] === "string" ? settingsMap["app.theme"] : undefined
-          }
-          externalLocale={currentLang}
-          onSettingSaved={(key, value) => {
-            setSettingsMap((prev) => ({ ...prev, [key]: value }));
-          }}
-          onAlertTriggered={() => {
-            setVisualPrefs(loadVisualPrefs());
-            void refreshAll();
-          }}
-          onVisualPrefsChange={setVisualPrefs}
-        />
+          {activeTab === "sessions" && (
+            <SessionsCenterPage
+              activeSessionId={activeSessionId}
+              onContinueSession={(sid) => {
+                setActiveSessionId(sid);
+                selectTab("hermes");
+              }}
+              onActiveSessionDeleted={() => setActiveSessionId("default")}
+            />
+          )}
+
+          {activeTab === "hindsight" && (
+            <HindsightPanelPage
+              initialBank={hindsightInitialBank}
+              onOpenSettings={() => openSettings("hindsight")}
+              onOpenInGalaxy={(bankId, memoryId) => {
+                setGalaxyFocusMemory({ bankId, memoryId });
+                selectTab("hermes");
+              }}
+            />
+          )}
+
+          {activeTab === "knowledge" && (
+            <LightRagExplorerPage onOpenSettings={() => openSettings("raglight")} />
+          )}
+
+          {activeTab === "agents" && (
+            <AgentsHubPage activeSessionId={activeSessionId} />
+          )}
+
+          {activeTab === "settings" && (
+            <SettingsPage
+              externalTheme={
+                typeof settingsMap["app.theme"] === "string" ? settingsMap["app.theme"] : undefined
+              }
+              externalLocale={currentLang}
+              sectionRequest={settingsSectionReq}
+              onSettingSaved={(key, value) => {
+                setSettingsMap((prev) => ({ ...prev, [key]: value }));
+              }}
+              onAlertTriggered={() => {
+                setVisualPrefs(loadVisualPrefs());
+                void refreshAll();
+              }}
+              onVisualPrefsChange={setVisualPrefs}
+            />
+          )}
         </div>
       )}
     </main>
   );
 
   return (
-    <div
-      className={`aura-bg text-slate-100 flex flex-col relative isolate ${
-        isAuraCockpit ? "h-screen overflow-hidden" : "min-h-screen"
-      }`}
-    >
-      {!isAuraCockpit && <AuraSpaceBackdrop galaxyDark={false} />}
+    <div className="aura-bg text-slate-100 flex flex-col relative isolate h-screen overflow-hidden">
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none fixed inset-0 -z-10 transition-opacity duration-300 ease-out ${
+          isAuraCockpit ? "opacity-0 invisible" : "opacity-100 visible"
+        }`}
+      >
+        <AuraSpaceBackdrop galaxyDark={false} />
+      </div>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-aura-accent focus:px-4 focus:py-2 focus:text-xs focus:font-semibold focus:text-aura-inverse focus:shadow-lg"
@@ -1175,11 +1281,7 @@ export function AppShell() {
       </a>
 
       {/* Top Header with Winged Notebook Logo + Quick Controls + Language Switcher */}
-      <header
-        className={`aura-glass border-b border-slate-800/40 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 shrink-0 ${
-          isAuraCockpit ? "py-2" : "py-3.5 gap-4"
-        }`}
-      >
+      <header className="aura-shell-bar relative z-30 border-b border-slate-800/40 px-4 sm:px-6 h-14 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           {/* Logo clicável – cicla sidebar: full → ícones → oculto */}
           <button
@@ -1187,19 +1289,15 @@ export function AppShell() {
             onClick={cycleSidebar}
             title={sidebarMode === "full" ? "Recolher barra lateral" : sidebarMode === "icons" ? "Ocultar barra lateral" : "Mostrar barra lateral"}
             aria-label="Alternar barra lateral"
-            className={`aura-glass-elevated ring-1 ring-sky-500/30 shadow-lg shadow-sky-500/10 shrink-0 cursor-pointer hover:ring-sky-400/60 transition-all duration-200 ${
-              isAuraCockpit ? "p-0.5 rounded-xl" : "p-1 rounded-2xl"
-            }`}
+            className="inline-flex items-center justify-center rounded-xl shrink-0 cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-focus"
           >
-            <AuraDeskLogo size={isAuraCockpit ? 34 : 48} animated />
+            <AuraDeskLogo size={34} animated={false} />
           </button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
                 translate="no"
-                className={`font-extrabold tracking-tight aura-brand-gradient bg-clip-text text-transparent ${
-                  isAuraCockpit ? "text-base" : "text-xl"
-                }`}
+                className="text-base font-extrabold tracking-tight aura-brand-gradient bg-clip-text text-transparent"
               >
                 {t("app.title")}
               </h1>

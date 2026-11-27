@@ -29,6 +29,18 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/__raglight/, ""),
       },
+      "/__voice": {
+        target: "http://127.0.0.1:8925",
+        changeOrigin: true,
+        ws: true,
+        rewrite: (p) => p.replace(/^\/__voice/, ""),
+      },
+      "/__stt": {
+        target: "http://127.0.0.1:9000",
+        changeOrigin: true,
+        ws: true,
+        rewrite: (p) => p.replace(/^\/__stt/, ""),
+      },
     },
   },
   envPrefix: ["VITE_", "TAURI_"],

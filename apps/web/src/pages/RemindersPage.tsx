@@ -9,6 +9,7 @@ import {
   Clock,
   Coffee,
   Droplets,
+  Pencil,
   Repeat,
   Sparkles,
   Trash2,
@@ -16,7 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { Badge, Button, EmptyState, Input, Select } from "../components/ui";
+import { Badge, Button, EmptyState, Input, PageHeader, Select } from "../components/ui";
 import type { Alert, Reminder, ReminderSound, RepeatKind } from "../lib/ipc";
 
 export interface CreateReminderOptions {
@@ -41,6 +42,16 @@ export interface RemindersPageProps {
   onSnoozeReminder: (id: string) => void | Promise<void>;
   onDismissReminder: (id: string) => void | Promise<void>;
   onDeleteReminder: (id: string) => void | Promise<void>;
+  onUpdateReminder?: (
+    id: string,
+    patch: {
+      title?: string;
+      body?: string | null;
+      fire_at?: string;
+      repeat_kind?: RepeatKind;
+      sound?: ReminderSound;
+    }
+  ) => void | Promise<void>;
 }
 
 function isWaterTitle(title: string): boolean {
@@ -81,6 +92,7 @@ export function RemindersPage({
   onSnoozeReminder,
   onDismissReminder,
   onDeleteReminder,
+  onUpdateReminder,
 }: RemindersPageProps) {
   const { t, i18n } = useTranslation();
   const [exceptAlertId, setExceptAlertId] = useState<string | null>(null);
@@ -91,6 +103,55 @@ export function RemindersPage({
   const [customDateTime, setCustomDateTime] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [resolvingAll, setResolvingAll] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editFireAt, setEditFireAt] = useState("");
+  const [editSound, setEditSound] = useState<ReminderSound>("normal");
+  const [editRepeat, setEditRepeat] = useState<RepeatKind>("none");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditReminder = (rem: Reminder) => {
+    setEditingId(rem.id);
+    setEditTitle(rem.title);
+    setEditBody(rem.body ?? "");
+    const parsed = new Date(rem.fire_at);
+    if (!Number.isNaN(parsed.getTime())) {
+      const localIso = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000)
+        .toISOString()
+        .slice(0, 16);
+      setEditFireAt(localIso);
+    } else {
+      setEditFireAt("");
+    }
+    setEditSound(normalizeSoundKey(rem.sound));
+    setEditRepeat(rem.repeat_kind);
+  };
+
+  const handleSaveReminderEdit = async (e: React.FormEvent, id: string) => {
+    e.preventDefault();
+    if (!onUpdateReminder || !editTitle.trim() || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      let fireAtIso: string | undefined;
+      if (editFireAt) {
+        const parsed = new Date(editFireAt);
+        if (!Number.isNaN(parsed.getTime())) {
+          fireAtIso = parsed.toISOString();
+        }
+      }
+      await onUpdateReminder(id, {
+        title: editTitle.trim(),
+        body: editBody.trim() || null,
+        fire_at: fireAtIso,
+        sound: editSound,
+        repeat_kind: editRepeat,
+      });
+      setEditingId(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     if (!confirmDeleteId) return;
@@ -152,67 +213,61 @@ export function RemindersPage({
 
   return (
     <div className="space-y-6">
-      {/* Header & Reminder Composer */}
-      <div className="rounded-2xl aura-glass p-5 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-lg font-bold text-slate-50">{t("reminders.title")}</h2>
-              {alerts.length > 0 && (
-                <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
-                  <BellRing className="h-3 w-3" />
-                  {t("reminders.queueBadge", { count: alerts.length })}
-                </Badge>
-              )}
-              {dndActive && dndUntil && (
-                <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium">
-                  <BellOff className="h-3 w-3" aria-hidden="true" />
-                  {t("reminders.dndActiveUntil", {
-                    time: new Date(dndUntil).toLocaleTimeString(i18n.language, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })}
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-slate-400">{t("reminders.subtitle")}</p>
-          </div>
-          {onToggleDnd && (
+      <PageHeader
+        icon={<BellRing className="h-5 w-5" aria-hidden="true" />}
+        title={t("reminders.title")}
+        subtitle={t("reminders.subtitle")}
+        badges={
+          <>
+            {alerts.length > 0 && (
+              <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
+                <BellRing className="h-3 w-3" />
+                {t("reminders.queueBadge", { count: alerts.length })}
+              </Badge>
+            )}
+            {dndActive && dndUntil && (
+              <Badge variant="warning" className="rounded-full px-2.5 py-0.5 text-[11px] font-medium">
+                <BellOff className="h-3 w-3" aria-hidden="true" />
+                {t("reminders.dndActiveUntil", {
+                  time: new Date(dndUntil).toLocaleTimeString(i18n.language, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                })}
+              </Badge>
+            )}
+          </>
+        }
+        actions={
+          onToggleDnd ? (
             <Button
               size="sm"
               variant={dndActive ? "outline" : "secondary"}
               onClick={() => void onToggleDnd()}
               className={`rounded-xl text-xs font-semibold ${
-                dndActive ? "bg-amber-500/20 text-amber-200 border-amber-500/40" : ""
+                dndActive ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : ""
               }`}
             >
               <BellOff className="h-3.5 w-3.5" />
               {dndActive ? t("reminders.dndDisable") : t("reminders.dndEnable")}
             </Button>
-          )}
-        </div>
+          ) : undefined
+        }
+      />
 
+      {/* Reminder Composer */}
+      <div className="rounded-2xl aura-glass p-5 space-y-4">
         <form onSubmit={handleFormSubmit} className="space-y-3">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
-              containerClassName="flex-1 min-w-[200px]"
+              containerClassName="flex-1 min-w-[220px]"
               type="text"
               aria-label={t("reminders.titleLabel")}
               value={newReminderTitle}
               onChange={(e) => onChangeTitle(e.target.value)}
               placeholder={t("reminders.newPlaceholder")}
-              className="px-3.5 py-2 text-sm"
+              className="px-3.5 text-sm"
             />
-            <Button
-              size="md"
-              variant="primary"
-              onClick={() => void submitWithOptions(0)}
-              className="rounded-xl bg-aura-warning text-xs font-bold text-aura-inverse shadow-sm hover:bg-aura-warning/90"
-            >
-              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("reminders.addNow")}
-            </Button>
             <Button
               size="md"
               variant="primary"
@@ -245,9 +300,18 @@ export function RemindersPage({
             >
               + {t("reminders.addIn1Hour")}
             </Button>
+            <Button
+              size="md"
+              variant="outline"
+              onClick={() => void submitWithOptions(0)}
+              className="rounded-xl border-amber-500/40 text-amber-300 hover:bg-amber-500/15 text-xs font-semibold"
+            >
+              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("reminders.addNow")}
+            </Button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
             <Input
               containerClassName="flex-1 min-w-[200px]"
               type="text"
@@ -255,28 +319,28 @@ export function RemindersPage({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={t("reminders.bodyPlaceholder")}
-              className="py-1.5 text-xs"
+              className="text-xs"
             />
-            <label className="inline-flex items-center gap-1.5 text-slate-400">
+            <label className="inline-flex items-center gap-1.5 text-aura-text-muted">
               <span>{t("reminders.soundLabel")}</span>
               <Select
                 containerClassName="w-auto"
                 value={sound}
                 onChange={(e) => setSound(e.target.value as ReminderSound)}
-                className="rounded-xl py-1.5 text-xs"
+                className="rounded-xl text-xs"
               >
                 <option value="normal">{t("reminders.sounds.normal")}</option>
                 <option value="urgent">{t("reminders.sounds.urgent")}</option>
                 <option value="none">{t("reminders.sounds.none")}</option>
               </Select>
             </label>
-            <label className="inline-flex items-center gap-1.5 text-slate-400">
+            <label className="inline-flex items-center gap-1.5 text-aura-text-muted">
               <span>{t("reminders.repeatLabel")}</span>
               <Select
                 containerClassName="w-auto"
                 value={repeatKind}
                 onChange={(e) => setRepeatKind(e.target.value as RepeatKind)}
-                className="rounded-xl py-1.5 text-xs"
+                className="rounded-xl text-xs"
               >
                 <option value="none">{t("reminders.repeats.none")}</option>
                 <option value="daily">{t("reminders.repeats.daily")}</option>
@@ -284,19 +348,19 @@ export function RemindersPage({
                 <option value="monthly">{t("reminders.repeats.monthly")}</option>
               </Select>
             </label>
-            <label className="inline-flex items-center gap-1.5 text-slate-400">
+            <label className="inline-flex items-center gap-1.5 text-aura-text-muted">
               <span>{t("reminders.customDateTime")}</span>
               <Input
                 containerClassName="w-auto"
                 type="datetime-local"
                 value={customDateTime}
                 onChange={(e) => setCustomDateTime(e.target.value)}
-                className="rounded-xl px-2.5 py-1 text-xs"
+                className="rounded-xl px-2.5 text-xs"
               />
             </label>
             {customDateTime && (
               <Button
-                size="sm"
+                size="md"
                 variant="outline"
                 onClick={() => {
                   const parsed = new Date(customDateTime);
@@ -314,8 +378,8 @@ export function RemindersPage({
         </form>
 
         {/* Quick Template Pills */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/60">
-          <span className="text-[11px] font-medium text-slate-400">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-aura-border/35">
+          <span className="text-[11px] font-medium text-aura-text-muted">
             {t("reminders.quickTemplates")}
           </span>
           {templates.map((tpl) => {
@@ -329,7 +393,7 @@ export function RemindersPage({
                   onChangeTitle(tpl.label);
                   setSound(tpl.sound);
                 }}
-                className="h-7 rounded-full aura-glass-pill px-2.5 text-[11px] font-medium text-slate-300 hover:text-aura-accent"
+                className="min-h-7 h-7 rounded-full aura-glass-pill px-2.5 text-[11px] font-medium text-aura-secondary hover:text-aura-accent"
               >
                 <Icon className="h-3 w-3 text-aura-accent" aria-hidden="true" />
                 {tpl.label}
@@ -364,7 +428,11 @@ export function RemindersPage({
           )}
         </section>
         {alerts.length === 0 ? (
-          <EmptyState title={t("reminders.noAlerts")} className="py-6" />
+          <EmptyState
+            icon={<BellRing className="h-5 w-5" />}
+            title={t("reminders.noAlerts")}
+            className="py-6"
+          />
         ) : (
           <div className="space-y-2.5">
             {alerts.map((a) => {
@@ -510,7 +578,11 @@ export function RemindersPage({
           </Badge>
         </section>
         {reminders.length === 0 ? (
-          <EmptyState title={t("reminders.noReminders")} className="py-6" />
+          <EmptyState
+            icon={<AlarmClock className="h-5 w-5" />}
+            title={t("reminders.noReminders")}
+            className="py-6"
+          />
         ) : (
           <div className="space-y-2">
             {reminders.map((r) => {
@@ -522,81 +594,176 @@ export function RemindersPage({
               return (
                 <div
                   key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl aura-glass-pill p-3.5"
+                  className="rounded-xl aura-glass-pill p-3.5 space-y-3"
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-100 break-words">
-                        {r.title}
-                      </span>
-                      <Badge
-                        variant={r.status === "snoozed" ? "warning" : "info"}
-                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                      >
-                        {statusLabel}
-                      </Badge>
-                    </div>
-                    {r.body && <div className="text-xs text-slate-400 truncate">{r.body}</div>}
-                    <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-400">
-                      <span className="inline-flex items-center gap-1 tabular-nums">
-                        <Clock className="h-3 w-3 text-slate-500" aria-hidden="true" />
-                        {new Date(r.fire_at).toLocaleString(i18n.language)}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <Volume2 className="h-3 w-3 text-slate-500" aria-hidden="true" />
-                        {t(`reminders.sounds.${soundKey}`)}
-                      </span>
-                      {r.repeat_kind !== "none" && (
-                        <span className="inline-flex items-center gap-1 text-sky-300">
-                          <Repeat className="h-3 w-3" aria-hidden="true" />
-                          {t(`reminders.repeats.${r.repeat_kind}`)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void onSnoozeReminder(r.id)}
-                      className="rounded-xl text-xs"
+                  {editingId === r.id ? (
+                    <form
+                      onSubmit={(e) => void handleSaveReminderEdit(e, r.id)}
+                      className="space-y-2.5"
                     >
-                      <AlarmClock className="h-3 w-3 text-sky-400" aria-hidden="true" />
-                      {t("reminders.snooze")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void onDismissReminder(r.id)}
-                      className="rounded-xl text-xs"
-                    >
-                      {t("reminders.dismiss")}
-                    </Button>
-                    {confirmDeleteId === r.id ? (
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => {
-                          setConfirmDeleteId(null);
-                          void onDeleteReminder(r.id);
-                        }}
-                        className="rounded-xl text-xs font-semibold"
-                      >
-                        {t("reminders.confirmDelete")}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="icon"
-                        variant="secondary"
-                        aria-label={t("kanban.delete")}
-                        title={t("kanban.delete")}
-                        onClick={() => setConfirmDeleteId(r.id)}
-                        className="h-8 w-8 rounded-xl text-slate-400 hover:text-red-400"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Button>
-                    )}
-                  </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          containerClassName="flex-1 min-w-[200px]"
+                          aria-label={t("reminders.titleLabel")}
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          placeholder={t("reminders.newPlaceholder")}
+                          className="text-sm"
+                          required
+                        />
+                        <Input
+                          containerClassName="flex-1 min-w-[180px]"
+                          aria-label={t("reminders.bodyLabel")}
+                          value={editBody}
+                          onChange={(e) => setEditBody(e.target.value)}
+                          placeholder={t("reminders.bodyPlaceholder")}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            containerClassName="w-auto"
+                            type="datetime-local"
+                            aria-label={t("reminders.customDateTime")}
+                            value={editFireAt}
+                            onChange={(e) => setEditFireAt(e.target.value)}
+                            className="rounded-xl px-2.5 text-xs"
+                          />
+                          <Select
+                            containerClassName="w-auto"
+                            aria-label={t("reminders.soundLabel")}
+                            value={editSound}
+                            onChange={(e) => setEditSound(e.target.value as ReminderSound)}
+                            className="rounded-xl text-xs"
+                          >
+                            <option value="normal">{t("reminders.sounds.normal")}</option>
+                            <option value="urgent">{t("reminders.sounds.urgent")}</option>
+                            <option value="none">{t("reminders.sounds.none")}</option>
+                          </Select>
+                          <Select
+                            containerClassName="w-auto"
+                            aria-label={t("reminders.repeatLabel")}
+                            value={editRepeat}
+                            onChange={(e) => setEditRepeat(e.target.value as RepeatKind)}
+                            className="rounded-xl text-xs"
+                          >
+                            <option value="none">{t("reminders.repeats.none")}</option>
+                            <option value="daily">{t("reminders.repeats.daily")}</option>
+                            <option value="weekly">{t("reminders.repeats.weekly")}</option>
+                            <option value="monthly">{t("reminders.repeats.monthly")}</option>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingId(null)}
+                          >
+                            {t("kanban.cancel")}
+                          </Button>
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="primary"
+                            loading={savingEdit}
+                            disabled={savingEdit || !editTitle.trim()}
+                          >
+                            {t("kanban.save")}
+                          </Button>
+                        </div>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-aura-primary break-words">
+                            {r.title}
+                          </span>
+                          <Badge
+                            variant={r.status === "snoozed" ? "warning" : "info"}
+                            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </div>
+                        {r.body && <div className="text-xs text-aura-text-muted truncate">{r.body}</div>}
+                        <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-aura-text-muted">
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <Clock className="h-3 w-3" aria-hidden="true" />
+                            {new Date(r.fire_at).toLocaleString(i18n.language)}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Volume2 className="h-3 w-3" aria-hidden="true" />
+                            {t(`reminders.sounds.${soundKey}`)}
+                          </span>
+                          {r.repeat_kind !== "none" && (
+                            <span className="inline-flex items-center gap-1 text-aura-accent">
+                              <Repeat className="h-3 w-3" aria-hidden="true" />
+                              {t(`reminders.repeats.${r.repeat_kind}`)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {onUpdateReminder && (
+                          <Button
+                            size="icon"
+                            variant="secondary"
+                            aria-label={t("reminders.edit")}
+                            title={t("reminders.edit")}
+                            onClick={() => openEditReminder(r)}
+                            className="h-8 w-8 rounded-xl text-aura-secondary hover:text-aura-accent"
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void onSnoozeReminder(r.id)}
+                          className="rounded-xl text-xs"
+                        >
+                          <AlarmClock className="h-3 w-3 text-sky-400" aria-hidden="true" />
+                          {t("reminders.snooze")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void onDismissReminder(r.id)}
+                          className="rounded-xl text-xs"
+                        >
+                          {t("reminders.dismiss")}
+                        </Button>
+                        {confirmDeleteId === r.id ? (
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => {
+                              setConfirmDeleteId(null);
+                              void onDeleteReminder(r.id);
+                            }}
+                            className="rounded-xl text-xs font-semibold"
+                          >
+                            {t("reminders.confirmDelete")}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="secondary"
+                            aria-label={t("kanban.delete")}
+                            title={t("kanban.delete")}
+                            onClick={() => setConfirmDeleteId(r.id)}
+                            className="h-8 w-8 rounded-xl text-aura-text-muted hover:text-red-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -4,6 +4,7 @@ import { ERROR_KEYS, errorMessage } from "./errors";
 import { decodeZipTextEntries, encodeZipBase64 } from "./zip";
 import type {
   AgentBotRecord,
+  AgentExecutionSummary,
   AgentRunRecord,
   AgentSkillRecord,
   AgentsOverview,
@@ -35,6 +36,8 @@ import type {
   KnowledgeGraphPayload,
   KnowledgeSearchResult,
   McpPluginRecord,
+  SelectedCapability,
+  UnifiedCapability,
   UpsertBotInput,
   UpsertMcpPluginInput,
 } from "./auraTypes";
@@ -1390,6 +1393,33 @@ async function invokeBrowserFallback(
       return rem;
     }
 
+    case "reminders_update": {
+      const id = String(args.id ?? "");
+      const patch = (args.patch ?? {}) as {
+        title?: string | null;
+        body?: string | null;
+        fire_at?: string | null;
+        repeat_kind?: RepeatKind | null;
+        sound?: ReminderSound | null;
+        status?: ReminderStatus | null;
+      };
+      const rem = db.reminders.find((r) => r.id === id);
+      if (!rem) throw new IpcError(`Reminder not found: ${id}`, "application");
+      if (typeof patch.title === "string") {
+        const cleanTitle = patch.title.trim();
+        if (!cleanTitle) throw new IpcError(errorMessage(ERROR_KEYS.reminderTitleRequired), "validation");
+        rem.title = cleanTitle;
+      }
+      if (patch.body !== undefined) rem.body = patch.body;
+      if (typeof patch.fire_at === "string" && patch.fire_at.trim()) rem.fire_at = patch.fire_at;
+      if (patch.repeat_kind) rem.repeat_kind = patch.repeat_kind;
+      if (patch.sound) rem.sound = patch.sound;
+      if (patch.status) rem.status = patch.status;
+      rem.updated_at = nowIso;
+      saveBrowserDb(db);
+      return rem;
+    }
+
     case "reminders_dismiss": {
       const id = String(args.id ?? "");
       const rem = db.reminders.find((r) => r.id === id);
@@ -2188,6 +2218,9 @@ async function invokeBrowserFallback(
     case "desktop_show_main":
       return;
 
+    case "desktop_set_tray_live_voice":
+      return;
+
     case "desktop_set_autostart": {
       const enabled = Boolean(args.enabled);
       db.settings["app.autostart"] = enabled;
@@ -2348,6 +2381,18 @@ export const remindersApi = {
     sound: ReminderSound;
     task_id?: string | null;
   }): Promise<Reminder> => wrapInvoke<Reminder>("reminders_create", { input }),
+
+  update: (
+    id: string,
+    patch: {
+      title?: string;
+      body?: string | null;
+      fire_at?: string;
+      repeat_kind?: RepeatKind;
+      sound?: ReminderSound;
+      status?: ReminderStatus;
+    }
+  ): Promise<Reminder> => wrapInvoke<Reminder>("reminders_update", { id, patch }),
 
   dismiss: (id: string): Promise<Reminder> =>
     wrapInvoke<Reminder>("reminders_dismiss", { id }),
@@ -2857,6 +2902,14 @@ export const agentsApi = {
       goal,
       sessionId: sessionId ?? null,
     }),
+  executeRun: (runId: string): Promise<AgentExecutionSummary> =>
+    wrapInvoke<AgentExecutionSummary>("agents_run_execute", { runId }),
+  resumeRun: (runId: string): Promise<AgentExecutionSummary> =>
+    wrapInvoke<AgentExecutionSummary>("agents_run_resume", { runId }),
+  listCapabilities: (): Promise<UnifiedCapability[]> =>
+    wrapInvoke<UnifiedCapability[]>("agents_capabilities_list"),
+  selectCapabilities: (intent: string, maxTools = 5): Promise<SelectedCapability[]> =>
+    wrapInvoke<SelectedCapability[]>("agents_capabilities_select", { intent, maxTools }),
   listBots: (): Promise<AgentBotRecord[]> =>
     wrapInvoke<AgentBotRecord[]>("agents_bots_list"),
   upsertBot: (input: UpsertBotInput): Promise<AgentBotRecord> =>
@@ -2974,6 +3027,8 @@ export const desktopApi = {
   toggleCompact: (enabled?: boolean): Promise<boolean> =>
     wrapInvoke<boolean>("desktop_toggle_compact", { enabled: enabled ?? null }),
   showMain: (): Promise<void> => wrapInvoke<void>("desktop_show_main"),
+  setTrayLiveVoice: (active: boolean): Promise<void> =>
+    wrapInvoke<void>("desktop_set_tray_live_voice", { active }),
   getState: (): Promise<DesktopStateSnapshot> =>
     wrapInvoke<DesktopStateSnapshot>("desktop_get_state"),
   setAutostart: (enabled: boolean): Promise<boolean> =>

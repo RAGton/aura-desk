@@ -38,6 +38,8 @@ export class AuraLiveVoiceSession {
   private serverText = "";
   private sentOffset = 0;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnecting = false;
   private utteranceSamples: number[] = [];
   private currentSampleRate: number;
   private stopped = false;
@@ -46,14 +48,18 @@ export class AuraLiveVoiceSession {
     this.currentSampleRate = options.sampleRate;
   }
 
-  /** Opens the streaming transcription session. */
-  async start(): Promise<boolean> {
-    const transcriber = new AuraLiveTranscriber({
+  private createTranscriber(): AuraLiveTranscriber {
+    return new AuraLiveTranscriber({
       language: this.options.language ?? "pt",
       onText: (text) => this.handleText(text),
-      onClose: () => this.flushUtterance(),
+      onClose: () => this.handleClose(),
       onError: (error) => this.options.onError?.(error),
     });
+  }
+
+  /** Opens the streaming transcription session. */
+  async start(): Promise<boolean> {
+    const transcriber = this.createTranscriber();
 
     try {
       await transcriber.connect();
@@ -61,6 +67,11 @@ export class AuraLiveVoiceSession {
       this.options.onError?.(
         error instanceof Error ? error : new Error(String(error))
       );
+      return false;
+    }
+
+    if (this.stopped) {
+      transcriber.close();
       return false;
     }
 
@@ -98,11 +109,56 @@ export class AuraLiveVoiceSession {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
     }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.transcriber?.close();
     this.transcriber = null;
 
     this.flushUtterance();
     await this.analyzeTone();
+  }
+
+  private handleClose(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+    this.flushUtterance();
+    if (this.stopped || this.reconnecting) return;
+
+    this.transcriber = null;
+    this.serverText = "";
+    this.sentOffset = 0;
+    this.reconnecting = true;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped) {
+        this.reconnecting = false;
+        return;
+      }
+      const next = this.createTranscriber();
+      void next
+        .connect()
+        .then(() => {
+          if (this.stopped) {
+            next.close();
+            return;
+          }
+          this.transcriber = next;
+        })
+        .catch((error) => {
+          if (!this.stopped) {
+            this.options.onError?.(
+              error instanceof Error ? error : new Error(String(error))
+            );
+          }
+        })
+        .finally(() => {
+          this.reconnecting = false;
+        });
+    }, 350);
   }
 
   private handleText(text: string): void {
