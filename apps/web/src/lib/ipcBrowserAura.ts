@@ -2781,6 +2781,37 @@ export async function handleAuraBrowserIpc<TDb extends BrowserAuraStateSlice>(
       return { handled: true, result: plugin };
     }
 
+    case "plugins_install_git": {
+      const url = String(args.url ?? "").trim();
+      const name = url.split("/").pop()?.replace(/\.git$/, "") || "github-plugin";
+      const plugins = db.privatePlugins ? [...db.privatePlugins] : [];
+      let plugin = plugins.find((p) => p.id === name || p.homepage === url);
+      if (!plugin) {
+        plugin = {
+          id: name,
+          name: name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+          version: "1.0.0",
+          contract_version: "1.0",
+          description: `Plugin instalado via GitHub (${url})`,
+          author: "GitHub Community",
+          homepage: url,
+          install_path: `~/.local/share/com.ragton.auradesk/plugins/${name}`,
+          entrypoint: "plugin.json",
+          enabled: false,
+          installed_at: nowIso,
+          updated_at: nowIso,
+          permissions: [
+            { permission: "read_tickets", granted: false },
+            { permission: "write_ticket_comment", granted: false },
+          ],
+        };
+        plugins.push(plugin);
+        db.privatePlugins = plugins;
+        saveBrowserDb(db);
+      }
+      return { handled: true, result: plugin };
+    }
+
     case "plugins_set_enabled": {
       const pluginId = String(args.pluginId ?? args.plugin_id ?? "");
       const enabled = Boolean(args.enabled);

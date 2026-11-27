@@ -629,6 +629,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
             crate::ipc::plugins::plugins_list,
             crate::ipc::plugins::plugins_discover,
             crate::ipc::plugins::plugins_install,
+            crate::ipc::plugins::plugins_install_git,
             crate::ipc::plugins::plugins_set_enabled,
             crate::ipc::plugins::plugins_set_permission,
             crate::ipc::plugins::plugins_set_secret,

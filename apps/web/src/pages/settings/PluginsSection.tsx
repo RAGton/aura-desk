@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
+  Download,
   Eye,
+  GitBranch,
   Key,
   Layers,
   Lock,
@@ -27,6 +29,8 @@ export function PluginsSection() {
   const [discoverable, setDiscoverable] = useState<PrivatePluginManifest[]>([]);
   const [audits, setAudits] = useState<PrivatePluginAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [gitUrlInput, setGitUrlInput] = useState("");
+  const [installingGit, setInstallingGit] = useState(false);
   const [secretInput, setSecretInput] = useState<{ [pluginId: string]: string }>({});
   const [hasSecretMap, setHasSecretMap] = useState<{ [pluginId: string]: boolean }>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -71,6 +75,22 @@ export function PluginsSection() {
       loadData();
     } catch (e) {
       setToastMsg(`Erro ao instalar plugin: ${e}`);
+    }
+  };
+
+  const handleInstallGit = async () => {
+    const url = gitUrlInput.trim();
+    if (!url) return;
+    setInstallingGit(true);
+    try {
+      const record = await ipc.plugins.installGit(url);
+      setToastMsg(`Plugin ${record.name} clonado e instalado do GitHub!`);
+      setGitUrlInput("");
+      loadData();
+    } catch (e) {
+      setToastMsg(`Erro ao clonar/instalar do GitHub: ${e}`);
+    } finally {
+      setInstallingGit(false);
     }
   };
 
@@ -157,6 +177,35 @@ export function PluginsSection() {
           <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
+      </div>
+
+      {/* Install from GitHub / Git Repository */}
+      <div className="rounded-lg border border-border/40 bg-card/50 p-4 space-y-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
+          Instalar / Clonar Repositório do GitHub
+        </h4>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="https://github.com/usuario/auradesk-plugins-n2.git ou https://..."
+            value={gitUrlInput}
+            onChange={(e) => setGitUrlInput(e.target.value)}
+            className="px-3 py-1.5 text-xs rounded bg-background border border-border/50 text-foreground flex-1 focus:outline-none focus:border-indigo-500"
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={handleInstallGit}
+            disabled={installingGit || !gitUrlInput.trim()}
+          >
+            <Download className={`w-3.5 h-3.5 mr-1 ${installingGit ? "animate-spin" : ""}`} />
+            {installingGit ? "Clonando..." : "Instalar do GitHub"}
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          O repositório é clonado diretamente em <code>~/.local/share/com.ragton.auradesk/plugins/</code> e registrado respeitando isolamento e contrato 1.0.
+        </p>
       </div>
 
       {/* Discover Local Plugins */}

@@ -74,6 +74,20 @@ pub fn plugins_install(
     Ok(record)
 }
 
+/// Install or update a plugin from a remote Git / GitHub repository.
+#[tauri::command]
+pub fn plugins_install_git(
+    url: String,
+    state: State<'_, AppState>,
+    runtime: State<'_, PluginRuntimeState>,
+    app: AppHandle,
+) -> Result<PluginRecord, String> {
+    let mgr = get_manager(&state, &runtime);
+    let record = mgr.install_from_git(&url).map_err(|e| format!("plugins_install_git: {e}"))?;
+    let _ = app.emit("auradesk://plugins-updated", ());
+    Ok(record)
+}
+
 /// Enable or disable a plugin.
 #[tauri::command]
 pub fn plugins_set_enabled(

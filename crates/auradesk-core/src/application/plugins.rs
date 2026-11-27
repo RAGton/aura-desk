@@ -113,6 +113,64 @@ impl<'a> PluginManager<'a> {
         Ok(list)
     }
 
+    /// Install a plugin from a remote Git/GitHub URL into `plugins_dir` via `git clone`.
+    pub fn install_from_git(&self, repo_url: &str) -> Result<PluginRecord, CoreError> {
+        let clean_url = repo_url.trim();
+        if clean_url.is_empty() {
+            return Err(CoreError::validation("url", "repository URL cannot be empty"));
+        }
+
+        // Derive directory name from URL (e.g. https://github.com/org/repo -> repo)
+        let repo_name = clean_url
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .split('/')
+            .last()
+            .unwrap_or("plugin-repo");
+
+        std::fs::create_dir_all(&self.plugins_dir).map_err(|e| {
+            CoreError::internal(format!("failed to create plugins dir: {e}"))
+        })?;
+
+        let target_dir = self.plugins_dir.join(repo_name);
+
+        if target_dir.exists() {
+            // Update via git pull
+            let pull_status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&target_dir)
+                .arg("pull")
+                .arg("--ff-only")
+                .status();
+            if let Err(e) = pull_status {
+                return Err(CoreError::internal(format!("failed to git pull plugin: {e}")));
+            }
+        } else {
+            // Clone
+            let clone_status = std::process::Command::new("git")
+                .arg("clone")
+                .arg("--depth")
+                .arg("1")
+                .arg(clean_url)
+                .arg(&target_dir)
+                .status();
+            match clone_status {
+                Ok(status) if status.success() => {}
+                Ok(status) => {
+                    return Err(CoreError::internal(format!(
+                        "git clone failed with code: {:?}",
+                        status.code()
+                    )));
+                }
+                Err(e) => {
+                    return Err(CoreError::internal(format!("failed to run git clone: {e}")));
+                }
+            }
+        }
+
+        self.install_plugin(&target_dir)
+    }
+
     /// Install or register a plugin from a local directory path.
     pub fn install_plugin(&self, plugin_dir: &Path) -> Result<PluginRecord, CoreError> {
         let manifest = Self::read_manifest(plugin_dir)?;

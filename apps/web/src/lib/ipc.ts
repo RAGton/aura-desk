@@ -3066,6 +3066,8 @@ export const privatePluginsApi = {
     wrapInvoke<PrivatePluginManifest[]>("plugins_discover"),
   install: (path: string): Promise<PrivatePluginRecord> =>
     wrapInvoke<PrivatePluginRecord>("plugins_install", { path }),
+  installGit: (url: string): Promise<PrivatePluginRecord> =>
+    wrapInvoke<PrivatePluginRecord>("plugins_install_git", { url }),
   setEnabled: (pluginId: string, enabled: boolean): Promise<void> =>
     wrapInvoke<void>("plugins_set_enabled", { pluginId, enabled }),
   setPermission: (
